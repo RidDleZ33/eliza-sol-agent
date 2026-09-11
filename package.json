@@ -1,0 +1,21 @@
+{
+  "name": "eliza-sol-agent",
+  "version": "1.0.0",
+  "description": "AI Committee: Multi-agent Solana trading swarm on ElizaOS",
+  "main": "src/index.ts",
+  "scripts": {
+    "start": "bun run src/index.ts",
+    "build": "bun build src/index.ts --target=bun --outfile=dist/index.js --external:@elizaos/core --external:@elizaos/plugin-solana --external:@elizaos/plugin-twitter --external:@elizaos/plugin-telegram --external:@elizaos/plugin-jupiter --external:@solana/web3.js --external:jito-ts --external:zod --external:dotenv"
+  },
+  "dependencies": {
+    "@elizaos/core": "^1.7.2",
+    "@elizaos/plugin-jupiter": "^1.0.1",
+    "@elizaos/plugin-solana": "^1.2.6",
+    "@elizaos/plugin-telegram": "^1.6.4",
+    "@elizaos/plugin-twitter": "^1.2.22",
+    "@solana/web3.js": "^1.99.0",
+    "dotenv": "^17.4.2",
+    "jito-ts": "^4.2.1",
+    "zod": "^4.6.2"
+  }
+}
