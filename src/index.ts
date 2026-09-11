@@ -11,6 +11,8 @@ import { evaluateBetaContract } from "./evaluators/BetaContractEvaluator.ts";
 import { walletMirrorService } from "./services/WalletMirrorService.ts";
 import { tradeExecutionService } from "./services/TradeExecutionService.ts";
 import { evaluateGammaConsensus } from "./evaluators/GammaConsensusEvaluator.ts";
+import { crashRecoveryService } from "./services/CrashRecoveryService.ts";
+import { positionManagerService } from "./services/PositionManagerService.ts";
 import { env } from "./utils/env.ts";
 import { spawn } from "child_process";
 import { promisify } from "util";
@@ -83,6 +85,12 @@ async function main() {
 
   console.log("AI Committee initialized. Three agents online.");
 
+  // Run crash recovery before starting watchers
+  await crashRecoveryService.reconcilePositions();
+  
+  // Start position manager for auto-exit rules
+  positionManagerService.start();
+  
   // Start ingestion services
   ingestionManager.start();
   console.log("Shared consensus room active.");

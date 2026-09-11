@@ -30,6 +30,11 @@ const EnvSchema = z.object({
   JITO_TIP_LAMPORTS: z.string().default("100000"),
   MAX_CONCURRENT_POSITIONS: z.string().default("3"),
   DRY_RUN_MODE: z.string().optional(),
+  TAKE_PROFIT_PCT: z.string().default("50"),
+  STOP_LOSS_PCT: z.string().default("15"),
+  TRAILING_STOP_PCT: z.string().default("10"),
+  STALE_POSITION_MINUTES: z.string().default("30"),
+  POSITION_CHECK_INTERVAL_MS: z.string().default("5000"),
 });
 
 export const env = EnvSchema.parse(process.env);
@@ -92,4 +97,24 @@ export function getMaxConcurrentPositions(): number {
 
 export function getSolanaPrivateKey(): string | undefined {
   return env.SOLANA_PRIVATE_KEY;
+}
+
+export function getTakeProfitPct(): number {
+  return parseFloat(env.TAKE_PROFIT_PCT);
+}
+
+export function getStopLossPct(): number {
+  return parseFloat(env.STOP_LOSS_PCT);
+}
+
+export function getTrailingStopPct(): number {
+  return parseFloat(env.TRAILING_STOP_PCT);
+}
+
+export function getStalePositionMinutes(): number {
+  return parseInt(env.STALE_POSITION_MINUTES);
+}
+
+export function getPositionCheckIntervalMs(): number {
+  return parseInt(env.POSITION_CHECK_INTERVAL_MS);
 }

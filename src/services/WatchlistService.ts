@@ -91,9 +91,15 @@ class WatchlistService {
         mint_address TEXT NOT NULL,
         symbol TEXT,
         buy_tx_signature TEXT,
+        sell_tx_signature TEXT,
         entry_price_usd REAL DEFAULT 0,
+        exit_price_usd REAL DEFAULT 0,
+        realized_pnl_usd REAL DEFAULT 0,
         amount_sol REAL DEFAULT 0,
-        entered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        status TEXT DEFAULT 'OPEN',
+        peak_price_usd REAL DEFAULT 0,
+        entered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        closed_at TIMESTAMP
       );
     `);
   }
@@ -229,17 +235,37 @@ class WatchlistService {
   // Position Methods
   getActivePositionsCount(): number {
     return this.db
-      .prepare("SELECT COUNT(*) as count FROM positions")
+      .prepare("SELECT COUNT(*) as count FROM positions WHERE status = 'OPEN'")
       .get().count;
+  }
+
+  async getOpenPositions(): Promise<any[]> {
+    return this.db
+      .prepare("SELECT * FROM positions WHERE status = 'OPEN'")
+      .all();
   }
 
   async addPosition(mintAddress: string, symbol: string, buyTxSignature: string, entryPriceUsd: number, amountSol: number) {
     this.db
       .prepare(
-        `INSERT INTO positions (mint_address, symbol, buy_tx_signature, entry_price_usd, amount_sol, entered_at)
-         VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`
+        `INSERT INTO positions (mint_address, symbol, buy_tx_signature, entry_price_usd, amount_sol, status, entered_at)
+         VALUES (?, ?, ?, ?, ?, 'OPEN', CURRENT_TIMESTAMP)`
       )
       .run(mintAddress, symbol, buyTxSignature, entryPriceUsd, amountSol);
+  }
+
+  async updatePositionStatus(mintAddress: string, status: string, exitPriceUsd?: number, realizedPnl?: number, sellTxSignature?: string) {
+    this.db
+      .prepare(
+        `UPDATE positions SET status = ?, exit_price_usd = COALESCE(?, exit_price_usd), realized_pnl_usd = COALESCE(?, realized_pnl_usd), sell_tx_signature = COALESCE(?, sell_tx_signature), closed_at = ? WHERE mint_address = ? AND status = 'OPEN'`
+      )
+      .run(status, exitPriceUsd, realizedPnl, sellTxSignature, new Date().toISOString(), mintAddress);
+  }
+
+  async updatePeakPrice(mintAddress: string, peakPriceUsd: number) {
+    this.db
+      .prepare("UPDATE positions SET peak_price_usd = ? WHERE mint_address = ?")
+      .run(peakPriceUsd, mintAddress);
   }
 
   async removePosition(mintAddress: string) {
@@ -250,7 +276,7 @@ class WatchlistService {
 
   async hasPosition(mintAddress: string): Promise<boolean> {
     const result = this.db
-      .prepare("SELECT COUNT(*) as count FROM positions WHERE mint_address = ?")
+      .prepare("SELECT COUNT(*) as count FROM positions WHERE mint_address = ? AND status = 'OPEN'")
       .get(mintAddress);
     return result.count > 0;
   }

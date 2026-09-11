@@ -148,6 +148,79 @@ export class TradeExecutionService {
     }
   }
 
+  async executeSell(mintAddress: string, symbol: string, reason: string = "EXIT"): Promise<TradeExecutionResult> {
+    try {
+      this.runtime.logger.info(`[Gamma] Executing sell: ${symbol} (${mintAddress}) - ${reason}`);
+
+      if (isDryRun()) {
+        this.runtime.logger.info(`[Gamma] [DRY RUN] Would sell ${symbol} position`);
+        const result: TradeExecutionResult = {
+          success: true,
+          txSignature: "DRY_RUN_SELL_SIGNATURE",
+          dryRun: true
+        };
+        return result;
+      }
+
+      const slippageBps = getSlippageBps();
+      const jupiterService = this.runtime.getService("JUPITER_SERVICE");
+      if (!jupiterService) {
+        return { success: false, error: "Jupiter service not available" };
+      }
+
+      // Get sell quote (Token -> SOL)
+      const quote = await jupiterService.getQuote({
+        inputMint: mintAddress,
+        outputMint: "So11111111111111111111111111111111111111112", // SOL
+        amount: 100, // Sell 100% of position (Jupiter will use balance)
+        slippageBps
+      });
+
+      if (!quote || !quote.outAmount) {
+        return { success: false, error: "Failed to get sell quote" };
+      }
+
+      const keypair = this.getKeypair();
+      if (!keypair) {
+        return { success: false, error: "SOLANA_PRIVATE_KEY not configured" };
+      }
+
+      const swapResult = await jupiterService.executeSwap({
+        quoteResponse: quote,
+        userPublicKey: keypair.publicKey.toBase58(),
+        slippageBps
+      });
+
+      if (!swapResult || !swapResult.tx) {
+        return { success: false, error: "Failed to build sell transaction" };
+      }
+
+      const transaction = Buffer.from(swapResult.tx, "base64");
+      const decoded = await jupiterService.deserializeTransaction(transaction);
+      decoded.sign([keypair]);
+
+      const connection = this.runtime.getService("SOLANA_CONNECTION");
+      if (!connection) {
+        return { success: false, error: "Solana connection not available" };
+      }
+
+      const txSignature = await connection.sendTransaction(decoded);
+      
+      if (jupiterService.confirmTransaction) {
+        const confirmed = await jupiterService.confirmTransaction(connection, txSignature);
+        if (!confirmed) {
+          return { success: false, txSignature, error: "Sell transaction not confirmed" };
+        }
+      }
+
+      this.runtime.logger.info(`[Gamma] Sell executed. TX: ${txSignature}`);
+      return { success: true, txSignature };
+    } catch (e) {
+      this.runtime.logger.error(`[Gamma] Error executing sell:`, e);
+      return { success: false, error: e.message || "Unknown error" };
+    }
+  }
+
   private getKeypair() {
     const privateKey = getSolanaPrivateKey();
     if (!privateKey) {
