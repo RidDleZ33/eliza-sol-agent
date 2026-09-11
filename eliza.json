@@ -1,0 +1,33 @@
+{
+  "agents": [
+    {
+      "name": "alpha",
+      "character": "characters/alpha.json",
+      "plugins": ["consensus"],
+      "room": "committee-war-room"
+    },
+    {
+      "name": "beta",
+      "character": "characters/beta.json",
+      "plugins": ["consensus", "chain_solana"],
+      "room": "committee-war-room"
+    },
+    {
+      "name": "gamma",
+      "character": "characters/gamma.json",
+      "plugins": ["consensus", "chain_solana", "jupiter"],
+      "room": "committee-war-room"
+    }
+  ],
+  "plugins": ["sql"],
+  "database": {
+    "adapter": "sqlite",
+    "url": "./eliza-sol-agent.db"
+  },
+  "rooms": {
+    "committee-war-room": {
+      "name": "AI Committee War Room",
+      "description": "Shared consensus channel where Alpha, Beta, and Gamma coordinate trading decisions."
+    }
+  }
+}
