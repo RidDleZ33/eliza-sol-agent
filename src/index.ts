@@ -3,13 +3,15 @@ import { consensusPlugin } from "./plugins/consensus/index.ts";
 import { tradingExecutionPlugin } from "./plugins/trading-execution/index.ts";
 import { solanaPlugin } from "@elizaos/plugin-solana";
 import { jupiterPlugin } from "@elizaos/plugin-jupiter";
+import { env } from "./utils/env.ts";
+import * as http from "@stdlib/http";
 
 // Alpha: Momentum Hunter - scans social velocity and narrative momentum
 const alphaCharacter = {
   name: "Alpha",
   modelProvider: "ollama",
   settings: {
-    model: "qwen2.5-coder:27b",
+    model: env.MODEL_NAME,
     temperature: 0.5,
   },
   bio: [
@@ -36,7 +38,7 @@ const betaCharacter = {
   name: "Beta",
   modelProvider: "ollama",
   settings: {
-    model: "qwen2.5-coder:27b",
+    model: env.MODEL_NAME,
     temperature: 0.1,
   },
   bio: [
@@ -63,7 +65,7 @@ const gammaCharacter = {
   name: "Gamma",
   modelProvider: "ollama",
   settings: {
-    model: "qwen2.5-coder:27b",
+    model: env.MODEL_NAME,
     temperature: 0.0,
   },
   bio: [
@@ -87,6 +89,8 @@ const gammaCharacter = {
 
 async function main() {
   console.log("Initializing AI Committee...");
+  console.log(`LLM: ${env.OLLAMA_BASE_URL}/${env.MODEL_NAME}`);
+  console.log(`Web UI: http://localhost:${env.ELIZAOS_WEB_PORT}`);
 
   const elizaOS = new ElizaOS();
 
@@ -110,6 +114,18 @@ async function main() {
 
   console.log("AI Committee initialized. Three agents online.");
   console.log("Shared consensus room active.");
+
+  // Serve ElizaOS web UI on port 8007
+  const port = parseInt(env.ELIZAOS_WEB_PORT);
+  const server = http.listen({ port }, (req, res) => {
+    if (req.url === "/") {
+      res.status(200).send(`AI Committee Web UI - War Room Active on port ${port}`);
+    } else {
+      res.status(404).send("Not found");
+    }
+  });
+
+  console.log(`Web UI server listening on port ${port}`);
 
   // Keep process alive
   await new Promise(() => {});
