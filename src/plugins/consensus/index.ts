@@ -37,6 +37,16 @@ export const consensusPlugin: Plugin = {
             timestamp: Date.now(),
             signal: validated.data,
           });
+
+          // Broadcast to war room channel for telemetry
+          const channel = runtime.getRoom("warmroom");
+          if (channel) {
+            channel.publish({
+              author: { name: msg.sender },
+              text: msg.content,
+              timestamp: Date.now()
+            });
+          }
         }
         return "Signal ingested into consensus room.";
       },
@@ -105,6 +115,17 @@ export const consensusPlugin: Plugin = {
             beta.signal.risk_score_acceptable
           ) {
             runtime.logger.info(`Consensus detected for ${mint} — notifying Gamma`);
+
+            // Broadcast consensus to war room channel
+            const channel = runtime.getRoom("warmroom");
+            if (channel) {
+              channel.publish({
+                author: { name: "system" },
+                text: `CONSENSUS REACHED: ${mint}`,
+                timestamp: Date.now()
+              });
+            }
+
             runtime.emitEvent("consensus_reached", { mint });
           }
         }

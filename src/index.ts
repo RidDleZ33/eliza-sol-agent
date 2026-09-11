@@ -9,6 +9,7 @@ import { env } from "./utils/env.ts";
 import { spawn } from "child_process";
 import { promisify } from "util";
 import * as fs from "fs";
+import { sendTelegramMessage } from "./utils/telegram.ts";
 
 const sleep = promisify(setTimeout);
 
@@ -51,37 +52,24 @@ async function main() {
   console.log(`LLM: ${env.OLLAMA_BASE_URL}/${env.MODEL_NAME}`);
   console.log(`Web UI: http://localhost:${env.ELIZAOS_WEB_PORT}`);
 
-  // Start web UI first
   const port = parseInt(env.ELIZAOS_WEB_PORT);
   await startWebUI(port);
 
-  // Configure OpenAI plugin to use Ollama endpoint
   process.env.OPENAI_BASE_URL = env.OLLAMA_BASE_URL;
   process.env.OPENAI_API_KEY = env.OLLAMA_API_KEY;
 
-  // Load character configs from JSON files
   const alphaCharacter = loadCharacter("./characters/alpha.json");
   const betaCharacter = loadCharacter("./characters/beta.json");
   const gammaCharacter = loadCharacter("./characters/gamma.json");
 
-  // Create ElizaOS instance - runtime handles database adapter and migrations automatically
   const elizaOS = new ElizaOS();
 
   console.log("Adding agents to swarm...");
   const agentIds = await elizaOS.addAgents(
     [
-      {
-        character: alphaCharacter,
-        plugins: [consensusPlugin, openaiPlugin, sqlPlugin],
-      },
-      {
-        character: betaCharacter,
-        plugins: [consensusPlugin, solanaPlugin, openaiPlugin, sqlPlugin],
-      },
-      {
-        character: gammaCharacter,
-        plugins: [consensusPlugin, tradingExecutionPlugin, jupiterPlugin, openaiPlugin, sqlPlugin],
-      },
+      { character: alphaCharacter, plugins: [consensusPlugin, openaiPlugin, sqlPlugin] },
+      { character: betaCharacter, plugins: [consensusPlugin, solanaPlugin, openaiPlugin, sqlPlugin] },
+      { character: gammaCharacter, plugins: [consensusPlugin, tradingExecutionPlugin, jupiterPlugin, openaiPlugin, sqlPlugin] },
     ],
     { autoStart: true }
   );
@@ -90,7 +78,20 @@ async function main() {
   console.log("Shared consensus room active.");
   console.log(`\nVisit http://localhost:${port} to monitor the war room.`);
 
-  // Keep process alive
+  try {
+    const timestamp = new Date().toISOString();
+    const message = "AI Committee War Room Started\n" +
+      `Time: ${timestamp}\n\n` +
+      "Agents: Alpha, Beta, Gamma\n" +
+      "Monitoring Solana ecosystem\n" +
+      "Consensus room active\n" +
+      "Trading in DRY_RUN mode";
+    await sendTelegramMessage(message);
+    console.log("Startup notification sent to Telegram");
+  } catch (e) {
+    console.log(`Telegram notification failed: ${e.message}`);
+  }
+
   await new Promise(() => {});
 }
 
