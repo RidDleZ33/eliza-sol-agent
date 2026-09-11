@@ -11,6 +11,7 @@ import { spawn } from "child_process";
 import { promisify } from "util";
 import * as fs from "fs";
 import { sendTelegramMessage } from "./utils/telegram.ts";
+import { ingestionManager } from "./services/ingestion/IngestionManager.ts";
 
 const sleep = promisify(setTimeout);
 
@@ -76,6 +77,9 @@ async function main() {
   );
 
   console.log("AI Committee initialized. Three agents online.");
+
+  // Start ingestion services
+  ingestionManager.start();
   console.log("Shared consensus room active.");
   console.log(`\nVisit http://localhost:${port} to monitor the war room.`);
 

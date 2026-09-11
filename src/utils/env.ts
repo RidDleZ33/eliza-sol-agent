@@ -20,6 +20,8 @@ const EnvSchema = z.object({
   SHARED_ROOM: z.string().default("ai-committee-war-room"),
   MAX_TRENDING_TOKENS: z.string().default("10"),
   MAX_TOP_TRADERS: z.string().default("15"),
+  BIRDEYE_API_KEY: z.string().optional(),
+  INGESTION_INTERVAL_MS: z.string().default("60000"),
 });
 
 export const env = EnvSchema.parse(process.env);
@@ -42,4 +44,12 @@ export function getMaxTrendingTokens(): number {
 
 export function getMaxTopTraders(): number {
   return parseInt(env.MAX_TOP_TRADERS);
+}
+
+export function getBirdeyeApiKey(): string | undefined {
+  return env.BIRDEYE_API_KEY;
+}
+
+export function getIngestionInterval(): number {
+  return parseInt(env.INGESTION_INTERVAL_MS);
 }
