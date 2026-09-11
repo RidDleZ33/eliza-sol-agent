@@ -19,7 +19,7 @@ function loadCharacter(path: string) {
 
 async function startWebUI(port: number) {
   return new Promise<void>((resolve, reject) => {
-    const server = spawn("npx", ["http-server", "node_modules/@elizaos/ui/dist", "-p", String(port), "-s"], {
+    const server = spawn("npx", ["http-server", "node_modules/@elizaos/ui/dist", "-a", "0.0.0.0", "-p", String(port), "-s"], {
       detached: true,
       stdio: ["ignore", "pipe", "pipe"],
     });

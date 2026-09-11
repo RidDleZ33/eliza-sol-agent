@@ -1,70 +1,100 @@
-# Project Specification: ElizaOS Autonomous Solana Trading Swarm (The AI Committee)
+# AI Committee: Three-Agent Solana Trading Swarm
 
-You are an expert TypeScript developer and systems architect. We are building an autonomous, multi-agent algorithmic trading committee on Solana using the ElizaOS framework. 
+A three-agent autonomous trading committee built on ElizaOS. Each agent specializes in one aspect of the Solana trading ecosystem and collaborates in a shared "war room" to identify, evaluate, and execute trades.
 
-Your objective is to write clean, modular, and typed code agentically based on the architecture, deep reasoning, and guardrails detailed below.
+## Architecture
 
----
+The swarm consists of three specialized agents with a clear separation of concerns:
 
-## 1. Deep Reasoning & Core Philosophy
+### Alpha - Momentum Hunter
+- **Role:** Scans social velocity and narrative momentum
+- **Specialization:** Identifies early organic interest, influencer calls, and emerging metas before DEX trending lists update
+- **Output:** Structured narrative evaluations with ticker, mint address, reasoning, and confidence score (0.0-1.0)
+- **Constraints:** Does NOT trade directly; provides only signal data
 
-1. **The LLM Is Not A HFT Bot:** LLMs cannot compete on raw latency or execution speed. The LLM's edge lies purely in **Natural Language Processing (NLP), unstructured data synthesis (social arbitrage), and holistic risk evaluation**.
-2. **Separation of Concerns:** High-frequency on-chain data analysis and data fetching must be handled by standard APIs/code. The LLMs reason over the *outputs* of these scripts.
-3. **The Multi-Agent Committee:** Never trust a single prompt to manage a wallet. We use a three-agent consensus loop to filter noise, prevent reckless behavior, and validate trades before a single lampost of SOL is spent.
+### Beta - Quant Analyst
+- **Role:** On-chain forensics and risk analysis
+- **Specialization:** Liquidity pool depth, top holder distributions, mint authority status, pool burn ratios
+- **Output:** Contract security assessments (PASS/FAIL), technical verification parameters
+- **Constraints:** Does NOT trade; evaluates tokens strictly on hard on-chain telemetry
 
----
+### Gamma - Risk Officer & Executor
+- **Role:** Chief Risk Officer and sole execution agent
+- **Specialization:** Portfolio exposure guardrails, consensus evaluation, trade execution
+- **Output:** Approval/rejection decisions, Jito-bundled Jupiter swaps
+- **Constraints:** ONLY agent with trade execution interface; cannot alter position sizing via text
 
-## 2. Agent Architecture & Roles
+## Consensus Protocol
 
-We are spinning up three distinct ElizaOS instances, each running a unique `character.json` configuration. They communicate through a shared local database room (or private Discord/Telegram channel) acting as their "War Room."
+Trades execute only when ALL conditions are met:
+1. **Alpha signals:** Narrative Confidence Score ≥ 0.75
+2. **Beta verifies:** Contract security PASS (liquidity locked, top 10 ≤ 25%, mint disabled)
+3. **Gamma approves:** Portfolio limits allow entry
 
-### ┌── Agent 1: Alpha (The Hunter)
-*   **Focus:** Momentum and social velocity.
-*   **Mechanics:** Uses ElizaOS Twitter/Telegram scraping plugins to track trending tickers, alpha callers, and keyword frequency spikes.
-*   **Output:** Logs highly qualitative narrative scores to the shared Room.
+## Technology Stack
 
-### ├── Agent 2: Beta (The Quant)
-*   **Focus:** On-chain metrics and rug prevention.
-*   **Mechanics:** Hooks into `@elizaos/plugin-solana` (DexScreener/Birdeye/Helius). When Alpha flags a token, Beta scans its contract: liquidity lock status, top 10 holder distribution, and pool depth.
-*   **Output:** Logs raw technical validation data and security statuses to the shared Room.
+- **Framework:** ElizaOS v1.6.0 (`@elizaos/core`)
+- **Database:** `@elizaos/plugin-sql` with dynamic runtime migrations
+- **LLM Backend:** Ollama (`openai` compatible endpoint at `/v1`)
+- **Model:** `qwen2.5:3b` (configurable via `MODEL_NAME` env var)
+- **Web UI:** `@elizaos/ui` served on port 8007
+- **Solana Plugins:** `@elizaos/plugin-solana`, `@elizaos/plugin-jupiter`
 
-### └── Agent 3: Gamma (The Risk Officer)
-*   **Focus:** Capital preservation, consensus evaluation, and execution.
-*   **Mechanics:** **Only Gamma possesses the private key and access to `@elizaos/plugin-jupiter`.** It reads the Room state, runs an internal Evaluator to ensure both Alpha and Beta have signed off on a mint address, and checks internal portfolio limits.
-*   **Output:** Triggers the Jupiter swap transaction.
+## Project Structure
 
----
+```
+eliza-sol-agent/
+├── src/
+│   └── index.ts              # Main entry point
+├── plugins/
+│   ├── consensus/            # Shared consensus room
+│   └── trading-execution/    # Gamma's trade execution actions
+├── utils/
+│   └── env.ts                # Typed environment config
+├── characters/
+│   ├── alpha.json            # Momentum Hunter config
+│   ├── beta.json             # Quant Analyst config
+│   └── gamma.json            # Risk Officer config
+├── .env                      # Environment variables
+├── package.json
+└── tsconfig.json
+```
 
-## 3. Communication & Consensus Flow
+## Environment Variables
 
-1. **Signal Ingestion:** Alpha or Beta flags an asset.
-2. **State Sync:** Both agents write their structured data into the shared Room history.
-3. **Evaluation:** Gamma’s runtime loop triggers an `Evaluator`. It parses the message history into a strict JSON schema:
-   ```json
-   {
-     "token_mint": "string",
-     "narrative_momentum": "boolean",
-     "liquidity_verified": "boolean",
-     "risk_score_acceptable": "boolean"
-   }
-   ```
-4. **Execution:** If all criteria are `true`, Gamma triggers its custom execution action.
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `OLLAMA_BASE_URL` | Ollama API endpoint (with `/v1`) | `http://arceus:11434/v1` |
+| `OLLAMA_API_KEY` | API key (can be dummy) | `ollama` |
+| `MODEL_NAME` | Ollama model name | `qwen2.5:3b` |
+| `ELIZAOS_WEB_PORT` | Web UI port | `8007` |
+| `SOLANA_RPC_URL` | Solana RPC endpoint | `https://api.mainnet-beta.solana.com` |
+| `SOLANA_PUBLIC_KEY` | Trading wallet public key | `<your-pubkey>` |
+| `JITO_BUNDLE_URL` | Jito MEV bundle endpoint | `https://mainnet.block-engine.jito.wtf/api/v1/bundles` |
 
----
+## Running the Swarm
 
-## 4. Hard Coding Guardrails & Security
+```bash
+# Install dependencies
+bun install
 
-*   **Zero LLM Budgeting:** The LLM must *never* determine the token amount or SOL size within its prompt text. 
-*   **Code-Level Hardcoding:** Position sizing must be loaded from strict environment variables (e.g., `process.env.MAX_TRADE_SIZE_SOL`) inside the TypeScript execution file, completely insulated from LLM outputs to prevent hallucinated drain events.
-*   **MEV Protection:** All swaps executed via `@elizaos/plugin-jupiter` must be packaged using Jito bundles (`jito-ts`) to avoid sandwich attacks and front-running on public RPC nodes.
+# Start the swarm
+bun run src/index.ts
+```
 
----
+The web UI will be available at `http://localhost:8007`.
 
-## 5. Development Instructions for the Agent
+## Key Design Decisions
 
-*   Use **TypeScript** exclusively with explicit type definitions.
-*   Keep ElizaOS `Actions`, `Evaluators`, and `Providers` isolated and modular.
-*   Ensure all interaction with the Solana blockchain gracefully handles transaction failures and timeouts.
-*   When creating or modifying characters, ensure their `system` prompts explicitly restrict them to their specific analytical domains.
+1. **Separation of Concerns:** Each agent has one clear responsibility; no overlap.
+2. **Consensus Over Speed:** Two approvals required before execution.
+3. **Hardcoded Limits:** Trade limits set in environment, not via LLM text.
+4. **Jito Bundles:** MEV protection for all executed trades.
+5. **Signal Data:** Alpha and Beta provide structured data, not prose.
 
-Do not write boilerplate or monolithic files. Build incrementally, testing the interfaces between the shared memory state before writing the execution blocks.
+## Future Enhancements
+
+- Add `@elizaos/plugin-telegram` for alerts
+- Integrate DexScreener and Birdeye API providers
+- Add automated dry-run backtesting mode
+- Implement dynamic position sizing based on volatility
