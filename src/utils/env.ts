@@ -22,6 +22,7 @@ const EnvSchema = z.object({
   MAX_TOP_TRADERS: z.string().default("15"),
   BIRDEYE_API_KEY: z.string().optional(),
   INGESTION_INTERVAL_MS: z.string().default("60000"),
+  TWITTER_BEARER_TOKEN: z.string().optional(),
 });
 
 export const env = EnvSchema.parse(process.env);
@@ -52,4 +53,8 @@ export function getBirdeyeApiKey(): string | undefined {
 
 export function getIngestionInterval(): number {
   return parseInt(env.INGESTION_INTERVAL_MS);
+}
+
+export function getTwitterBearerToken(): string | undefined {
+  return env.TWITTER_BEARER_TOKEN;
 }
