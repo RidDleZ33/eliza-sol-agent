@@ -12,6 +12,7 @@ const EnvSchema = z.object({
   TWITTER_API_KEY: z.string().optional(),
   TWITTER_API_SECRET: z.string().optional(),
   TELEGRAM_BOT_TOKEN: z.string().optional(),
+  TELEGRAM_ADMIN_CHAT_ID: z.string().optional(),
   GAMMA_PRIVATE_KEY: z.string().optional(),
   SOLANA_PRIVATE_KEY: z.string().optional(),
   MAX_TRADE_SIZE_SOL: z.string().default("0.5"),

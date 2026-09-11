@@ -1,5 +1,6 @@
 import { watchlistService } from "../services/WatchlistService.ts";
 import { socialEvaluatorService } from "../services/SocialEvaluatorService.ts";
+import { configService } from "../services/ConfigService.ts";
 
 export async function evaluateAlphaNarrative(runtime) {
   try {
@@ -36,7 +37,8 @@ export async function evaluateAlphaNarrative(runtime) {
         await watchlistService.updateTokenScore(token.mint_address, narrativeScore);
 
         // Emit signal based on score
-        if (narrativeScore >= 0.75) {
+        const minScore = configService.getNumber("MIN_NARRATIVE_SCORE");
+        if (narrativeScore >= minScore) {
           // PASS: Signal to consensus room
           runtime.logger.info(`[Alpha] ${token.symbol} PASSED narrative evaluation (${narrativeScore})`);
 

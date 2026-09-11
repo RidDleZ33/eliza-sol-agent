@@ -1,5 +1,6 @@
 import { watchlistService } from "../WatchlistService.ts";
 import { getBirdeyeApiKey } from "../../utils/env.ts";
+import { configService } from "../ConfigService.ts";
 
 interface TopTrader {
   walletAddress: string;
@@ -11,20 +12,26 @@ interface TopTrader {
 
 export class TopTraderWatcher {
   private birdeyeApiKey: string | undefined;
-  private intervalMs: number;
   private intervalId: ReturnType<typeof setInterval> | null = null;
   private backoffMs: number = 1000;
   private maxBackoffMs: number = 60000;
 
-  constructor(intervalMs: number) {
+  constructor() {
     this.birdeyeApiKey = getBirdeyeApiKey();
-    this.intervalMs = intervalMs;
   }
 
   start() {
-    console.log("[TopTraderWatcher] Starting with interval", this.intervalMs);
     this.poll();
-    this.intervalId = setInterval(() => this.poll(), this.intervalMs);
+    this.scheduleNext();
+  }
+
+  private scheduleNext() {
+    if (this.intervalId) {
+      clearInterval(this.intervalId);
+    }
+    const intervalMs = configService.getNumber("INGESTION_INTERVAL_MS");
+    console.log(`[TopTraderWatcher] Next poll in ${intervalMs}ms`);
+    this.intervalId = setInterval(() => this.poll(), intervalMs);
   }
 
   stop() {

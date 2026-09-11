@@ -19,6 +19,8 @@ import { promisify } from "util";
 import * as fs from "fs";
 import { sendTelegramMessage } from "./utils/telegram.ts";
 import { ingestionManager } from "./services/ingestion/IngestionManager.ts";
+import { configService } from "./services/ConfigService.ts";
+import { telegramAdminBot } from "./services/TelegramAdminBot.ts";
 
 const sleep = promisify(setTimeout);
 
@@ -85,11 +87,19 @@ async function main() {
 
   console.log("AI Committee initialized. Three agents online.");
 
+  // Initialize dynamic configuration manager
+  console.log("Initializing configuration service...");
+  // ConfigService is loaded from defaults via .env
+
   // Run crash recovery before starting watchers
   await crashRecoveryService.reconcilePositions();
   
   // Start position manager for auto-exit rules
   positionManagerService.start();
+
+  // Start Telegram Admin Bot
+  console.log("Starting Telegram Admin Bot...");
+  telegramAdminBot.start();
   
   // Start ingestion services
   ingestionManager.start();

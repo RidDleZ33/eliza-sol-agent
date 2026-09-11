@@ -1,6 +1,6 @@
 import { watchlistService } from "./WatchlistService.ts";
 import { tradeExecutionService } from "./TradeExecutionService.ts";
-import { getTakeProfitPct, getStopLossPct, getTrailingStopPct, getStalePositionMinutes, getPositionCheckIntervalMs } from "../utils/env.ts";
+import { configService } from "./ConfigService.ts";
 
 export class PositionManagerService {
   private runtime: any;
@@ -75,10 +75,10 @@ export class PositionManagerService {
     const ageMinutes = (Date.now() - enteredAt.getTime()) / (1000 * 60);
 
     // Check exit conditions
-    const takeProfitPct = getTakeProfitPct();
-    const stopLossPct = getStopLossPct();
-    const trailingStopPct = getTrailingStopPct();
-    const staleMinutes = getStalePositionMinutes();
+    const takeProfitPct = configService.getNumber("TAKE_PROFIT_PCT");
+    const stopLossPct = configService.getNumber("STOP_LOSS_PCT");
+    const trailingStopPct = configService.getNumber("TRAILING_STOP_PCT");
+    const staleMinutes = configService.getNumber("STALE_POSITION_MINUTES");
 
     if (pnlPct >= takeProfitPct) {
       this.runtime.logger.info(`[PositionManager] TAKE_PROFIT triggered for ${symbol} (+${pnlPct.toFixed(1)}%)`);

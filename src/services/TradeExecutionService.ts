@@ -1,5 +1,6 @@
 import { watchlistService } from "./WatchlistService.ts";
-import { getMaxTradeSizeSol, getSlippageBps, getJitoTipLamports, getMaxConcurrentPositions, getSolanaPrivateKey, isDryRun } from "../utils/env.ts";
+import { getSolanaPrivateKey } from "../utils/env.ts";
+import { configService } from "./ConfigService.ts";
 
 export interface TradeExecutionResult {
   success: boolean;
@@ -21,7 +22,8 @@ export class TradeExecutionService {
 
       // Check position limits
       const positionsCount = watchlistService.getActivePositionsCount();
-      if (positionsCount >= getMaxConcurrentPositions()) {
+      const maxPositions = configService.getNumber("MAX_CONCURRENT_POSITIONS");
+      if (positionsCount >= maxPositions) {
         this.runtime.logger.info(`[Gamma] Position limit reached (${positionsCount}/${getMaxConcurrentPositions()})`);
         return {
           success: false,
@@ -38,11 +40,12 @@ export class TradeExecutionService {
         };
       }
 
-      const tradeSize = getMaxTradeSizeSol();
-      const slippageBps = getSlippageBps();
-      const jitoTipLamports = getJitoTipLamports();
+      const tradeSize = configService.getNumber("MAX_TRADE_SIZE_SOL");
+      const slippageBps = configService.getNumber("SLIPPAGE_BPS");
+      const jitoTipLamports = configService.getNumber("JITO_TIP_LAMPORTS");
+      const dryRun = configService.getBoolean("DRY_RUN_MODE");
 
-      if (isDryRun()) {
+      if (dryRun) {
         // Dry run mode
         this.runtime.logger.info(`[Gamma] [DRY RUN] Would buy ${tradeSize} SOL of ${symbol} at slippage ${slippageBps} bps`);
         this.runtime.logger.info(`[Gamma] [DRY RUN] Jito tip: ${jitoTipLamports} lamports`);
@@ -152,7 +155,7 @@ export class TradeExecutionService {
     try {
       this.runtime.logger.info(`[Gamma] Executing sell: ${symbol} (${mintAddress}) - ${reason}`);
 
-      if (isDryRun()) {
+      if (configService.getBoolean("DRY_RUN_MODE")) {
         this.runtime.logger.info(`[Gamma] [DRY RUN] Would sell ${symbol} position`);
         const result: TradeExecutionResult = {
           success: true,

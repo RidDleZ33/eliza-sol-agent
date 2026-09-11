@@ -1,5 +1,6 @@
 import { watchlistService } from "../WatchlistService.ts";
 import { getBirdeyeApiKey } from "../../utils/env.ts";
+import { configService } from "../ConfigService.ts";
 
 interface TrendingToken {
   address: string;
@@ -10,20 +11,26 @@ interface TrendingToken {
 
 export class TrendingTokenWatcher {
   private birdeyeApiKey: string | undefined;
-  private intervalMs: number;
   private intervalId: ReturnType<typeof setInterval> | null = null;
   private backoffMs: number = 1000;
   private maxBackoffMs: number = 60000;
 
-  constructor(intervalMs: number) {
+  constructor() {
     this.birdeyeApiKey = getBirdeyeApiKey();
-    this.intervalMs = intervalMs;
   }
 
   start() {
-    console.log("[TrendingTokenWatcher] Starting with interval", this.intervalMs);
     this.poll();
-    this.intervalId = setInterval(() => this.poll(), this.intervalMs);
+    this.scheduleNext();
+  }
+
+  private scheduleNext() {
+    if (this.intervalId) {
+      clearInterval(this.intervalId);
+    }
+    const intervalMs = configService.getNumber("INGESTION_INTERVAL_MS");
+    console.log(`[TrendingTokenWatcher] Next poll in ${intervalMs}ms`);
+    this.intervalId = setInterval(() => this.poll(), intervalMs);
   }
 
   stop() {

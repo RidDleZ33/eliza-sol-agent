@@ -101,6 +101,14 @@ class WatchlistService {
         entered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         closed_at TIMESTAMP
       );
+
+      CREATE TABLE IF NOT EXISTS config_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT,
+        category TEXT,
+        description TEXT,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
     `);
   }
 
@@ -279,6 +287,14 @@ class WatchlistService {
       .prepare("SELECT COUNT(*) as count FROM positions WHERE mint_address = ? AND status = 'OPEN'")
       .get(mintAddress);
     return result.count > 0;
+  }
+
+  getDb(): Database.Database {
+    return this.db;
+  }
+
+  getDb() {
+    return this.db;
   }
 
   close() {
