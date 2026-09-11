@@ -5,6 +5,7 @@ import { consensusPlugin } from "./plugins/consensus/index.ts";
 import { tradingExecutionPlugin } from "./plugins/trading-execution/index.ts";
 import { solanaPlugin } from "@elizaos/plugin-solana";
 import { jupiterPlugin } from "@elizaos/plugin-jupiter";
+import { watchlistPlugin } from "./plugins/watchlist/index.ts";
 import { env } from "./utils/env.ts";
 import { spawn } from "child_process";
 import { promisify } from "util";
@@ -67,8 +68,8 @@ async function main() {
   console.log("Adding agents to swarm...");
   const agentIds = await elizaOS.addAgents(
     [
-      { character: alphaCharacter, plugins: [consensusPlugin, openaiPlugin, sqlPlugin] },
-      { character: betaCharacter, plugins: [consensusPlugin, solanaPlugin, openaiPlugin, sqlPlugin] },
+      { character: alphaCharacter, plugins: [consensusPlugin, watchlistPlugin, openaiPlugin, sqlPlugin] },
+      { character: betaCharacter, plugins: [consensusPlugin, watchlistPlugin, solanaPlugin, openaiPlugin, sqlPlugin] },
       { character: gammaCharacter, plugins: [consensusPlugin, tradingExecutionPlugin, jupiterPlugin, openaiPlugin, sqlPlugin] },
     ],
     { autoStart: true }

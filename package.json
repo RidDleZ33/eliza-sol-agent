@@ -16,11 +16,13 @@
     "@elizaos/plugin-telegram": "^1.6.4",
     "@elizaos/plugin-twitter": "^1.2.22",
     "@solana/web3.js": "^1.99.0",
+    "better-sqlite3": "^13.0.3",
     "dotenv": "^17.4.2",
     "jito-ts": "^4.2.1",
     "zod": "^4.6.2"
   },
   "devDependencies": {
-    "@elizaos/cli": "^1.7.2"
+    "@elizaos/cli": "^1.7.2",
+    "@types/better-sqlite3": "^9.6.0"
   }
 }

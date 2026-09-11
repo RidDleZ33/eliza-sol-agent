@@ -18,6 +18,8 @@ const EnvSchema = z.object({
   SLIPPAGE_BPS: z.string().default("50"),
   DRY_RUN: z.string().optional(),
   SHARED_ROOM: z.string().default("ai-committee-war-room"),
+  MAX_TRENDING_TOKENS: z.string().default("10"),
+  MAX_TOP_TRADERS: z.string().default("15"),
 });
 
 export const env = EnvSchema.parse(process.env);
@@ -32,4 +34,12 @@ export function getMaxTradeSizeSol(): number {
 
 export function getSlippageBps(): number {
   return parseInt(env.SLIPPAGE_BPS);
+}
+
+export function getMaxTrendingTokens(): number {
+  return parseInt(env.MAX_TRENDING_TOKENS);
+}
+
+export function getMaxTopTraders(): number {
+  return parseInt(env.MAX_TOP_TRADERS);
 }
