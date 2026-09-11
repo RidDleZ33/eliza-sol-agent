@@ -85,6 +85,16 @@ class WatchlistService {
         added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
+
+      CREATE TABLE IF NOT EXISTS positions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        mint_address TEXT NOT NULL,
+        symbol TEXT,
+        buy_tx_signature TEXT,
+        entry_price_usd REAL DEFAULT 0,
+        amount_sol REAL DEFAULT 0,
+        entered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
     `);
   }
 
@@ -214,6 +224,35 @@ class WatchlistService {
         .prepare("DELETE FROM watched_traders WHERE wallet_address = ?")
         .run(lowest.wallet_address);
     }
+  }
+
+  // Position Methods
+  getActivePositionsCount(): number {
+    return this.db
+      .prepare("SELECT COUNT(*) as count FROM positions")
+      .get().count;
+  }
+
+  async addPosition(mintAddress: string, symbol: string, buyTxSignature: string, entryPriceUsd: number, amountSol: number) {
+    this.db
+      .prepare(
+        `INSERT INTO positions (mint_address, symbol, buy_tx_signature, entry_price_usd, amount_sol, entered_at)
+         VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`
+      )
+      .run(mintAddress, symbol, buyTxSignature, entryPriceUsd, amountSol);
+  }
+
+  async removePosition(mintAddress: string) {
+    this.db
+      .prepare("DELETE FROM positions WHERE mint_address = ?")
+      .run(mintAddress);
+  }
+
+  async hasPosition(mintAddress: string): Promise<boolean> {
+    const result = this.db
+      .prepare("SELECT COUNT(*) as count FROM positions WHERE mint_address = ?")
+      .get(mintAddress);
+    return result.count > 0;
   }
 
   close() {

@@ -13,6 +13,7 @@ const EnvSchema = z.object({
   TWITTER_API_SECRET: z.string().optional(),
   TELEGRAM_BOT_TOKEN: z.string().optional(),
   GAMMA_PRIVATE_KEY: z.string().optional(),
+  SOLANA_PRIVATE_KEY: z.string().optional(),
   MAX_TRADE_SIZE_SOL: z.string().default("0.5"),
   SLIPPAGE_BPS: z.string().default("50"),
   DRY_RUN: z.string().optional(),
@@ -26,12 +27,15 @@ const EnvSchema = z.object({
   RUGCHECK_API_URL: z.string().default("https://api.rugcheck.xyz/v1/tokens"),
   MIN_LIQUIDITY_USD: z.string().default("10000"),
   MAX_TOP10_CONCENTRATION_PCT: z.string().default("25"),
+  JITO_TIP_LAMPORTS: z.string().default("100000"),
+  MAX_CONCURRENT_POSITIONS: z.string().default("3"),
+  DRY_RUN_MODE: z.string().optional(),
 });
 
 export const env = EnvSchema.parse(process.env);
 
 export function isDryRun(): boolean {
-  return env.DRY_RUN === "true" || env.DRY_RUN === "1";
+  return env.DRY_RUN === "true" || env.DRY_RUN === "1" || env.DRY_RUN_MODE === "true";
 }
 
 export function getMaxTradeSizeSol(): number {
@@ -76,4 +80,16 @@ export function getMinLiquidityUsd(): number {
 
 export function getMaxTop10ConcentrationPct(): number {
   return parseInt(env.MAX_TOP10_CONCENTRATION_PCT);
+}
+
+export function getJitoTipLamports(): number {
+  return parseInt(env.JITO_TIP_LAMPORTS);
+}
+
+export function getMaxConcurrentPositions(): number {
+  return parseInt(env.MAX_CONCURRENT_POSITIONS);
+}
+
+export function getSolanaPrivateKey(): string | undefined {
+  return env.SOLANA_PRIVATE_KEY;
 }
