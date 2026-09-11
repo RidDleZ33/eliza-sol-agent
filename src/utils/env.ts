@@ -11,7 +11,6 @@ const EnvSchema = z.object({
   JITO_AUTH_KEYPAIR: z.string().optional(),
   TWITTER_API_KEY: z.string().optional(),
   TWITTER_API_SECRET: z.string().optional(),
-  TWITTER_BEARER_TOKEN: z.string().optional(),
   TELEGRAM_BOT_TOKEN: z.string().optional(),
   GAMMA_PRIVATE_KEY: z.string().optional(),
   MAX_TRADE_SIZE_SOL: z.string().default("0.5"),
@@ -23,6 +22,10 @@ const EnvSchema = z.object({
   BIRDEYE_API_KEY: z.string().optional(),
   INGESTION_INTERVAL_MS: z.string().default("60000"),
   TWITTER_BEARER_TOKEN: z.string().optional(),
+  WALLET_MIRROR_INTERVAL_MS: z.string().default("20000"),
+  RUGCHECK_API_URL: z.string().default("https://api.rugcheck.xyz/v1/tokens"),
+  MIN_LIQUIDITY_USD: z.string().default("10000"),
+  MAX_TOP10_CONCENTRATION_PCT: z.string().default("25"),
 });
 
 export const env = EnvSchema.parse(process.env);
@@ -57,4 +60,20 @@ export function getIngestionInterval(): number {
 
 export function getTwitterBearerToken(): string | undefined {
   return env.TWITTER_BEARER_TOKEN;
+}
+
+export function getWalletMirrorInterval(): number {
+  return parseInt(env.WALLET_MIRROR_INTERVAL_MS);
+}
+
+export function getRugcheckApiUrl(): string {
+  return env.RUGCHECK_API_URL;
+}
+
+export function getMinLiquidityUsd(): number {
+  return parseInt(env.MIN_LIQUIDITY_USD);
+}
+
+export function getMaxTop10ConcentrationPct(): number {
+  return parseInt(env.MAX_TOP10_CONCENTRATION_PCT);
 }

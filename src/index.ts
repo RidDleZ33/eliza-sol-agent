@@ -7,6 +7,8 @@ import { solanaPlugin } from "@elizaos/plugin-solana";
 import { jupiterPlugin } from "@elizaos/plugin-jupiter";
 import { watchlistPlugin } from "./plugins/watchlist/index.ts";
 import { evaluateAlphaNarrative } from "./evaluators/AlphaNarrativeEvaluator.ts";
+import { evaluateBetaContract } from "./evaluators/BetaContractEvaluator.ts";
+import { walletMirrorService } from "./services/WalletMirrorService.ts";
 import { env } from "./utils/env.ts";
 import { spawn } from "child_process";
 import { promisify } from "util";
@@ -71,7 +73,7 @@ async function main() {
   const agentIds = await elizaOS.addAgents(
     [
       { character: alphaCharacter, plugins: [consensusPlugin, watchlistPlugin, openaiPlugin, sqlPlugin], evaluator: evaluateAlphaNarrative, evaluatorIntervalMs: 180000 },
-      { character: betaCharacter, plugins: [consensusPlugin, watchlistPlugin, solanaPlugin, openaiPlugin, sqlPlugin] },
+      { character: betaCharacter, plugins: [consensusPlugin, watchlistPlugin, solanaPlugin, openaiPlugin, sqlPlugin], evaluator: evaluateBetaContract, evaluatorIntervalMs: 120000 },
       { character: gammaCharacter, plugins: [consensusPlugin, tradingExecutionPlugin, jupiterPlugin, openaiPlugin, sqlPlugin] },
     ],
     { autoStart: true }
