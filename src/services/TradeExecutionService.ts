@@ -24,10 +24,10 @@ export class TradeExecutionService {
       const positionsCount = watchlistService.getActivePositionsCount();
       const maxPositions = configService.getNumber("MAX_CONCURRENT_POSITIONS");
       if (positionsCount >= maxPositions) {
-        this.runtime.logger.info(`[Gamma] Position limit reached (${positionsCount}/${getMaxConcurrentPositions()})`);
+        this.runtime.logger.info(`[Gamma] Position limit reached (${positionsCount}/${maxPositions})`);
         return {
           success: false,
-          error: `Position limit reached: ${positionsCount}/${getMaxConcurrentPositions()}`
+          error: `Position limit reached: ${positionsCount}/${maxPositions}`
         };
       }
 
@@ -165,7 +165,7 @@ export class TradeExecutionService {
         return result;
       }
 
-      const slippageBps = getSlippageBps();
+      const slippageBps = configService.getNumber("SLIPPAGE_BPS");
       const jupiterService = this.runtime.getService("JUPITER_SERVICE");
       if (!jupiterService) {
         return { success: false, error: "Jupiter service not available" };
@@ -224,7 +224,7 @@ export class TradeExecutionService {
     }
   }
 
-  private getKeypair() {
+  private async getKeypair() {
     const privateKey = getSolanaPrivateKey();
     if (!privateKey) {
       return null;

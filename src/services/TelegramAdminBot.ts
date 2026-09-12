@@ -2,6 +2,14 @@ import { Telegraf, Markup } from "telegraf";
 import { configService, ConfigKey } from "./ConfigService.ts";
 import { watchlistService } from "./WatchlistService.ts";
 
+/**
+ * Escape special Markdown characters for Telegram's parse_mode=Markdown.
+ * Characters that need escaping: * _ [ ] ( ) ~ ` > # + - = | { } . !
+ */
+function escapeMarkdown(text: string): string {
+  return String(text).replace(/([*_\[\]()~`>#+\-=|{}.!])/g, "\\$1");
+}
+
 interface AdminCommand {
   command: string;
   description: string;
@@ -104,6 +112,72 @@ export class TelegramAdminBot {
         "/status - View swarm status\n" +
         "/help - Show this message");
     });
+
+    // Inline button callback handlers
+    this.bot.on("callback_query", async (ctx) => {
+      const query = ctx.callbackQuery;
+      if (!query.data) return;
+
+      try {
+        switch (query.data) {
+          case "toggle_dry_run": {
+            await configService.toggle("DRY_RUN_MODE");
+            const value = configService.getBoolean("DRY_RUN_MODE") ? "TRUE" : "FALSE";
+            await query.answer(`DRY_RUN_MODE: ${value}`);
+            break;
+          }
+          case "show_status": {
+            await query.answer();
+            await this.showStatus(ctx);
+            break;
+          }
+          case "exits": {
+            await query.answer();
+            await ctx.reply("Exit rules:\n" +
+              `• TAKE_PROFIT_PCT: ${configService.getNumber("TAKE_PROFIT_PCT")}%\n` +
+              `• STOP_LOSS_PCT: ${configService.getNumber("STOP_LOSS_PCT")}%\n` +
+              `• TRAILING_STOP_PCT: ${configService.getNumber("TRAILING_STOP_PCT")}%\n` +
+              `• MAX_HOLD_TIME_MIN: ${configService.getNumber("MAX_HOLD_TIME_MIN")} min\n` +
+              `• TIME_STOP_ENABLED: ${configService.getBoolean("TIME_STOP_ENABLED") ? "TRUE" : "FALSE"}`);
+            break;
+          }
+          case "risk": {
+            await query.answer();
+            await ctx.reply("Risk parameters:\n" +
+              `• MAX_TRADE_SIZE_SOL: ${configService.getNumber("MAX_TRADE_SIZE_SOL")}\n` +
+              `• SLIPPAGE_BPS: ${configService.getNumber("SLIPPAGE_BPS")}\n` +
+              `• JITO_TIP_LAMPORTS: ${configService.getNumber("JITO_TIP_LAMPORTS")}\n` +
+              `• MAX_CONCURRENT_POSITIONS: ${configService.getNumber("MAX_CONCURRENT_POSITIONS")}`);
+            break;
+          }
+          case "ingestion": {
+            await query.answer();
+            await ctx.reply("Ingestion parameters:\n" +
+              `• MAX_TRENDING_TOKENS: ${configService.getNumber("MAX_TRENDING_TOKENS")}\n` +
+              `• MAX_TOP_TRADERS: ${configService.getNumber("MAX_TOP_TRADERS")}\n` +
+              `• INGESTION_INTERVAL_MS: ${configService.getNumber("INGESTION_INTERVAL_MS")}\n` +
+              `• MIN_TRADER_PNL_USD: ${configService.getNumber("MIN_TRADER_PNL_USD")}`);
+            break;
+          }
+          case "forensics": {
+            await query.answer();
+            await ctx.reply("Forensics parameters:\n" +
+              `• RUGCHECK_MAX_SCORE: ${configService.getNumber("RUGCHECK_MAX_SCORE")}\n` +
+              `• MIN_LIQUIDITY_USD: ${configService.getNumber("MIN_LIQUIDITY_USD")}\n` +
+              `• MAX_TOP10_CONCENTRATION_PCT: ${configService.getNumber("MAX_TOP10_CONCENTRATION_PCT")}\n` +
+              `• WALLET_MIRROR_INTERVAL_MS: ${configService.getNumber("WALLET_MIRROR_INTERVAL_MS")}`);
+            break;
+          }
+        }
+      } catch (e) {
+        console.error("[TelegramAdminBot] Callback error:", e);
+        try {
+          await query.answer(`Error: ${e.message}`);
+        } catch (_) {
+          // ignore
+        }
+      }
+    });
   }
 
   private async showConfigMenu(ctx) {
@@ -121,7 +195,7 @@ export class TelegramAdminBot {
         if (entry.key === "DRY_RUN_MODE") {
           displayValue = entry.value === "true" ? "TRUE" : "FALSE";
         }
-        menuText += `• ${entry.key}: ${displayValue}\n`;
+        menuText += `• ${escapeMarkdown(entry.key)}: ${escapeMarkdown(String(displayValue))}\n`;
       }
       menuText += "\n";
     }
@@ -150,11 +224,11 @@ export class TelegramAdminBot {
     const tradeSize = configService.getNumber("MAX_TRADE_SIZE_SOL");
 
     let statusText = "🤖 *SWARM STATUS*\n\n";
-    statusText += `📍 Active Positions: ${positions}\n`;
-    statusText += `💰 Trade Size: ${tradeSize} SOL\n`;
-    statusText += `🔴 Mode: ${dryRun ? "DRY_RUN" : "LIVE"}\n`;
-    statusText += `📈 Take Profit: ${configService.getNumber("TAKE_PROFIT_PCT")}%\n`;
-    statusText += `📉 Stop Loss: ${configService.getNumber("STOP_LOSS_PCT")}%\n`;
+    statusText += `📍 Active Positions: ${escapeMarkdown(String(positions))}\n`;
+    statusText += `💰 Trade Size: ${escapeMarkdown(String(tradeSize))} SOL\n`;
+    statusText += `🔴 Mode: ${escapeMarkdown(dryRun ? "DRY_RUN" : "LIVE")}\n`;
+    statusText += `📈 Take Profit: ${escapeMarkdown(String(configService.getNumber("TAKE_PROFIT_PCT")))}%\n`;
+    statusText += `📉 Stop Loss: ${escapeMarkdown(String(configService.getNumber("STOP_LOSS_PCT")))}%\n`;
 
     // Get open positions details
     try {

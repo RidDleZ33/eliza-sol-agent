@@ -13,18 +13,19 @@ export class PositionManagerService {
   }
 
   start() {
-    this.runtime.logger.info("[PositionManager] Starting position manager...");
+    const log = this.runtime?.logger?.info || console.log;
+    log("[PositionManager] Starting position manager...");
     
     // Initial check
     this.checkPositions();
     
     // Set up periodic checks
-    const interval = getPositionCheckIntervalMs();
+    const interval = configService.getNumber("POSITION_CHECK_INTERVAL_MS");
     this.checkInterval = setInterval(() => {
       this.checkPositions();
     }, interval);
 
-    this.runtime.logger.info(`[PositionManager] Checking positions every ${interval}ms`);
+    log(`[PositionManager] Checking positions every ${interval}ms`);
   }
 
   stop() {
@@ -41,11 +42,11 @@ export class PositionManagerService {
         try {
           await this.evaluatePosition(position);
         } catch (e) {
-          this.runtime.logger.error(`[PositionManager] Error evaluating ${position.symbol}:`, e);
+          this.runtime?.logger?.error(`[PositionManager] Error evaluating ${position.symbol}:`, e);
         }
       }
     } catch (e) {
-      this.runtime.logger.error("[PositionManager] Error in position check loop:", e);
+      this.runtime?.logger?.error("[PositionManager] Error in position check loop:", e);
     }
   }
 
@@ -81,24 +82,24 @@ export class PositionManagerService {
     const staleMinutes = configService.getNumber("STALE_POSITION_MINUTES");
 
     if (pnlPct >= takeProfitPct) {
-      this.runtime.logger.info(`[PositionManager] TAKE_PROFIT triggered for ${symbol} (+${pnlPct.toFixed(1)}%)`);
+      this.runtime?.logger?.info(`[PositionManager] TAKE_PROFIT triggered for ${symbol} (+${pnlPct.toFixed(1)}%)`);
       await this.exitPosition(mint, symbol, `TAKE_PROFIT (+${pnlPct.toFixed(1)}%)`, currentPrice, pnlPct);
     } else if (pnlPct <= -stopLossPct) {
-      this.runtime.logger.info(`[PositionManager] STOP_LOSS triggered for ${symbol} (${pnlPct.toFixed(1)}%)`);
+      this.runtime?.logger?.info(`[PositionManager] STOP_LOSS triggered for ${symbol} (${pnlPct.toFixed(1)}%)`);
       await this.exitPosition(mint, symbol, `STOP_LOSS (${pnlPct.toFixed(1)}%)`, currentPrice, pnlPct);
     } else if (trailingStopDistance >= trailingStopPct && peakPrice > entryPrice) {
-      this.runtime.logger.info(`[PositionManager] TRAILING_STOP triggered for ${symbol} (${trailingStopDistance.toFixed(1)}% below peak)`);
+      this.runtime?.logger?.info(`[PositionManager] TRAILING_STOP triggered for ${symbol} (${trailingStopDistance.toFixed(1)}% below peak)`);
       await this.exitPosition(mint, symbol, `TRAILING_STOP (${trailingStopDistance.toFixed(1)}% below peak)`, currentPrice, pnlPct);
     } else if (ageMinutes > staleMinutes && pnlPct < 10) {
-      this.runtime.logger.info(`[PositionManager] STALE_POSITION triggered for ${symbol} (${ageMinutes.toFixed(0)} min, ${pnlPct.toFixed(1)}%)`);
+      this.runtime?.logger?.info(`[PositionManager] STALE_POSITION triggered for ${symbol} (${ageMinutes.toFixed(0)} min, ${pnlPct.toFixed(1)}%)`);
       await this.exitPosition(mint, symbol, `STALE_POSITION (${ageMinutes.toFixed(0)} min)`, currentPrice, pnlPct);
     } else {
-      this.runtime.logger.debug(`[PositionManager] ${symbol}: PnL ${pnlPct.toFixed(1)}%, Age ${ageMinutes.toFixed(0)}min, Peak ${peakPrice.toFixed(6)}`);
+      this.runtime?.logger?.debug(`[PositionManager] ${symbol}: PnL ${pnlPct.toFixed(1)}%, Age ${ageMinutes.toFixed(0)}min, Peak ${peakPrice.toFixed(6)}`);
     }
   }
 
   private async exitPosition(mint: string, symbol: string, reason: string, exitPrice: number, pnlPct: number) {
-    this.runtime.logger.info(`[PositionManager] Exiting position ${symbol} - ${reason}`);
+    this.runtime?.logger?.info(`[PositionManager] Exiting position ${symbol} - ${reason}`);
 
     // Execute sell
     const result = await tradeExecutionService.executeSell(mint, symbol, reason);
@@ -120,7 +121,7 @@ export class PositionManagerService {
       );
 
       // Emit event for Telegram telemetry
-      this.runtime.logger.info(`[PositionManager] ${symbol} closed. PnL: ${pnlPct.toFixed(1)}% ($${realizedPnl.toFixed(2)})`);
+      this.runtime?.logger?.info(`[PositionManager] ${symbol} closed. PnL: ${pnlPct.toFixed(1)}% ($${realizedPnl.toFixed(2)})`);
 
       const signal = {
         event: "POSITION_CLOSED",
@@ -134,7 +135,7 @@ export class PositionManagerService {
         dry_run: result.dryRun
       };
 
-      const channel = this.runtime.getRoom("warmroom");
+      const channel = this.runtime?.getRoom?.("warmroom");
       if (channel) {
         channel.publish({
           author: { name: "Gamma" },
@@ -143,19 +144,19 @@ export class PositionManagerService {
         });
       }
 
-      this.runtime.emitEvent("gamma_position_closed", signal);
+      this.runtime?.emitEvent?.("gamma_position_closed", signal);
 
       // Clear peak price
       this.positionPeaks.delete(mint);
     } else {
-      this.runtime.logger.error(`[PositionManager] Failed to exit ${symbol}: ${result.error}`);
+      this.runtime?.logger?.error(`[PositionManager] Failed to exit ${symbol}: ${result.error}`);
     }
   }
 
   private async getTokenPrice(mint: string): Promise<number> {
     try {
       // Try Jupiter Price API
-      const jupiterService = this.runtime.getService("JUPITER_SERVICE");
+      const jupiterService = this.runtime?.getService?.("JUPITER_SERVICE");
       if (jupiterService && jupiterService.getTokenPrice) {
         return await jupiterService.getTokenPrice(mint);
       }
@@ -170,7 +171,7 @@ export class PositionManagerService {
         }
       }
     } catch (e) {
-      this.runtime.logger.error(`[PositionManager] Error fetching price for ${mint}:`, e);
+      this.runtime?.logger?.error(`[PositionManager] Error fetching price for ${mint}:`, e);
     }
 
     return 0;

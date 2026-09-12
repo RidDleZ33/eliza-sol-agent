@@ -100,6 +100,10 @@ export function getSolanaPrivateKey(): string | undefined {
   return env.SOLANA_PRIVATE_KEY;
 }
 
+export function getSolanaRpcUrl(): string {
+  return process.env.SOLANA_RPC_URL || env.RPC_URL;
+}
+
 export function getTakeProfitPct(): number {
   return parseFloat(env.TAKE_PROFIT_PCT);
 }
