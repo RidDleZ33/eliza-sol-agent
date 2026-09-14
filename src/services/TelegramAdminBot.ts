@@ -169,8 +169,8 @@ export class TelegramAdminBot {
   private registerCallbacks() {
     this.bot.on("callback_query", async (ctx) => {
       const query = ctx.callbackQuery;
-      if (!query.data) return;
-
+      if (!query) return;
+      
       try {
         logger.debug("TELEGRAM", "TelegramAdminBot", "Callback received", { data: query.data });
 
@@ -178,18 +178,18 @@ export class TelegramAdminBot {
           await configService.toggle("DRY_RUN_MODE");
           const value = configService.getBoolean("DRY_RUN_MODE");
           logger.info("TELEGRAM", "TelegramAdminBot", "DRY_RUN_MODE toggled", { value });
-          await query.answer(`DRY_RUN: ${value ? "ON" : "OFF"}`);
+          await ctx.answerCbQuery(`DRY_RUN: ${value ? "ON" : "OFF"}`);
           return;
         }
 
         if (query.data === "show_status") {
-          await query.answer();
+          await ctx.answerCbQuery();
           await this.showStatus(ctx);
           return;
         }
 
         if (query.data === "log_menu") {
-          await query.answer();
+          await ctx.answerCbQuery();
           await this.showLogMenu(ctx);
           return;
         }
@@ -198,7 +198,7 @@ export class TelegramAdminBot {
           const level = query.data.replace("log_global_", "").toUpperCase() as LogLevel;
           logger.setGlobalLogLevel(level);
           logger.info("TELEGRAM", "TelegramAdminBot", "Global log level set via button", { level });
-          await query.answer(`Global log level: ${level}`);
+          await ctx.answerCbQuery(`Global log level: ${level}`);
           await this.showLogMenu(ctx);
           return;
         }
@@ -209,12 +209,12 @@ export class TelegramAdminBot {
           const level = parts[1].toUpperCase() as LogLevel;
           logger.setCategoryLogLevel(category as any, level);
           logger.info("TELEGRAM", "TelegramAdminBot", "Category log level set via button", { category, level });
-          await query.answer(`${category}: ${level}`);
+          await ctx.answerCbQuery(`${category}: ${level}`);
           return;
         }
 
         if (query.data === "exits") {
-          await query.answer();
+          await ctx.answerCbQuery();
           await ctx.reply(
             "💰 Exit Rules\n" +
             `• Take Profit: ${configService.getNumber("TAKE_PROFIT_PCT")}%\n` +
@@ -226,7 +226,7 @@ export class TelegramAdminBot {
         }
 
         if (query.data === "risk") {
-          await query.answer();
+          await ctx.answerCbQuery();
           await ctx.reply(
             "⚠️ Risk Parameters\n" +
             `• Max Trade Size: ${configService.getNumber("MAX_TRADE_SIZE_SOL")} SOL\n` +
@@ -238,7 +238,7 @@ export class TelegramAdminBot {
         }
 
         if (query.data === "ingestion") {
-          await query.answer();
+          await ctx.answerCbQuery();
           await ctx.reply(
             "🔍 Ingestion Parameters\n" +
             `• Trending Tokens: ${configService.getNumber("MAX_TRENDING_TOKENS")}\n` +
@@ -250,7 +250,7 @@ export class TelegramAdminBot {
         }
 
         if (query.data === "forensics") {
-          await query.answer();
+          await ctx.answerCbQuery();
           await ctx.reply(
             "🧬 Forensics Parameters\n" +
             `• Max Rug Score: ${configService.getNumber("RUGCHECK_MAX_SCORE")}\n` +
@@ -263,7 +263,7 @@ export class TelegramAdminBot {
       } catch (e) {
         logger.error("TELEGRAM", "TelegramAdminBot", "Callback error", { error: e.message });
         try {
-          await query.answer(`Error: ${e.message}`);
+          await ctx.answerCbQuery(`Error: ${e.message}`);
         } catch (_) {
           // ignore
         }
