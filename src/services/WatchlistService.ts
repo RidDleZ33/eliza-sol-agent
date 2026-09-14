@@ -70,8 +70,12 @@ class WatchlistService {
       CREATE TABLE IF NOT EXISTS watched_tokens (
         mint_address TEXT PRIMARY KEY,
         symbol TEXT NOT NULL,
-        narrative_score REAL DEFAULT 0.0,
+        narrative_score REAL DEFAULT 0.5,
         volume_24h REAL,
+        status TEXT DEFAULT 'PENDING_ALPHA',
+        eval_count INTEGER DEFAULT 0,
+        next_eval_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        prune_reason TEXT,
         added_by_agent TEXT,
         added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -118,6 +122,75 @@ class WatchlistService {
     return this.db
       .prepare("SELECT * FROM watched_tokens ORDER BY narrative_score DESC")
       .all() as WatchedToken[];
+  }
+
+  /**
+   * Insert a newly discovered token into the watchlist ONLY if not already tracked.
+   * This is the unbiased discovery entry point for the Ingestion Manager.
+   */
+  async addDiscoveredToken(mintAddress: string, symbol: string, volume24h: number): Promise<boolean> {
+    try {
+      const existing = this.db
+        .prepare("SELECT mint_address FROM watched_tokens WHERE mint_address = ?")
+        .get(mintAddress);
+
+      if (existing) {
+        // Already tracked - just update volume but preserve all state
+        this.db
+          .prepare("UPDATE watched_tokens SET volume_24h = ?, last_updated = CURRENT_TIMESTAMP WHERE mint_address = ?")
+          .run(volume24h, mintAddress);
+        return false;
+      }
+
+      this.db
+        .prepare(
+          `INSERT INTO watched_tokens (mint_address, symbol, narrative_score, volume_24h, status, added_by_agent)
+           VALUES (?, ?, 0.5, ?, 'PENDING_ALPHA', 'ingestion_manager')`
+        )
+        .run(mintAddress, symbol, volume24h);
+
+      logger.info("WATCHLIST", "addDiscoveredToken", "New token discovered", { mint: mintAddress, symbol, volume24h });
+      return true;
+    } catch (e) {
+      logger.error("WATCHLIST", "addDiscoveredToken", "Failed to add token", { mint: mintAddress, error: e.message });
+      return false;
+    }
+  }
+
+  /**
+   * Get tokens ready for Alpha narrative evaluation.
+   */
+  async getTokensForAlphaEvaluation(): Promise<WatchedToken[]> {
+    return this.db
+      .prepare(`SELECT * FROM watched_tokens WHERE status IN ('PENDING_ALPHA', 'DEFERRED') AND next_eval_at <= CURRENT_TIMESTAMP`)
+      .all() as WatchedToken[];
+  }
+
+  /**
+   * Update a token's status in the state machine.
+   */
+  async updateTokenStatus(mintAddress: string, status: string, score?: number, pruneReason?: string): Promise<void> {
+    this.db
+      .prepare(
+        `UPDATE watched_tokens SET status = ?, narrative_score = COALESCE(?, narrative_score), prune_reason = ?, last_updated = CURRENT_TIMESTAMP WHERE mint_address = ?`
+      )
+      .run(status, score, pruneReason, mintAddress);
+
+    logger.info("WATCHLIST", "updateTokenStatus", "Token status updated", { mint: mintAddress, status, score, pruneReason });
+  }
+
+  /**
+   * Defer a token for re-evaluation after a delay.
+   */
+  async deferToken(mintAddress: string, delayMinutes: number): Promise<void> {
+    const nextEval = new Date(Date.now() + delayMinutes * 60 * 1000).toISOString();
+    this.db
+      .prepare(
+        `UPDATE watched_tokens SET status = 'DEFERRED', eval_count = eval_count + 1, next_eval_at = ? WHERE mint_address = ?`
+      )
+      .run(nextEval, mintAddress);
+
+    logger.info("WATCHLIST", "deferToken", "Token deferred", { mint: mintAddress, delayMinutes });
   }
 
   async addToken(token: WatchedTokenInput): Promise<boolean> {
@@ -287,10 +360,6 @@ class WatchlistService {
   }
 
   getDb(): Database.Database {
-    return this.db;
-  }
-
-  getDb() {
     return this.db;
   }
 

@@ -61,18 +61,32 @@ export class TrendingTokenWatcher {
 
       logger.info("INGESTION", "TrendingTokenWatcher", "Found trending tokens", { count: tokens.length });
 
+      let newDiscoveries = 0;
+      let alreadyTracked = 0;
+
       for (const token of tokens) {
-        logger.debug("INGESTION", "TrendingTokenWatcher", "Adding token to watchlist", {
+        logger.debug("INGESTION", "TrendingTokenWatcher", "Discovered token", {
           symbol: token.symbol,
           address: token.address,
           volume24h: token.volume24h,
         });
-        await watchlistService.addToken({
-          mint_address: token.address,
-          symbol: token.symbol,
-          narrative_score: 0.5,
-          volume_24h: token.volume24h,
-          added_by_agent: "system",
+        const inserted = await watchlistService.addDiscoveredToken(
+          token.address,
+          token.symbol,
+          token.volume24h
+        );
+        if (inserted) {
+          newDiscoveries++;
+        } else {
+          alreadyTracked++;
+        }
+      }
+
+      if (newDiscoveries > 0 || alreadyTracked > 0) {
+        logger.info("INGESTION", "TrendingTokenWatcher", "Discovery complete", {
+          total: tokens.length,
+          newDiscoveries,
+          alreadyTracked,
         });
       }
 

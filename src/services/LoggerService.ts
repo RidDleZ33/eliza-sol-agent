@@ -1,5 +1,5 @@
 import { configService, ConfigKey } from "./ConfigService.ts";
-import { sendTelegramMessage } from "../utils/telegram.ts";
+import { telegramAdminBot } from "./TelegramAdminBot.ts";
 
 export type LogLevel = "DEBUG" | "INFO" | "WARN" | "ERROR" | "SILENT";
 export type LogCategory =
@@ -122,6 +122,11 @@ class LoggerService {
     } else {
       console.log(formatted);
     }
+
+    // Telegram streaming (if enabled)
+    if (this.isTelegramEnabled()) {
+      this.streamToTelegram(level, category, component, message);
+    }
   }
 
   private formatMessage(
@@ -164,9 +169,24 @@ class LoggerService {
     }
 
     try {
-      await sendTelegramMessage(`📢 *[${component}]* ${message}`);
+      await telegramAdminBot.notifyAdmin(`📢 *[${component}]* ${message}`);
     } catch (e) {
       console.log(`[Logger] Failed to send Telegram notification:`, e);
+    }
+  }
+
+  /**
+   * Stream a log message to Telegram if log streaming is enabled.
+   */
+  async streamToTelegram(level: LogLevel, category: LogCategory, component: string, message: string) {
+    if (!this.isTelegramEnabled()) {
+      return;
+    }
+
+    try {
+      await telegramAdminBot.streamLog(level, component, message);
+    } catch (e) {
+      console.log(`[Logger] Failed to stream log to Telegram:`, e);
     }
   }
 

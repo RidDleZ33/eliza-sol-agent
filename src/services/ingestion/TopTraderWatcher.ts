@@ -81,6 +81,9 @@ export class TopTraderWatcher {
         });
       }
 
+      // In production, this would also monitor trader wallets for new buys
+      // and call watchlistService.addDiscoveredToken() on those mints
+
       this.backoffMs = 1000;
     } catch (e) {
       logger.error("INGESTION", "TopTraderWatcher", "Error polling", { error: e.message });

@@ -3,6 +3,8 @@ import { configService, ConfigKey } from "./ConfigService.ts";
 import { logger, LogLevel } from "./LoggerService.ts";
 import { watchlistService } from "./WatchlistService.ts";
 
+const ADMIN_BOT_VERSION = "2.4.0";
+
 const LOG_LEVELS: LogLevel[] = ["DEBUG", "INFO", "WARN", "ERROR", "SILENT"];
 const LOG_CATEGORIES = [
   "INGESTION", "EXECUTION", "POSITIONS", "TELEGRAM", "WATCHLIST",
@@ -18,6 +20,18 @@ export class TelegramAdminBot {
   private adminChatId: string;
   private started = false;
 
+  // Log streaming state
+  private logStreamEnabled = false;
+  private logStreamPaused = false;
+  private logStreamPauseTimer: any = null;
+  private readonly LOG_STREAM_PAUSE_DURATION = 30000; // 30 seconds
+
+  // War room streaming state
+  private warRoomEnabled = false;
+  private warRoomPaused = false;
+  private warRoomPauseTimer: any = null;
+  private readonly WAR_ROOM_PAUSE_DURATION = 30000; // 30 seconds
+
   constructor() {
     const token = process.env.TELEGRAM_BOT_TOKEN;
     this.adminChatId = process.env.TELEGRAM_ADMIN_CHAT_ID || "";
@@ -29,10 +43,32 @@ export class TelegramAdminBot {
     this.bot = new Telegraf(token || "");
     this.registerCommands();
     this.registerCallbacks();
+
+    this.bot.catch((err: any, ctx: any) => {
+      logger.error("TELEGRAM", "TelegramAdminBot", "Unhandled Telegram bot error", { error: err.message });
+    });
   }
 
   private isAdmin(userId: number): boolean {
     return String(userId) === this.adminChatId;
+  }
+
+  private pauseLogStream() {
+    if (!this.logStreamEnabled) return;
+    this.logStreamPaused = true;
+    clearTimeout(this.logStreamPauseTimer);
+    this.logStreamPauseTimer = setTimeout(() => {
+      this.logStreamPaused = false;
+    }, this.LOG_STREAM_PAUSE_DURATION);
+  }
+
+  private pauseWarRoom() {
+    if (!this.warRoomEnabled) return;
+    this.warRoomPaused = true;
+    clearTimeout(this.warRoomPauseTimer);
+    this.warRoomPauseTimer = setTimeout(() => {
+      this.warRoomPaused = false;
+    }, this.WAR_ROOM_PAUSE_DURATION);
   }
 
   private registerCommands() {
@@ -41,6 +77,8 @@ export class TelegramAdminBot {
         await ctx.reply("⚠️ Admin access only.");
         return;
       }
+      this.pauseLogStream();
+      this.pauseWarRoom();
       await this.showMainMenu(ctx);
     });
 
@@ -49,6 +87,8 @@ export class TelegramAdminBot {
         await ctx.reply("⚠️ Admin access only.");
         return;
       }
+      this.pauseLogStream();
+      this.pauseWarRoom();
       const args = ctx.args;
       if (!args || args.length < 2) {
         await ctx.reply("Usage: /set <KEY> <VALUE>\nExample: /set TAKE_PROFIT_PCT 75");
@@ -71,6 +111,8 @@ export class TelegramAdminBot {
         await ctx.reply("⚠️ Admin access only.");
         return;
       }
+      this.pauseLogStream();
+      this.pauseWarRoom();
       const args = ctx.args;
       if (!args || args.length < 1) {
         await ctx.reply("Usage: /toggle <KEY>\nExample: /toggle DRY_RUN_MODE");
@@ -93,6 +135,8 @@ export class TelegramAdminBot {
         await ctx.reply("⚠️ Admin access only.");
         return;
       }
+      this.pauseLogStream();
+      this.pauseWarRoom();
       await this.showStatus(ctx);
     });
 
@@ -101,7 +145,61 @@ export class TelegramAdminBot {
         await ctx.reply("⚠️ Admin access only.");
         return;
       }
+      this.pauseLogStream();
+      this.pauseWarRoom();
       await this.showLogMenu(ctx);
+    });
+
+    this.bot.command("logstream", async (ctx) => {
+      if (!this.isAdmin(ctx.from!.id)) {
+        await ctx.reply("⚠️ Admin access only.");
+        return;
+      }
+      const args = ctx.args;
+      if (!args || args.length < 1) {
+        await ctx.reply(`Usage: /logstream <on|off|status>\nCurrent: ${this.logStreamEnabled ? "ON" : "OFF"}`);
+        return;
+      }
+      const action = args[0].toLowerCase();
+      if (action === "on") {
+        this.logStreamEnabled = true;
+        logger.info("TELEGRAM", "TelegramAdminBot", "Log streaming enabled");
+        await ctx.reply("✅ Log streaming to chat enabled.");
+      } else if (action === "off") {
+        this.logStreamEnabled = false;
+        logger.info("TELEGRAM", "TelegramAdminBot", "Log streaming disabled");
+        await ctx.reply("✅ Log streaming to chat disabled.");
+      } else if (action === "status") {
+        await ctx.reply(`Log streaming: ${this.logStreamEnabled ? "ON" : "OFF"}`);
+      } else {
+        await ctx.reply("Usage: /logstream <on|off|status>");
+      }
+    });
+
+    this.bot.command("warroom", async (ctx) => {
+      if (!this.isAdmin(ctx.from!.id)) {
+        await ctx.reply("⚠️ Admin access only.");
+        return;
+      }
+      const args = ctx.args;
+      if (!args || args.length < 1) {
+        await ctx.reply(`Usage: /warroom <on|off|status>\nCurrent: ${this.warRoomEnabled ? "ON" : "OFF"}`);
+        return;
+      }
+      const action = args[0].toLowerCase();
+      if (action === "on") {
+        this.warRoomEnabled = true;
+        logger.info("TELEGRAM", "TelegramAdminBot", "War room streaming enabled");
+        await ctx.reply("✅ War room (committee) streaming to chat enabled.");
+      } else if (action === "off") {
+        this.warRoomEnabled = false;
+        logger.info("TELEGRAM", "TelegramAdminBot", "War room streaming disabled");
+        await ctx.reply("✅ War room streaming to chat disabled.");
+      } else if (action === "status") {
+        await ctx.reply(`War room streaming: ${this.warRoomEnabled ? "ON" : "OFF"}`);
+      } else {
+        await ctx.reply("Usage: /warroom <on|off|status>");
+      }
     });
 
     this.bot.command("loglevel", async (ctx) => {
@@ -109,6 +207,8 @@ export class TelegramAdminBot {
         await ctx.reply("⚠️ Admin access only.");
         return;
       }
+      this.pauseLogStream();
+      this.pauseWarRoom();
       const args = ctx.args;
       if (!args || args.length < 1) {
         await ctx.reply("Usage: /loglevel <LEVEL>\nLevels: DEBUG, INFO, WARN, ERROR, SILENT");
@@ -129,6 +229,8 @@ export class TelegramAdminBot {
         await ctx.reply("⚠️ Admin access only.");
         return;
       }
+      this.pauseLogStream();
+      this.pauseWarRoom();
       const args = ctx.args;
       if (!args || args.length < 2) {
         await ctx.reply(`Usage: /logcategory <CATEGORY> <LEVEL>\nCategories: ${LOG_CATEGORIES.join(", ")}\nLevels: ${LOG_LEVELS.join(", ")}`);
@@ -156,6 +258,10 @@ export class TelegramAdminBot {
         "/settings - Main configuration menu\n" +
         "/status - Current swarm status\n" +
         "/logs - Logging configuration\n" +
+        "\n" +
+        "📡 Streaming:\n" +
+        "/logstream on|off|status - Stream agent logs to chat\n" +
+        "/warroom on|off|status - Stream committee conversations to chat\n" +
         "\n" +
         "⚙️ Config:\n" +
         "/set KEY VALUE - Update a setting\n" +
@@ -260,6 +366,20 @@ export class TelegramAdminBot {
           );
           return;
         }
+
+        if (query.data === "toggle_log_stream") {
+          this.logStreamEnabled = !this.logStreamEnabled;
+          logger.info("TELEGRAM", "TelegramAdminBot", "Log streaming toggled", { enabled: this.logStreamEnabled });
+          await ctx.answerCbQuery(`Log stream: ${this.logStreamEnabled ? "ON" : "OFF"}`);
+          return;
+        }
+
+        if (query.data === "toggle_war_room") {
+          this.warRoomEnabled = !this.warRoomEnabled;
+          logger.info("TELEGRAM", "TelegramAdminBot", "War room streaming toggled", { enabled: this.warRoomEnabled });
+          await ctx.answerCbQuery(`War room: ${this.warRoomEnabled ? "ON" : "OFF"}`);
+          return;
+        }
       } catch (e) {
         logger.error("TELEGRAM", "TelegramAdminBot", "Callback error", { error: e.message });
         try {
@@ -279,10 +399,17 @@ export class TelegramAdminBot {
 🔴 Mode: ${dryRun ? "DRY_RUN" : "LIVE"}
 📍 Positions: ${positions}`;
 
+    const logStreamBtn = this.logStreamEnabled ? "📡 Log Stream (ON)" : "📡 Log Stream (OFF)";
+    const warRoomBtn = this.warRoomEnabled ? "🧠 War Room (ON)" : "🧠 War Room (OFF)";
+
     const buttons: any[][] = [
       [
         Markup.button.callback(dryRun ? "🔴 DRY_RUN (ON)" : "🟢 LIVE (OFF)", "toggle_dry_run"),
         Markup.button.callback("📊 Status", "show_status")
+      ],
+      [
+        Markup.button.callback(logStreamBtn, "toggle_log_stream"),
+        Markup.button.callback(warRoomBtn, "toggle_war_room")
       ],
       [
         Markup.button.callback("💰 Exits", "exits"),
@@ -321,12 +448,12 @@ export class TelegramAdminBot {
       const icon = level === globalLevel ? "✓ " : "";
       row.push(Markup.button.callback(`${icon}${level}`, `log_global_${level}`));
       if (row.length === 3) {
-        levelButtons.push(row);
+        levelButtons.push([...row]);
         row.length = 0;
       }
     }
     if (row.length > 0) {
-      levelButtons.push(row);
+      levelButtons.push([...row]);
     }
 
     text += "Category Overrides:\n";
@@ -337,15 +464,15 @@ export class TelegramAdminBot {
     for (const cat of LOG_CATEGORIES) {
       catRow.push(Markup.button.callback(cat, `log_cat_${cat}:INFO`));
       if (catRow.length === 3) {
-        categoryButtons.push(catRow);
+        categoryButtons.push([...catRow]);
         catRow = [];
       }
     }
     if (catRow.length > 0) {
-      categoryButtons.push(catRow);
+      categoryButtons.push([...catRow]);
     }
 
-    const allButtons = [...levelButtons, categoryButtons];
+    const allButtons = [...levelButtons, ...categoryButtons];
     const keyboard = Markup.inlineKeyboard(allButtons);
     await ctx.reply(text, keyboard);
   }
@@ -423,11 +550,80 @@ export class TelegramAdminBot {
     }
 
     try {
-      logger.info("TELEGRAM", "TelegramAdminBot", "Sending message to chat", { chatId });
+      // DEBUG only to avoid infinite loop when streaming is enabled
+      logger.debug("TELEGRAM", "TelegramAdminBot", "Sending message to chat", { chatId });
       await this.bot.telegram.sendMessage(chatId, text);
     } catch (e) {
       logger.error("TELEGRAM", "TelegramAdminBot", "Failed to send message", { error: e.message });
     }
+  }
+
+  /**
+   * Stream a log message to the Telegram chat.
+   * Pauses streaming while admin is sending commands (debounce-style).
+   */
+  async streamLog(level: string, component: string, message: string): Promise<void> {
+    if (!this.logStreamEnabled || this.logStreamPaused) {
+      return;
+    }
+
+    const icons: Record<string, string> = {
+      DEBUG: "🔵",
+      INFO: "ℹ️",
+      WARN: "⚠️",
+      ERROR: "❌"
+    };
+    const icon = icons[level] || "📝";
+
+    const text = `${icon} [${level}] ${component}: ${message}`;
+    await this.sendToChat(text);
+  }
+
+  /**
+   * Pause/resume log streaming (e.g., while admin is interacting)
+   */
+  setLogStreamPaused(paused: boolean) {
+    this.logStreamPaused = paused;
+  }
+
+  /**
+   * Stream an inter-agent war room / committee message to Telegram.
+   */
+  async streamWarRoomMessage(agent: string, event: string, details?: any): Promise<void> {
+    if (!this.warRoomEnabled || this.warRoomPaused) {
+      return;
+    }
+
+    let text = `🧠 [COMMITTEE - ${agent}]
+Event: ${event}`;
+
+    if (details) {
+      try {
+        const detailStr = typeof details === "string" ? details : JSON.stringify(details, null, 2);
+        // Truncate very long details
+        const truncated = detailStr.length > 4000 ? detailStr.slice(0, 4000) + "..." : detailStr;
+        text += `\nDetails: \`${truncated}\``;
+      } catch (e) {
+        text += `\nDetails: [unserializable]`;
+      }
+    }
+
+    await this.sendToChat(text);
+  }
+
+  /**
+   * Pause/resume war room streaming
+   */
+  setWarRoomPaused(paused: boolean) {
+    this.warRoomPaused = paused;
+  }
+
+  getLogStreamEnabled(): boolean {
+    return this.logStreamEnabled;
+  }
+
+  getWarRoomEnabled(): boolean {
+    return this.warRoomEnabled;
   }
 }
 
