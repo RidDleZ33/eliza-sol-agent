@@ -1,4 +1,5 @@
 import { getTwitterBearerToken } from "../utils/env.ts";
+import { logger } from "../services/LoggerService.ts";
 
 export interface SocialTelemetry {
   mintAddress: string;
@@ -17,33 +18,68 @@ export class SocialEvaluatorService {
   }
 
   async evaluateToken(mintAddress: string, symbol: string): Promise<SocialTelemetry> {
+    logger.info("SOCIAL", "SocialEvaluator", "Starting social evaluation", {
+      symbol,
+      mintAddress,
+    });
+
     let telemetry: SocialTelemetry = {
       mintAddress,
       symbol,
       hasSocialLinks: false,
       buySellRatio5m: 1.0,
-      rawTextSamples: []
+      rawTextSamples: [],
     };
 
     try {
       // Fetch DexScreener data
+      logger.debug("SOCIAL", "SocialEvaluator", "Fetching DexScreener data", {
+        mintAddress,
+      });
       const dexData = await this.fetchDexScreenerData(mintAddress);
       telemetry.hasSocialLinks = dexData.hasSocialLinks;
       telemetry.buySellRatio5m = dexData.buySellRatio5m;
+      logger.debug("SOCIAL", "SocialEvaluator", "DexScreener data retrieved", {
+        symbol,
+        hasSocialLinks: dexData.hasSocialLinks,
+        buySellRatio5m: dexData.buySellRatio5m,
+      });
     } catch (e) {
-      console.log(`[SocialEvaluator] DexScreener fetch failed for ${symbol}:`, e.message);
+      logger.warn("SOCIAL", "SocialEvaluator", "DexScreener fetch failed", {
+        symbol,
+        error: e.message,
+      });
     }
 
     try {
       // Fetch Twitter data if API key available
       if (this.twitterBearerToken) {
+        logger.debug("SOCIAL", "SocialEvaluator", "Fetching Twitter data", {
+          symbol,
+        });
         const twitterData = await this.fetchTwitterData(symbol);
         telemetry.tweetVolume1h = twitterData.tweetVolume;
         telemetry.rawTextSamples = twitterData.recentTweets;
+        logger.debug("SOCIAL", "SocialEvaluator", "Twitter data retrieved", {
+          symbol,
+          tweetVolume: twitterData.tweetVolume,
+        });
+      } else {
+        logger.debug("SOCIAL", "SocialEvaluator", "No Twitter API key, skipping");
       }
     } catch (e) {
-      console.log(`[SocialEvaluator] Twitter fetch failed for ${symbol}:`, e.message);
+      logger.warn("SOCIAL", "SocialEvaluator", "Twitter fetch failed", {
+        symbol,
+        error: e.message,
+      });
     }
+
+    logger.info("SOCIAL", "SocialEvaluator", "Social evaluation complete", {
+      symbol,
+      hasSocialLinks: telemetry.hasSocialLinks,
+      buySellRatio5m: telemetry.buySellRatio5m,
+      tweetVolume: telemetry.tweetVolume1h,
+    });
 
     return telemetry;
   }
@@ -70,7 +106,8 @@ export class SocialEvaluatorService {
     const txs = pair.txs || {};
     const buys5m = txs.buys?.m5 || 0;
     const sells5m = txs.sells?.m5 || 0;
-    const buySellRatio5m = sells5m > 0 ? buys5m / sells5m : (buys5m > 0 ? 2.0 : 1.0);
+    const buySellRatio5m =
+      sells5m > 0 ? buys5m / sells5m : buys5m > 0 ? 2.0 : 1.0;
 
     return { hasSocialLinks, buySellRatio5m };
   }
@@ -80,9 +117,9 @@ export class SocialEvaluatorService {
     const url = `https://api.twitter.com/2/tweets/search/recent?query=${symbol}%20-mock&max_results=10`;
     const response = await fetch(url, {
       headers: {
-        "Authorization": `Bearer ${this.twitterBearerToken}`,
-        "User-Agent": "AICommittee/1.0"
-      }
+        Authorization: `Bearer ${this.twitterBearerToken}`,
+        "User-Agent": "AICommittee/1.0",
+      },
     });
 
     if (!response.ok) {
@@ -94,7 +131,7 @@ export class SocialEvaluatorService {
 
     return {
       tweetVolume: tweets.length,
-      recentTweets: tweets.slice(0, 5).map((t: any) => t.text)
+      recentTweets: tweets.slice(0, 5).map((t: any) => t.text),
     };
   }
 }

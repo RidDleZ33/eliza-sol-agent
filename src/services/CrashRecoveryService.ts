@@ -1,5 +1,6 @@
 import { watchlistService } from "./WatchlistService.ts";
 import { getSolanaPrivateKey } from "../utils/env.ts";
+import { logger } from "./LoggerService.ts";
 
 export class CrashRecoveryService {
   private runtime: any;
@@ -9,9 +10,9 @@ export class CrashRecoveryService {
   }
 
   async reconcilePositions() {
-    const log = this.runtime?.logger?.info || console.log;
-    const logError = this.runtime?.logger?.error || console.error;
-    const logWarn = this.runtime?.logger?.warn || console.warn;
+    const log = (msg: string) => logger.info("CRASH_RECOVERY", "CrashRecovery", msg);
+    const logError = (msg: string, error?: unknown) => logger.error("CRASH_RECOVERY", "CrashRecovery", msg, { error: error?.message || String(error) });
+    const logWarn = (msg: string) => logger.warn("CRASH_RECOVERY", "CrashRecovery", msg);
 
     try {
       log("[CrashRecovery] Reconciling positions...");

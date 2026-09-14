@@ -1,6 +1,8 @@
 import { watchlistService } from "../WatchlistService.ts";
 import { getBirdeyeApiKey } from "../../utils/env.ts";
 import { configService } from "../ConfigService.ts";
+import { logger } from "../LoggerService.ts";
+import { fetchWithRetry } from "../../utils/circuitBreaker.ts";
 
 interface TrendingToken {
   address: string;
@@ -20,6 +22,7 @@ export class TrendingTokenWatcher {
   }
 
   start() {
+    logger.info("INGESTION", "TrendingTokenWatcher", "Starting trending token watcher");
     this.poll();
     this.scheduleNext();
   }
@@ -29,7 +32,7 @@ export class TrendingTokenWatcher {
       clearInterval(this.intervalId);
     }
     const intervalMs = configService.getNumber("INGESTION_INTERVAL_MS");
-    console.log(`[TrendingTokenWatcher] Next poll in ${intervalMs}ms`);
+    logger.debug("INGESTION", "TrendingTokenWatcher", "Next poll scheduled", { intervalMs });
     this.intervalId = setInterval(() => this.poll(), intervalMs);
   }
 
@@ -38,40 +41,46 @@ export class TrendingTokenWatcher {
       clearInterval(this.intervalId);
       this.intervalId = null;
     }
-    console.log("[TrendingTokenWatcher] Stopped");
+    logger.info("INGESTION", "TrendingTokenWatcher", "Stopped");
   }
 
   private async poll() {
     try {
-      console.log("[TrendingTokenWatcher] Polling for trending tokens...");
+      logger.debug("INGESTION", "TrendingTokenWatcher", "Polling for trending tokens...");
       let tokens: TrendingToken[] = [];
 
       if (this.birdeyeApiKey) {
+        logger.debug("INGESTION", "TrendingTokenWatcher", "Using Birdeye API");
         tokens = await this.fetchFromBirdeye();
       }
 
       if (!tokens || tokens.length === 0) {
-        console.log("[TrendingTokenWatcher] Birdeye empty, trying DexScreener fallback");
+        logger.debug("INGESTION", "TrendingTokenWatcher", "Birdeye empty, trying DexScreener fallback");
         tokens = await this.fetchFromDexScreener();
       }
 
-      console.log(`[TrendingTokenWatcher] Found ${tokens.length} trending tokens`);
+      logger.info("INGESTION", "TrendingTokenWatcher", "Found trending tokens", { count: tokens.length });
 
       for (const token of tokens) {
+        logger.debug("INGESTION", "TrendingTokenWatcher", "Adding token to watchlist", {
+          symbol: token.symbol,
+          address: token.address,
+          volume24h: token.volume24h,
+        });
         await watchlistService.addToken({
           mint_address: token.address,
           symbol: token.symbol,
-          narrative_score: 0.5, // Will be updated by Alpha after sentiment analysis
+          narrative_score: 0.5,
           volume_24h: token.volume24h,
-          added_by_agent: "system"
+          added_by_agent: "system",
         });
       }
 
       this.backoffMs = 1000;
     } catch (e) {
-      console.error("[TrendingTokenWatcher] Error polling:", e);
+      logger.error("INGESTION", "TrendingTokenWatcher", "Error polling", { error: e.message });
       this.backoffMs = Math.min(this.backoffMs * 2, this.maxBackoffMs);
-      console.log(`[TrendingTokenWatcher] Backing off for ${this.backoffMs}ms`);
+      logger.warn("INGESTION", "TrendingTokenWatcher", "Backing off", { backoffMs: this.backoffMs });
     }
   }
 
@@ -80,14 +89,12 @@ export class TrendingTokenWatcher {
     const headers = {
       "x-chain": "solana",
       "X-API-KEY": this.birdeyeApiKey!,
-      "accept": "application/json"
+      "accept": "application/json",
     };
 
-    const response = await fetch(url, { headers });
+    logger.debug("INGESTION", "TrendingTokenWatcher", "Fetching from Birdeye", { url });
 
-    if (response.status === 429) {
-      throw new Error("Rate limited by Birdeye API");
-    }
+    const response = await fetchWithRetry(url, { headers });
 
     if (!response.ok) {
       throw new Error(`Birdeye API returned ${response.status}`);
@@ -100,37 +107,81 @@ export class TrendingTokenWatcher {
     }
 
     const items = data.data?.items || [];
+    logger.debug("INGESTION", "TrendingTokenWatcher", "Birdeye returned items", { count: items.length });
+
     return items.map((item: any) => ({
       address: item.address,
       symbol: item.symbol,
       volume24h: item.volume24h || 0,
-      liquidity: item.liquidity
+      liquidity: item.liquidity,
     }));
   }
 
   private async fetchFromDexScreener(): Promise<TrendingToken[]> {
-    const url = "https://api.dexscreener.com/latest/dex/search?q=solana&limit=10";
+    const url = "https://api.dexscreener.com/token-profiles/latest/v1?limit=50";
 
-    const response = await fetch(url);
+    logger.debug("INGESTION", "TrendingTokenWatcher", "Fetching from DexScreener", { url });
 
-    if (response.status === 429) {
-      throw new Error("Rate limited by DexScreener API");
-    }
+    const response = await fetchWithRetry(url);
 
     if (!response.ok) {
       throw new Error(`DexScreener API returned ${response.status}`);
     }
 
+    const profiles: any[] = await response.json();
+    logger.debug("INGESTION", "TrendingTokenWatcher", "DexScreener returned profiles", { count: profiles.length });
+
+    const solProfiles = profiles.filter((p: any) => p.chainId === "solana");
+    logger.debug("INGESTION", "TrendingTokenWatcher", "Solana profiles filtered", { count: solProfiles.length });
+
+    if (solProfiles.length === 0) {
+      logger.info("INGESTION", "TrendingTokenWatcher", "No Solana tokens in trending");
+      return [];
+    }
+
+    const tokens: TrendingToken[] = [];
+    for (const profile of solProfiles.slice(0, 10)) {
+      try {
+        logger.debug("INGESTION", "TrendingTokenWatcher", "Fetching pair data", { address: profile.tokenAddress });
+        const pairData = await this.fetchSolanaPairData(profile.tokenAddress);
+        if (pairData) {
+          tokens.push(pairData);
+        }
+      } catch (e) {
+        logger.warn("INGESTION", "TrendingTokenWatcher", "Failed to fetch pair data", {
+          address: profile.tokenAddress,
+          error: e.message,
+        });
+      }
+    }
+
+    logger.debug("INGESTION", "TrendingTokenWatcher", "Successfully fetched pair data", { count: tokens.length });
+    return tokens;
+  }
+
+  private async fetchSolanaPairData(tokenAddress: string): Promise<TrendingToken | null> {
+    const url = `https://api.dexscreener.com/latest/dex/tokens/${tokenAddress}`;
+
+    const response = await fetchWithRetry(url);
+
+    if (!response.ok) {
+      throw new Error(`DexScreener pair API returned ${response.status}`);
+    }
+
     const data = await response.json();
 
-    const pairs = data.pairs || [];
-    return pairs
-      .filter((pair: any) => pair.chainId === "solana")
-      .map((pair: any) => ({
-        address: pair.baseToken.address,
-        symbol: pair.baseToken.symbol,
-        volume24h: pair.volume?.h24?.usd || 0,
-        liquidity: pair.liquidity?.usd || 0
-      }));
+    const solPairs = (data.pairs || []).filter((pair: any) => pair.chainId === "solana");
+    if (solPairs.length === 0) {
+      return null;
+    }
+
+    const bestPair = solPairs[0];
+
+    return {
+      address: bestPair.baseToken.address,
+      symbol: bestPair.baseToken.symbol,
+      volume24h: bestPair.volume?.h24?.usd || 0,
+      liquidity: bestPair.liquidity?.usd || 0,
+    };
   }
 }

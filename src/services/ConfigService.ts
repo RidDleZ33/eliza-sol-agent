@@ -1,5 +1,6 @@
 import { watchlistService } from "./WatchlistService.ts";
 import { EventEmitter } from "events";
+import { z } from "zod";
 import {
   getMaxTrendingTokens,
   getMaxTopTraders,
@@ -40,7 +41,19 @@ export type ConfigKey =
   | "STOP_LOSS_PCT"
   | "TRAILING_STOP_PCT"
   | "STALE_POSITION_MINUTES"
-  | "POSITION_CHECK_INTERVAL_MS";
+  | "POSITION_CHECK_INTERVAL_MS"
+  | "LOG_LEVEL"
+  | "LOG_LEVEL_INGESTION"
+  | "LOG_LEVEL_EXECUTION"
+  | "LOG_LEVEL_POSITIONS"
+  | "LOG_LEVEL_TELEGRAM"
+  | "LOG_LEVEL_WATCHLIST"
+  | "LOG_LEVEL_FORENSICS"
+  | "LOG_LEVEL_SOCIAL"
+  | "LOG_LEVEL_CIRCUIT_BREAKER"
+  | "LOG_LEVEL_CONFIG"
+  | "LOG_LEVEL_CRASH_RECOVERY"
+  | "LOG_LEVEL_DEX";
 
 interface ConfigEntry {
   key: ConfigKey;
@@ -51,7 +64,34 @@ interface ConfigEntry {
   validate?: (value: string) => boolean;
 }
 
+// Log level config entries
+const LOG_LEVEL_CATEGORIES = [
+  "INGESTION", "EXECUTION", "POSITIONS", "TELEGRAM", "WATCHLIST",
+  "FORENSICS", "SOCIAL", "CIRCUIT_BREAKER", "CONFIG", "CRASH_RECOVERY", "DEX"
+];
+
+const LOG_LEVEL_ENTRIES: ConfigEntry[] = [
+  {
+    key: "LOG_LEVEL",
+    value: "INFO",
+    category: "LOGGING",
+    description: "Global log level (DEBUG, INFO, WARN, ERROR, SILENT)",
+    defaultValue: "INFO"
+  }
+];
+
+for (const cat of LOG_LEVEL_CATEGORIES) {
+  LOG_LEVEL_ENTRIES.push({
+    key: `LOG_LEVEL_${cat}` as any,
+    value: "INFO",
+    category: "LOGGING",
+    description: `Log level for ${cat.toLowerCase()} (overrides global)`,
+    defaultValue: "INFO"
+  });
+}
+
 const DEFAULT_CONFIG: ConfigEntry[] = [
+  ...LOG_LEVEL_ENTRIES,
   // Ingestion & Watchlist (Modules 1 & 2)
   {
     key: "MAX_TRENDING_TOKENS",
@@ -269,6 +309,32 @@ class ConfigService {
   }
 
   /**
+   * Get a string configuration value.
+   */
+  getString(key: ConfigKey): string {
+    return this.get(key);
+  }
+
+  /**
+   * Set a string configuration value without numeric validation.
+   * Used for log levels and other free-form string values.
+   */
+  setString(key: ConfigKey, value: string): void {
+    this.cache.set(key, value);
+    // Persist to DB
+    try {
+      const db = watchlistService.getDb();
+      db.prepare(`
+        INSERT OR REPLACE INTO config_settings (key, value, category, description, updated_at)
+        VALUES (?, ?, 'LOGGING', 'Log level', CURRENT_TIMESTAMP)
+      `).run(key, value);
+    } catch (e) {
+      logger.error("CONFIG", "ConfigService", `Failed to persist config ${key}`, { error: e.message });
+    }
+    this.emitter.emit("configUpdated", { key, value });
+  }
+
+  /**
    * Set a configuration value. Updates DB, cache, and emits change event.
    */
   async set(key: ConfigKey, value: any): Promise<void> {
@@ -284,8 +350,17 @@ class ConfigService {
       throw new Error(`Invalid value for ${key}: ${strValue}. Validator failed.`);
     }
 
-    // Update cache immediately
-    this.cache.set(key, strValue);
+    // Validate and coerce with Zod schema
+    try {
+      const schema = this.getSchemaFor(key);
+      const validatedValue = schema.parse(strValue);
+      this.cache.set(key, String(validatedValue));
+    } catch (e) {
+      if (e instanceof z.ZodError) {
+        throw new Error(`Invalid value for ${key}: ${e.errors[0].message}`);
+      }
+      throw e;
+    }
 
     // Persist to DB
     try {
@@ -295,12 +370,12 @@ class ConfigService {
         VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
       `).run(key, strValue, entry.category, entry.description);
     } catch (e) {
-      console.error(`Failed to persist config ${key}:`, e);
+      logger.error("CONFIG", "ConfigService", `Failed to persist config ${key}`, { error: e.message });
     }
 
     // Emit change event
     this.emitter.emit("configUpdated", { key, value: strValue });
-    console.log(`[ConfigService] Updated ${key} = ${strValue}`);
+    logger.info("CONFIG", "ConfigService", `Updated ${key} = ${strValue}`);
   }
 
   /**
@@ -318,9 +393,71 @@ class ConfigService {
     this.emitter.on(key, callback);
   }
 
-  /**
-   * Get all configuration entries grouped by category.
-   */
+  private getSchemaFor(key: ConfigKey): z.ZodTypeAny {
+    switch (key) {
+      // Ingestion & Watchlist
+      case "MAX_TRENDING_TOKENS":
+        return z.coerce.number().int().min(1).max(50);
+      case "MAX_TOP_TRADERS":
+        return z.coerce.number().int().min(1).max(50);
+      case "INGESTION_INTERVAL_MS":
+        return z.coerce.number().int().min(10000);
+      case "MIN_TRADER_PNL_USD":
+        return z.coerce.number().min(0);
+
+      // Alpha Social Evaluator
+      case "MIN_NARRATIVE_SCORE":
+        return z.coerce.number().min(0).max(1);
+      case "ALPHA_EVAL_INTERVAL_MS":
+        return z.coerce.number().int().min(10000);
+
+      // Beta Forensics & Wallet Mirroring
+      case "RUGCHECK_MAX_SCORE":
+        return z.coerce.number().int().min(0).max(100);
+      case "MIN_LIQUIDITY_USD":
+        return z.coerce.number().min(0);
+      case "MAX_TOP10_CONCENTRATION_PCT":
+        return z.coerce.number().min(0).max(100);
+      case "WALLET_MIRROR_INTERVAL_MS":
+        return z.coerce.number().int().min(10000);
+
+      // Gamma Execution & Risk Guardrails
+      case "MAX_TRADE_SIZE_SOL":
+        return z.coerce.number().min(0);
+      case "SLIPPAGE_BPS":
+        return z.coerce.number().int().min(1).max(500);
+      case "JITO_TIP_LAMPORTS":
+        return z.coerce.number().int().min(0);
+      case "MAX_CONCURRENT_POSITIONS":
+        return z.coerce.number().int().min(1).max(20);
+      case "DRY_RUN_MODE":
+        return z.enum(["true", "false"]);
+
+      // Position Manager & Exits
+      case "TAKE_PROFIT_PCT":
+        return z.coerce.number().min(0);
+      case "STOP_LOSS_PCT":
+        return z.coerce.number().min(1).max(90);
+      case "TRAILING_STOP_PCT":
+        return z.coerce.number().min(0).max(50);
+      case "STALE_POSITION_MINUTES":
+        return z.coerce.number().int().min(5);
+      case "POSITION_CHECK_INTERVAL_MS":
+        return z.coerce.number().int().min(1000);
+
+      // Log levels
+      case "LOG_LEVEL":
+        return z.enum(["DEBUG", "INFO", "WARN", "ERROR", "SILENT"]);
+    }
+
+    // Default for LOG_LEVEL_* categories
+    if (key.startsWith("LOG_LEVEL_")) {
+      return z.enum(["DEBUG", "INFO", "WARN", "ERROR", "SILENT"]);
+    }
+
+    return z.string();
+  }
+
   getAll(): Map<string, { key: ConfigKey, value: string, description: string }[]> {
     const grouped = new Map<string, { key: ConfigKey, value: string, description: string }[]>();
 

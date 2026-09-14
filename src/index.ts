@@ -17,10 +17,12 @@ import { env } from "./utils/env.ts";
 import { spawn } from "child_process";
 import { promisify } from "util";
 import * as fs from "fs";
-import { sendTelegramMessage } from "./utils/telegram.ts";
+
 import { ingestionManager } from "./services/ingestion/IngestionManager.ts";
 import { configService } from "./services/ConfigService.ts";
 import { telegramAdminBot } from "./services/TelegramAdminBot.ts";
+import { watchlistService } from "./services/WatchlistService.ts";
+import { logger } from "./services/LoggerService.ts";
 
 const sleep = promisify(setTimeout);
 
@@ -39,29 +41,66 @@ async function startWebUI(port: number) {
     let resolved = false;
     server.stdout?.on("data", (data) => {
       if (!resolved) {
-        console.log(`Web UI: ${data.toString().trim()}`);
+        logger.info("CONFIG", "WebUI", "Web UI started", { url: data.toString().trim() });
         resolved = true;
         resolve();
       }
     });
 
     server.stderr?.on("data", (data) => {
-      console.error(`Web UI Error: ${data.toString().trim()}`);
+      logger.warn("CONFIG", "WebUI", "Web UI error", { error: data.toString().trim() });
     });
 
     setTimeout(() => {
       if (!resolved) {
-        console.log(`Web UI server started on port ${port}`);
+        logger.info("CONFIG", "WebUI", "Web UI server started", { port });
         resolve();
       }
     }, 3000);
   });
 }
 
+let shuttingDown = false;
+
+async function shutdown(signal: string) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+
+  logger.info("CONFIG", "Index", "Received shutdown signal", { signal });
+
+  try {
+    logger.info("CONFIG", "Index", "Stopping ingestion services...");
+    ingestionManager.stop();
+
+    logger.info("CONFIG", "Index", "Stopping position manager...");
+    positionManagerService.stop();
+
+    logger.info("CONFIG", "Index", "Closing watchlist database...");
+    watchlistService.close();
+
+    try {
+      const timestamp = new Date().toISOString();
+      const message = `AI Committee War Room Stopped
+Time: ${timestamp}
+Signal: ${signal}`;
+      await telegramAdminBot.sendToChat(message);
+      logger.info("TELEGRAM", "Index", "Shutdown notification sent to Telegram");
+    } catch (e) {
+      logger.warn("TELEGRAM", "Index", "Telegram notification failed", { error: e.message });
+    }
+
+    logger.info("CONFIG", "Index", "Graceful shutdown complete");
+  } catch (e) {
+    logger.error("CONFIG", "Index", "Error during shutdown", { error: e.message });
+  } finally {
+    process.exit(0);
+  }
+}
+
 async function main() {
-  console.log("Initializing AI Committee...");
-  console.log(`LLM: ${env.OLLAMA_BASE_URL}/${env.MODEL_NAME}`);
-  console.log(`Web UI: http://localhost:${env.ELIZAOS_WEB_PORT}`);
+  logger.info("CONFIG", "Index", "Initializing AI Committee...");
+  logger.info("CONFIG", "Index", "LLM configuration", { url: env.OLLAMA_BASE_URL, model: env.MODEL_NAME });
+  logger.info("CONFIG", "Index", "Web UI configuration", { port: env.ELIZAOS_WEB_PORT });
 
   const port = parseInt(env.ELIZAOS_WEB_PORT);
   await startWebUI(port);
@@ -75,50 +114,63 @@ async function main() {
 
   const elizaOS = new ElizaOS();
 
-  console.log("Adding agents to swarm...");
+  logger.info("CONFIG", "Index", "Adding agents to swarm...");
   const agentIds = await elizaOS.addAgents(
     [
-      { character: alphaCharacter, plugins: [consensusPlugin, watchlistPlugin, openaiPlugin, sqlPlugin], evaluator: evaluateAlphaNarrative, evaluatorIntervalMs: 180000 },
+      { character: alphaCharacter, plugins: [consensusPlugin, watchlistPlugin, solanaPlugin, openaiPlugin, sqlPlugin], evaluator: evaluateAlphaNarrative, evaluatorIntervalMs: 180000 },
       { character: betaCharacter, plugins: [consensusPlugin, watchlistPlugin, solanaPlugin, openaiPlugin, sqlPlugin], evaluator: evaluateBetaContract, evaluatorIntervalMs: 120000 },
       { character: gammaCharacter, plugins: [consensusPlugin, tradingExecutionPlugin, jupiterPlugin, openaiPlugin, sqlPlugin], evaluator: evaluateGammaConsensus, evaluatorIntervalMs: 30000 },
     ],
     { autoStart: true }
   );
 
-  console.log("AI Committee initialized. Three agents online.");
+  logger.info("CONFIG", "Index", "AI Committee initialized. Three agents online.");
 
   // Initialize dynamic configuration manager
-  console.log("Initializing configuration service...");
-  // ConfigService is loaded from defaults via .env
+  logger.info("CONFIG", "Index", "Initializing configuration service...");
 
   // Run crash recovery before starting watchers
   await crashRecoveryService.reconcilePositions();
-  
+
   // Start position manager for auto-exit rules
   positionManagerService.start();
 
-  // Start Telegram Admin Bot
-  console.log("Starting Telegram Admin Bot...");
-  telegramAdminBot.start();
-  
   // Start ingestion services
   ingestionManager.start();
-  console.log("Shared consensus room active.");
-  console.log(`\nVisit http://localhost:${port} to monitor the war room.`);
+  logger.info("CONFIG", "Index", "Shared consensus room active.");
+  logger.info("CONFIG", "Index", "War room URL", { url: `http://localhost:${port}` });
 
+  // Start Telegram Admin Bot LAST so startup notification is sent after it's ready
+  logger.info("TELEGRAM", "Index", "Starting Telegram Admin Bot...");
   try {
+    await telegramAdminBot.start();
+    logger.info("TELEGRAM", "Index", "Telegram Admin Bot started successfully");
+
+    // Send startup notification via the admin bot
     const timestamp = new Date().toISOString();
-    const message = "AI Committee War Room Started\n" +
-      `Time: ${timestamp}\n\n` +
-      "Agents: Alpha, Beta, Gamma\n" +
-      "Monitoring Solana ecosystem\n" +
-      "Consensus room active\n" +
-      "Trading in DRY_RUN mode";
-    await sendTelegramMessage(message);
-    console.log("Startup notification sent to Telegram");
+    const message = `AI Committee War Room Started
+Time: ${timestamp}
+
+Agents: Alpha, Beta, Gamma
+Monitoring Solana ecosystem
+Consensus room active
+Trading in DRY_RUN mode`;
+    await telegramAdminBot.sendToChat(message);
+    logger.info("TELEGRAM", "Index", "Startup notification sent to Telegram");
   } catch (e) {
-    console.log(`Telegram notification failed: ${e.message}`);
+    logger.warn("TELEGRAM", "Index", "Telegram admin bot failed", { error: e.message });
   }
+
+  // Register shutdown handlers
+  process.on("SIGINT", () => shutdown("SIGINT"));
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("uncaughtException", (err) => {
+    logger.error("CONFIG", "Index", "Uncaught exception", { error: err.message });
+    shutdown("uncaughtException");
+  });
+  process.on("unhandledRejection", (reason) => {
+    logger.error("CONFIG", "Index", "Unhandled promise rejection", { reason: String(reason) });
+  });
 
   await new Promise(() => {});
 }

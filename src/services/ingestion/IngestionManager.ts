@@ -1,6 +1,7 @@
 import { TrendingTokenWatcher } from "./TrendingTokenWatcher.ts";
 import { TopTraderWatcher } from "./TopTraderWatcher.ts";
 import { getIngestionInterval } from "../../utils/env.ts";
+import { logger } from "../LoggerService.ts";
 
 export class IngestionManager {
   private trendingWatcher: TrendingTokenWatcher;
@@ -14,22 +15,22 @@ export class IngestionManager {
   }
 
   start() {
-    console.log("[IngestionManager] Starting ingestion services...");
-    console.log(`[IngestionManager] Polling interval: ${this.intervalMs}ms`);
+    logger.info("INGESTION", "IngestionManager", "Starting ingestion services...");
+    logger.info("INGESTION", "IngestionManager", "Polling interval", { intervalMs: this.intervalMs });
 
     this.trendingWatcher.start();
     this.traderWatcher.start();
 
-    console.log("[IngestionManager] All ingestion services started");
+    logger.info("INGESTION", "IngestionManager", "All ingestion services started");
   }
 
   stop() {
-    console.log("[IngestionManager] Stopping ingestion services...");
+    logger.info("INGESTION", "IngestionManager", "Stopping ingestion services...");
 
     this.trendingWatcher.stop();
     this.traderWatcher.stop();
 
-    console.log("[IngestionManager] All ingestion services stopped");
+    logger.info("INGESTION", "IngestionManager", "All ingestion services stopped");
   }
 }
 

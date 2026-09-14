@@ -2,6 +2,7 @@ import { Plugin, Action } from "@elizaos/core";
 import { Connection } from "@solana/web3.js";
 import { getGammaKeypair, createConnection } from "../../utils/wallet.ts";
 import { env, isDryRun } from "../../utils/env.ts";
+import { logger } from "../../services/LoggerService.ts";
 
 interface JupiterService {
   getQuote(params: any): Promise<any>;
@@ -13,7 +14,7 @@ export const tradingExecutionPlugin: Plugin = {
   name: "trading-execution",
   description: "Gamma's exclusive Jupiter/Jito trading execution plugin",
   init: async (runtime) => {
-    console.log("trading-execution plugin initialized");
+    logger.info("EXECUTION", "trading-execution", "plugin initialized");
   },
   actions: [
     {
@@ -45,7 +46,7 @@ export const tradingExecutionPlugin: Plugin = {
         );
 
         if (isDryRun()) {
-          console.log(`[DRY RUN] swap ${parameters.amount_sol} SOL -> ${parameters.output_mint}`);
+          logger.info("EXECUTION", "trading-execution", "[DRY RUN] swap", { amount_sol: parameters.amount_sol, output_mint: parameters.output_mint });
           return "Trade simulated in dry-run mode. No on-chain transaction sent.";
         }
 

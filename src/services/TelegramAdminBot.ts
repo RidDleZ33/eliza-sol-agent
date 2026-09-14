@@ -1,18 +1,16 @@
 import { Telegraf, Markup } from "telegraf";
 import { configService, ConfigKey } from "./ConfigService.ts";
+import { logger, LogLevel } from "./LoggerService.ts";
 import { watchlistService } from "./WatchlistService.ts";
 
-/**
- * Escape special Markdown characters for Telegram's parse_mode=Markdown.
- * Characters that need escaping: * _ [ ] ( ) ~ ` > # + - = | { } . !
- */
-function escapeMarkdown(text: string): string {
-  return String(text).replace(/([*_\[\]()~`>#+\-=|{}.!])/g, "\\$1");
-}
+const LOG_LEVELS: LogLevel[] = ["DEBUG", "INFO", "WARN", "ERROR", "SILENT"];
+const LOG_CATEGORIES = [
+  "INGESTION", "EXECUTION", "POSITIONS", "TELEGRAM", "WATCHLIST",
+  "FORENSICS", "SOCIAL", "CIRCUIT_BREAKER", "CONFIG", "CRASH_RECOVERY", "DEX"
+];
 
-interface AdminCommand {
-  command: string;
-  description: string;
+function escapeMd(text: string): string {
+  return String(text).replace(/([*_\[\]()~`>#+|=!])/g, "\\$1");
 }
 
 export class TelegramAdminBot {
@@ -25,11 +23,12 @@ export class TelegramAdminBot {
     this.adminChatId = process.env.TELEGRAM_ADMIN_CHAT_ID || "";
 
     if (!token) {
-      console.warn("[TelegramAdminBot] TELEGRAM_BOT_TOKEN not set, admin bot disabled");
+      logger.warn("TELEGRAM", "TelegramAdminBot", "TELEGRAM_BOT_TOKEN not set, admin bot disabled");
     }
 
     this.bot = new Telegraf(token || "");
     this.registerCommands();
+    this.registerCallbacks();
   }
 
   private isAdmin(userId: number): boolean {
@@ -37,64 +36,58 @@ export class TelegramAdminBot {
   }
 
   private registerCommands() {
-    // /settings or /config - show configuration menu
     this.bot.command(["settings", "config"], async (ctx) => {
       if (!this.isAdmin(ctx.from!.id)) {
         await ctx.reply("⚠️ Admin access only.");
         return;
       }
-      await this.showConfigMenu(ctx);
+      await this.showMainMenu(ctx);
     });
 
-    // /set <KEY> <VALUE> - update a setting
     this.bot.command("set", async (ctx) => {
       if (!this.isAdmin(ctx.from!.id)) {
         await ctx.reply("⚠️ Admin access only.");
         return;
       }
-
       const args = ctx.args;
       if (!args || args.length < 2) {
         await ctx.reply("Usage: /set <KEY> <VALUE>\nExample: /set TAKE_PROFIT_PCT 75");
         return;
       }
-
       const key = args[0].toUpperCase() as ConfigKey;
       const value = args[1];
-
       try {
         await configService.set(key, value);
+        logger.info("CONFIG", "TelegramAdminBot", "Config updated via Telegram", { key, value });
         await ctx.reply(`✅ Updated ${key} = ${value}`);
       } catch (e) {
-        await ctx.reply(`❌ Failed to update ${key}: ${e.message}`);
+        logger.error("CONFIG", "TelegramAdminBot", "Failed to update config", { key, error: e.message });
+        await ctx.reply(`❌ Failed: ${e.message}`);
       }
     });
 
-    // /toggle <KEY> - toggle boolean values
     this.bot.command("toggle", async (ctx) => {
       if (!this.isAdmin(ctx.from!.id)) {
         await ctx.reply("⚠️ Admin access only.");
         return;
       }
-
       const args = ctx.args;
       if (!args || args.length < 1) {
         await ctx.reply("Usage: /toggle <KEY>\nExample: /toggle DRY_RUN_MODE");
         return;
       }
-
       const key = args[0].toUpperCase() as ConfigKey;
-
       try {
         await configService.toggle(key);
         const newValue = configService.get(key);
+        logger.info("CONFIG", "TelegramAdminBot", "Config toggled", { key, value: newValue });
         await ctx.reply(`✅ Toggled ${key} = ${newValue}`);
       } catch (e) {
-        await ctx.reply(`❌ Failed to toggle ${key}: ${e.message}`);
+        logger.error("CONFIG", "TelegramAdminBot", "Failed to toggle", { key, error: e.message });
+        await ctx.reply(`❌ Failed: ${e.message}`);
       }
     });
 
-    // /status - show current status
     this.bot.command("status", async (ctx) => {
       if (!this.isAdmin(ctx.from!.id)) {
         await ctx.reply("⚠️ Admin access only.");
@@ -103,74 +96,172 @@ export class TelegramAdminBot {
       await this.showStatus(ctx);
     });
 
-    // /help - show available commands
-    this.bot.command("help", async (ctx) => {
-      await ctx.reply("Available commands:\n" +
-        "/settings or /config - View & manage configuration\n" +
-        "/set <KEY> <VALUE> - Update a setting\n" +
-        "/toggle <KEY> - Toggle boolean value\n" +
-        "/status - View swarm status\n" +
-        "/help - Show this message");
+    this.bot.command("logs", async (ctx) => {
+      if (!this.isAdmin(ctx.from!.id)) {
+        await ctx.reply("⚠️ Admin access only.");
+        return;
+      }
+      await this.showLogMenu(ctx);
     });
 
-    // Inline button callback handlers
+    this.bot.command("loglevel", async (ctx) => {
+      if (!this.isAdmin(ctx.from!.id)) {
+        await ctx.reply("⚠️ Admin access only.");
+        return;
+      }
+      const args = ctx.args;
+      if (!args || args.length < 1) {
+        await ctx.reply("Usage: /loglevel <LEVEL>\nLevels: DEBUG, INFO, WARN, ERROR, SILENT");
+        return;
+      }
+      const level = args[0].toUpperCase() as LogLevel;
+      if (!LOG_LEVELS.includes(level)) {
+        await ctx.reply(`❌ Invalid level. Use: ${LOG_LEVELS.join(", ")}`);
+        return;
+      }
+      logger.setGlobalLogLevel(level);
+      logger.info("TELEGRAM", "TelegramAdminBot", "Global log level set", { level });
+      await ctx.reply(`✅ Global log level set to ${level}`);
+    });
+
+    this.bot.command("logcategory", async (ctx) => {
+      if (!this.isAdmin(ctx.from!.id)) {
+        await ctx.reply("⚠️ Admin access only.");
+        return;
+      }
+      const args = ctx.args;
+      if (!args || args.length < 2) {
+        await ctx.reply(`Usage: /logcategory <CATEGORY> <LEVEL>\nCategories: ${LOG_CATEGORIES.join(", ")}\nLevels: ${LOG_LEVELS.join(", ")}`);
+        return;
+      }
+      const category = args[0].toUpperCase();
+      const level = args[1].toUpperCase() as LogLevel;
+      if (!LOG_LEVELS.includes(level)) {
+        await ctx.reply(`❌ Invalid level. Use: ${LOG_LEVELS.join(", ")}`);
+        return;
+      }
+      try {
+        logger.setCategoryLogLevel(category as any, level);
+        logger.info("TELEGRAM", "TelegramAdminBot", "Category log level set", { category, level });
+        await ctx.reply(`✅ ${category} set to ${level}`);
+      } catch (e) {
+        await ctx.reply(`❌ Failed: ${e.message}`);
+      }
+    });
+
+    this.bot.command("help", async (ctx) => {
+      await ctx.reply(
+        "🤖 Swarm Admin Commands\n\n" +
+        "📋 Management:\n" +
+        "/settings - Main configuration menu\n" +
+        "/status - Current swarm status\n" +
+        "/logs - Logging configuration\n" +
+        "\n" +
+        "⚙️ Config:\n" +
+        "/set KEY VALUE - Update a setting\n" +
+        "/toggle KEY - Toggle boolean value\n" +
+        "/loglevel LEVEL - Set global log level\n" +
+        "/logcategory CAT LEVEL - Set category log level"
+      );
+    });
+  }
+
+  private registerCallbacks() {
     this.bot.on("callback_query", async (ctx) => {
       const query = ctx.callbackQuery;
       if (!query.data) return;
 
       try {
-        switch (query.data) {
-          case "toggle_dry_run": {
-            await configService.toggle("DRY_RUN_MODE");
-            const value = configService.getBoolean("DRY_RUN_MODE") ? "TRUE" : "FALSE";
-            await query.answer(`DRY_RUN_MODE: ${value}`);
-            break;
-          }
-          case "show_status": {
-            await query.answer();
-            await this.showStatus(ctx);
-            break;
-          }
-          case "exits": {
-            await query.answer();
-            await ctx.reply("Exit rules:\n" +
-              `• TAKE_PROFIT_PCT: ${configService.getNumber("TAKE_PROFIT_PCT")}%\n` +
-              `• STOP_LOSS_PCT: ${configService.getNumber("STOP_LOSS_PCT")}%\n` +
-              `• TRAILING_STOP_PCT: ${configService.getNumber("TRAILING_STOP_PCT")}%\n` +
-              `• MAX_HOLD_TIME_MIN: ${configService.getNumber("MAX_HOLD_TIME_MIN")} min\n` +
-              `• TIME_STOP_ENABLED: ${configService.getBoolean("TIME_STOP_ENABLED") ? "TRUE" : "FALSE"}`);
-            break;
-          }
-          case "risk": {
-            await query.answer();
-            await ctx.reply("Risk parameters:\n" +
-              `• MAX_TRADE_SIZE_SOL: ${configService.getNumber("MAX_TRADE_SIZE_SOL")}\n` +
-              `• SLIPPAGE_BPS: ${configService.getNumber("SLIPPAGE_BPS")}\n` +
-              `• JITO_TIP_LAMPORTS: ${configService.getNumber("JITO_TIP_LAMPORTS")}\n` +
-              `• MAX_CONCURRENT_POSITIONS: ${configService.getNumber("MAX_CONCURRENT_POSITIONS")}`);
-            break;
-          }
-          case "ingestion": {
-            await query.answer();
-            await ctx.reply("Ingestion parameters:\n" +
-              `• MAX_TRENDING_TOKENS: ${configService.getNumber("MAX_TRENDING_TOKENS")}\n` +
-              `• MAX_TOP_TRADERS: ${configService.getNumber("MAX_TOP_TRADERS")}\n` +
-              `• INGESTION_INTERVAL_MS: ${configService.getNumber("INGESTION_INTERVAL_MS")}\n` +
-              `• MIN_TRADER_PNL_USD: ${configService.getNumber("MIN_TRADER_PNL_USD")}`);
-            break;
-          }
-          case "forensics": {
-            await query.answer();
-            await ctx.reply("Forensics parameters:\n" +
-              `• RUGCHECK_MAX_SCORE: ${configService.getNumber("RUGCHECK_MAX_SCORE")}\n` +
-              `• MIN_LIQUIDITY_USD: ${configService.getNumber("MIN_LIQUIDITY_USD")}\n` +
-              `• MAX_TOP10_CONCENTRATION_PCT: ${configService.getNumber("MAX_TOP10_CONCENTRATION_PCT")}\n` +
-              `• WALLET_MIRROR_INTERVAL_MS: ${configService.getNumber("WALLET_MIRROR_INTERVAL_MS")}`);
-            break;
-          }
+        logger.debug("TELEGRAM", "TelegramAdminBot", "Callback received", { data: query.data });
+
+        if (query.data === "toggle_dry_run") {
+          await configService.toggle("DRY_RUN_MODE");
+          const value = configService.getBoolean("DRY_RUN_MODE");
+          logger.info("TELEGRAM", "TelegramAdminBot", "DRY_RUN_MODE toggled", { value });
+          await query.answer(`DRY_RUN: ${value ? "ON" : "OFF"}`);
+          return;
+        }
+
+        if (query.data === "show_status") {
+          await query.answer();
+          await this.showStatus(ctx);
+          return;
+        }
+
+        if (query.data === "log_menu") {
+          await query.answer();
+          await this.showLogMenu(ctx);
+          return;
+        }
+
+        if (query.data.startsWith("log_global_")) {
+          const level = query.data.replace("log_global_", "").toUpperCase() as LogLevel;
+          logger.setGlobalLogLevel(level);
+          logger.info("TELEGRAM", "TelegramAdminBot", "Global log level set via button", { level });
+          await query.answer(`Global log level: ${level}`);
+          await this.showLogMenu(ctx);
+          return;
+        }
+
+        if (query.data.startsWith("log_cat_")) {
+          const parts = query.data.replace("log_cat_", "").split(":");
+          const category = parts[0].toUpperCase();
+          const level = parts[1].toUpperCase() as LogLevel;
+          logger.setCategoryLogLevel(category as any, level);
+          logger.info("TELEGRAM", "TelegramAdminBot", "Category log level set via button", { category, level });
+          await query.answer(`${category}: ${level}`);
+          return;
+        }
+
+        if (query.data === "exits") {
+          await query.answer();
+          await ctx.reply(
+            "💰 Exit Rules\n" +
+            `• Take Profit: ${configService.getNumber("TAKE_PROFIT_PCT")}%\n` +
+            `• Stop Loss: ${configService.getNumber("STOP_LOSS_PCT")}%\n` +
+            `• Trailing Stop: ${configService.getNumber("TRAILING_STOP_PCT")}%\n` +
+            `• Stale Timeout: ${configService.getNumber("STALE_POSITION_MINUTES")} min`
+          );
+          return;
+        }
+
+        if (query.data === "risk") {
+          await query.answer();
+          await ctx.reply(
+            "⚠️ Risk Parameters\n" +
+            `• Max Trade Size: ${configService.getNumber("MAX_TRADE_SIZE_SOL")} SOL\n` +
+            `• Slippage: ${configService.getNumber("SLIPPAGE_BPS")} bps\n` +
+            `• Jito Tip: ${configService.getNumber("JITO_TIP_LAMPORTS")} lamports\n` +
+            `• Max Positions: ${configService.getNumber("MAX_CONCURRENT_POSITIONS")}`
+          );
+          return;
+        }
+
+        if (query.data === "ingestion") {
+          await query.answer();
+          await ctx.reply(
+            "🔍 Ingestion Parameters\n" +
+            `• Trending Tokens: ${configService.getNumber("MAX_TRENDING_TOKENS")}\n` +
+            `• Top Traders: ${configService.getNumber("MAX_TOP_TRADERS")}\n` +
+            `• Poll Interval: ${configService.getNumber("INGESTION_INTERVAL_MS")}ms\n` +
+            `• Min Trader PnL: $${configService.getNumber("MIN_TRADER_PNL_USD")}`
+          );
+          return;
+        }
+
+        if (query.data === "forensics") {
+          await query.answer();
+          await ctx.reply(
+            "🧬 Forensics Parameters\n" +
+            `• Max Rug Score: ${configService.getNumber("RUGCHECK_MAX_SCORE")}\n` +
+            `• Min Liquidity: $${configService.getNumber("MIN_LIQUIDITY_USD")}\n` +
+            `• Max Top10 Concentration: ${configService.getNumber("MAX_TOP10_CONCENTRATION_PCT")}%\n` +
+            `• Mirror Interval: ${configService.getNumber("WALLET_MIRROR_INTERVAL_MS")}ms`
+          );
+          return;
         }
       } catch (e) {
-        console.error("[TelegramAdminBot] Callback error:", e);
+        logger.error("TELEGRAM", "TelegramAdminBot", "Callback error", { error: e.message });
         try {
           await query.answer(`Error: ${e.message}`);
         } catch (_) {
@@ -180,42 +271,83 @@ export class TelegramAdminBot {
     });
   }
 
-  private async showConfigMenu(ctx) {
-    const all = configService.getAll();
+  private async showMainMenu(ctx) {
+    const dryRun = configService.getBoolean("DRY_RUN_MODE");
+    const positions = watchlistService.getActivePositionsCount();
+    const menuText = `⚙️ SWARM ADMIN MENU
 
-    // Build menu with inline keyboard
-    const buttons: any[] = [];
-    let menuText = "⚙️ *SWARM CONFIGURATION MENU*\n\n";
+🔴 Mode: ${dryRun ? "DRY_RUN" : "LIVE"}
+📍 Positions: ${positions}`;
 
-    // Group by category
-    for (const [category, entries] of all) {
-      menuText += `📊 *${category}*:\n`;
-      for (const entry of entries) {
-        let displayValue = entry.value;
-        if (entry.key === "DRY_RUN_MODE") {
-          displayValue = entry.value === "true" ? "TRUE" : "FALSE";
-        }
-        menuText += `• ${escapeMarkdown(entry.key)}: ${escapeMarkdown(String(displayValue))}\n`;
-      }
-      menuText += "\n";
-    }
-
-    // Add quick action buttons
-    buttons.push([
-      Markup.button.callback("🔴 Toggle DRY_RUN", "toggle_dry_run"),
-      Markup.button.callback("📊 Status", "show_status")
-    ]);
-    buttons.push([
-      Markup.button.callback("💰 Exits", "exits"),
-      Markup.button.callback("⚠️ Risk", "risk")
-    ]);
-    buttons.push([
-      Markup.button.callback("🔍 Ingestion", "ingestion"),
-      Markup.button.callback("🧬 Forensics", "forensics")
-    ]);
+    const buttons: any[][] = [
+      [
+        Markup.button.callback(dryRun ? "🔴 DRY_RUN (ON)" : "🟢 LIVE (OFF)", "toggle_dry_run"),
+        Markup.button.callback("📊 Status", "show_status")
+      ],
+      [
+        Markup.button.callback("💰 Exits", "exits"),
+        Markup.button.callback("⚠️ Risk", "risk")
+      ],
+      [
+        Markup.button.callback("🔍 Ingestion", "ingestion"),
+        Markup.button.callback("🧬 Forensics", "forensics")
+      ],
+      [
+        Markup.button.callback("📝 Logging", "log_menu")
+      ]
+    ];
 
     const keyboard = Markup.inlineKeyboard(buttons);
-    await ctx.replyWithMarkdown(menuText, keyboard);
+    await ctx.reply(menuText, keyboard);
+  }
+
+  private async showLogMenu(ctx) {
+    const globalLevel = logger.getGlobalLogLevel();
+
+    let text = "📝 LOGGING CONFIGURATION\n\n";
+    text += "Global Level:\n";
+    text += `Current: ${globalLevel}\n\n`;
+
+    text += "Level Guide:\n";
+    text += "🔵 DEBUG - Verbose: every trade step, API calls\n";
+    text += "🟢 INFO - Normal operations (default)\n";
+    text += "🟡 WARN - Warnings only (missed trades, issues)\n";
+    text += "🔴 ERROR - Errors only\n";
+    text += "⚫ SILENT - No output\n\n";
+
+    const levelButtons: any[][] = [];
+    const row: any[] = [];
+    for (const level of LOG_LEVELS) {
+      const icon = level === globalLevel ? "✓ " : "";
+      row.push(Markup.button.callback(`${icon}${level}`, `log_global_${level}`));
+      if (row.length === 3) {
+        levelButtons.push(row);
+        row.length = 0;
+      }
+    }
+    if (row.length > 0) {
+      levelButtons.push(row);
+    }
+
+    text += "Category Overrides:\n";
+    text += "Tap a category to set its level:\n\n";
+
+    const categoryButtons: any[][] = [];
+    let catRow: any[] = [];
+    for (const cat of LOG_CATEGORIES) {
+      catRow.push(Markup.button.callback(cat, `log_cat_${cat}:INFO`));
+      if (catRow.length === 3) {
+        categoryButtons.push(catRow);
+        catRow = [];
+      }
+    }
+    if (catRow.length > 0) {
+      categoryButtons.push(catRow);
+    }
+
+    const allButtons = [...levelButtons, categoryButtons];
+    const keyboard = Markup.inlineKeyboard(allButtons);
+    await ctx.reply(text, keyboard);
   }
 
   private async showStatus(ctx) {
@@ -223,72 +355,78 @@ export class TelegramAdminBot {
     const dryRun = configService.getBoolean("DRY_RUN_MODE");
     const tradeSize = configService.getNumber("MAX_TRADE_SIZE_SOL");
 
-    let statusText = "🤖 *SWARM STATUS*\n\n";
-    statusText += `📍 Active Positions: ${escapeMarkdown(String(positions))}\n`;
-    statusText += `💰 Trade Size: ${escapeMarkdown(String(tradeSize))} SOL\n`;
-    statusText += `🔴 Mode: ${escapeMarkdown(dryRun ? "DRY_RUN" : "LIVE")}\n`;
-    statusText += `📈 Take Profit: ${escapeMarkdown(String(configService.getNumber("TAKE_PROFIT_PCT")))}%\n`;
-    statusText += `📉 Stop Loss: ${escapeMarkdown(String(configService.getNumber("STOP_LOSS_PCT")))}%\n`;
+    let statusText = "🤖 SWARM STATUS\n\n";
+    statusText += `📍 Active Positions: ${positions}\n`;
+    statusText += `💰 Trade Size: ${tradeSize} SOL\n`;
+    statusText += `🔴 Mode: ${dryRun ? "DRY_RUN" : "LIVE"}\n`;
+    statusText += `📈 Take Profit: ${configService.getNumber("TAKE_PROFIT_PCT")}%\n`;
+    statusText += `📉 Stop Loss: ${configService.getNumber("STOP_LOSS_PCT")}%\n`;
 
-    // Get open positions details
     try {
       const openPositions = await watchlistService.getOpenPositions();
       if (openPositions.length > 0) {
-        statusText += "\n*Open Positions:*\n";
+        statusText += "\nOpen Positions:\n";
         for (const pos of openPositions) {
           statusText += `• ${pos.symbol || pos.mint_address} (entered ${pos.entered_at})\n`;
         }
       }
     } catch (e) {
-      // ignore
+      logger.error("TELEGRAM", "TelegramAdminBot", "Failed to get open positions", { error: e.message });
     }
 
-    await ctx.replyWithMarkdown(statusText);
+    await ctx.reply(statusText);
   }
 
-  /**
-   * Start polling for updates.
-   */
   async start() {
     if (this.started) return;
 
     try {
-      await this.bot.launch();
-      console.log("[TelegramAdminBot] Admin bot started and polling");
+      this.bot.launch();
+      logger.info("TELEGRAM", "TelegramAdminBot", "Admin bot started and polling");
       this.started = true;
     } catch (e) {
-      console.error("[TelegramAdminBot] Failed to start:", e);
+      logger.error("TELEGRAM", "TelegramAdminBot", "Failed to start admin bot", { error: e.message });
     }
   }
 
-  /**
-   * Stop polling.
-   */
   async stop() {
     if (!this.started) return;
 
     try {
       await this.bot.stop();
-      console.log("[TelegramAdminBot] Admin bot stopped");
+      logger.info("TELEGRAM", "TelegramAdminBot", "Admin bot stopped");
       this.started = false;
     } catch (e) {
-      console.error("[TelegramAdminBot] Failed to stop:", e);
+      logger.error("TELEGRAM", "TelegramAdminBot", "Failed to stop admin bot", { error: e.message });
     }
   }
 
-  /**
-   * Send a notification to admin.
-   */
   async notifyAdmin(text: string) {
     if (!this.adminChatId) {
-      console.log("[TelegramAdminBot] No admin chat ID configured, skipping notification");
+      logger.debug("TELEGRAM", "TelegramAdminBot", "No admin chat ID configured");
       return;
     }
 
     try {
+      logger.info("TELEGRAM", "TelegramAdminBot", "Sending notification", { text: text.slice(0, 100) });
       await this.bot.telegram.sendMessage(this.adminChatId, text);
     } catch (e) {
-      console.error("[TelegramAdminBot] Failed to send notification:", e);
+      logger.error("TELEGRAM", "TelegramAdminBot", "Failed to send notification", { error: e.message });
+    }
+  }
+
+  async sendToChat(text: string): Promise<void> {
+    const chatId = process.env.TELEGRAM_TELEMETRY_CHAT_ID;
+    if (!chatId) {
+      logger.debug("TELEGRAM", "TelegramAdminBot", "TELEGRAM_TELEMETRY_CHAT_ID not set");
+      return;
+    }
+
+    try {
+      logger.info("TELEGRAM", "TelegramAdminBot", "Sending message to chat", { chatId });
+      await this.bot.telegram.sendMessage(chatId, text);
+    } catch (e) {
+      logger.error("TELEGRAM", "TelegramAdminBot", "Failed to send message", { error: e.message });
     }
   }
 }

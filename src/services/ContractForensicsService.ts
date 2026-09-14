@@ -1,5 +1,6 @@
 import { Connection, PublicKey } from "@solana/web3.js";
 import { getSolanaRpcUrl, getRugcheckApiUrl } from "../utils/env.ts";
+import { logger } from "./LoggerService.ts";
 
 export interface ContractSecurityReport {
   mintAddress: string;
@@ -77,7 +78,7 @@ export class ContractForensicsService {
         report.status = "PASS";
       }
     } catch (e) {
-      console.log(`[ContractForensics] Error analyzing ${mintAddress}:`, e.message);
+      logger.error("FORENSICS", "ContractForensics", "Error analyzing token", { mintAddress, error: e.message });
       report.reasons.push(`Analysis failed: ${e.message}`);
     }
 

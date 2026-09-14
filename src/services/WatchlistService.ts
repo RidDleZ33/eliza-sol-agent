@@ -5,6 +5,7 @@ import {
   getMaxTrendingTokens,
   getMaxTopTraders,
 } from "../utils/env.ts";
+import { logger } from "./LoggerService.ts";
 
 export interface WatchedToken {
   mint_address: string;
@@ -144,7 +145,7 @@ class WatchlistService {
         );
       return true;
     } catch (e) {
-      console.error(`Failed to add token ${token.mint_address}:`, e);
+      logger.error("WATCHLIST", "WatchlistService", "Failed to add token", { mint: token.mint_address, error: e.message });
       return false;
     }
   }
@@ -171,9 +172,7 @@ class WatchlistService {
       .get();
 
     if (lowest) {
-      console.log(
-        `Pruning lowest-scoring token: ${lowest.mint_address}`
-      );
+      logger.info("WATCHLIST", "WatchlistService", "Pruning lowest-scoring token", { mint: lowest.mint_address });
       this.db
         .prepare("DELETE FROM watched_tokens WHERE mint_address = ?")
         .run(lowest.mint_address);
@@ -212,7 +211,7 @@ class WatchlistService {
         );
       return true;
     } catch (e) {
-      console.error(`Failed to add trader ${trader.wallet_address}:`, e);
+      logger.error("WATCHLIST", "WatchlistService", "Failed to add trader", { wallet: trader.wallet_address, error: e.message });
       return false;
     }
   }
@@ -231,9 +230,7 @@ class WatchlistService {
       .get();
 
     if (lowest) {
-      console.log(
-        `Pruning lowest-performing trader: ${lowest.wallet_address}`
-      );
+      logger.info("WATCHLIST", "WatchlistService", "Pruning lowest-performing trader", { wallet: lowest.wallet_address });
       this.db
         .prepare("DELETE FROM watched_traders WHERE wallet_address = ?")
         .run(lowest.wallet_address);

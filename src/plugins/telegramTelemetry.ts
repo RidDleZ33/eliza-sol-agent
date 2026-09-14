@@ -1,5 +1,6 @@
 // Create a light plugin: src/plugins/telegramTelemetry.ts
 import { Plugin, IAgentRuntime, Memory } from "@elizaos/core";
+import { logger } from "../services/LoggerService.ts";
 
 export const telegramTelemetryPlugin: Plugin = {
   name: "telegram-telemetry",
@@ -27,7 +28,7 @@ export const telegramTelemetryPlugin: Plugin = {
               parse_mode: "HTML",
               disable_web_page_preview: true
             })
-          }).catch(err => console.error("Telemetry push failed:", err));
+          }).catch(err => logger.error("TELEGRAM", "telegramTelemetry", "Telemetry push failed", { error: err.message }));
         });
       }
     }
