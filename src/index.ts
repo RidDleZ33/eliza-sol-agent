@@ -23,6 +23,7 @@ import { configService } from "./services/ConfigService.ts";
 import { telegramAdminBot } from "./services/TelegramAdminBot.ts";
 import { watchlistService } from "./services/WatchlistService.ts";
 import { logger } from "./services/LoggerService.ts";
+import { ensureWarRoomJoined } from "./utils/warRoom.ts";
 
 const sleep = promisify(setTimeout);
 
@@ -117,12 +118,61 @@ async function main() {
   logger.info("CONFIG", "Index", "Adding agents to swarm...");
   const agentIds = await elizaOS.addAgents(
     [
-      { character: alphaCharacter, plugins: [consensusPlugin, watchlistPlugin, solanaPlugin, openaiPlugin, sqlPlugin], evaluator: evaluateAlphaNarrative, evaluatorIntervalMs: 180000 },
-      { character: betaCharacter, plugins: [consensusPlugin, watchlistPlugin, solanaPlugin, openaiPlugin, sqlPlugin], evaluator: evaluateBetaContract, evaluatorIntervalMs: 120000 },
-      { character: gammaCharacter, plugins: [consensusPlugin, tradingExecutionPlugin, jupiterPlugin, openaiPlugin, sqlPlugin], evaluator: evaluateGammaConsensus, evaluatorIntervalMs: 30000 },
+      { character: alphaCharacter, plugins: [consensusPlugin, watchlistPlugin, solanaPlugin, openaiPlugin, sqlPlugin] },
+      { character: betaCharacter, plugins: [consensusPlugin, watchlistPlugin, solanaPlugin, openaiPlugin, sqlPlugin] },
+      { character: gammaCharacter, plugins: [consensusPlugin, tradingExecutionPlugin, jupiterPlugin, openaiPlugin, sqlPlugin] }
     ],
     { autoStart: true }
   );
+
+  // Get runtimes and schedule evaluator loops
+  const runtimes = elizaOS.getAgents();
+  const alphaRuntime = runtimes.find(r => r.character.name === "Alpha");
+  const betaRuntime = runtimes.find(r => r.character.name === "Beta");
+  const gammaRuntime = runtimes.find(r => r.character.name === "Gamma");
+
+  // Initialize War Room for all agents
+  logger.info("CONFIG", "Index", "Joining agents to War Room...");
+  for (const runtime of runtimes) {
+    try {
+      await ensureWarRoomJoined(runtime);
+    } catch (e) {
+      logger.error("CONFIG", "Index", `Failed to join ${runtime.character.name} to War Room`, { error: e.message });
+    }
+  }
+
+  if (alphaRuntime) {
+    logger.info("CONFIG", "Index", "Scheduling Alpha evaluator (every 3m)");
+    setInterval(async () => {
+      try {
+        await evaluateAlphaNarrative(alphaRuntime);
+      } catch (e) {
+        logger.error("CONFIG", "Index", "Alpha evaluator error", { error: e.message });
+      }
+    }, 180000);
+  }
+
+  if (betaRuntime) {
+    logger.info("CONFIG", "Index", "Scheduling Beta evaluator (every 2m)");
+    setInterval(async () => {
+      try {
+        await evaluateBetaContract(betaRuntime);
+      } catch (e) {
+        logger.error("CONFIG", "Index", "Beta evaluator error", { error: e.message });
+      }
+    }, 120000);
+  }
+
+  if (gammaRuntime) {
+    logger.info("CONFIG", "Index", "Scheduling Gamma evaluator (every 30s)");
+    setInterval(async () => {
+      try {
+        await evaluateGammaConsensus(gammaRuntime);
+      } catch (e) {
+        logger.error("CONFIG", "Index", "Gamma evaluator error", { error: e.message });
+      }
+    }, 30000);
+  }
 
   logger.info("CONFIG", "Index", "AI Committee initialized. Three agents online.");
 

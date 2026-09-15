@@ -78,7 +78,13 @@ class WatchlistService {
         prune_reason TEXT,
         added_by_agent TEXT,
         added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        alpha_decision TEXT,
+        alpha_confidence REAL,
+        alpha_narrative_score REAL,
+        alpha_organicity_score REAL,
+        alpha_category TEXT,
+        alpha_reasoning TEXT
       );
 
       CREATE TABLE IF NOT EXISTS watched_traders (
@@ -159,10 +165,83 @@ class WatchlistService {
 
   /**
    * Get tokens ready for Alpha narrative evaluation.
+   * Selects tokens that are PENDING_ALPHA, DEFERRED (past eval time), or need re-evaluation.
    */
   async getTokensForAlphaEvaluation(): Promise<WatchedToken[]> {
     return this.db
       .prepare(`SELECT * FROM watched_tokens WHERE status IN ('PENDING_ALPHA', 'DEFERRED') AND next_eval_at <= CURRENT_TIMESTAMP`)
+      .all() as WatchedToken[];
+  }
+
+  /**
+   * Update a token's Alpha narrative evaluation verdict.
+   */
+  async updateTokenAlphaVerdict(
+    mintAddress: string,
+    verdict: {
+      decision: string;
+      confidenceRatio: number;
+      narrativeScore: number;
+      organicityScore: number;
+      narrativeCategory: string;
+      reasoning: string;
+    }
+  ): Promise<void> {
+    // PASS and DISSENT both proceed to Beta; only FAIL blocks it
+    const status = (verdict.decision === 'PASS' || verdict.decision === 'DISSENT') ? 'ALPHA_PASSED' : 'ALPHA_FAILED';
+    
+    this.db
+      .prepare(
+        `UPDATE watched_tokens SET 
+          status = ?,
+          narrative_score = ?,
+          alpha_decision = ?,
+          alpha_confidence = ?,
+          alpha_narrative_score = ?,
+          alpha_organicity_score = ?,
+          alpha_category = ?,
+          alpha_reasoning = ?,
+          last_updated = CURRENT_TIMESTAMP
+         WHERE mint_address = ?`
+      )
+      .run(
+        status,
+        verdict.narrativeScore,
+        verdict.decision,
+        verdict.confidenceRatio,
+        verdict.narrativeScore,
+        verdict.organicityScore,
+        verdict.narrativeCategory,
+        verdict.reasoning,
+        mintAddress
+      );
+
+    logger.info("WATCHLIST", "updateTokenAlphaVerdict", "Alpha verdict stored", {
+      mint: mintAddress,
+      decision: verdict.decision,
+      confidence: verdict.confidenceRatio,
+      narrative: verdict.narrativeScore,
+      organicity: verdict.organicityScore,
+      category: verdict.narrativeCategory
+    });
+  }
+
+  /**
+   * Get tokens that passed Alpha narrative evaluation and are ready for Beta contract forensics.
+   */
+  async getTokensForBetaEvaluation(): Promise<WatchedToken[]> {
+    return this.db
+      .prepare("SELECT * FROM watched_tokens WHERE status = 'ALPHA_PASSED'")
+      .all() as WatchedToken[];
+  }
+
+  /**
+   * Get tokens that have passed both Alpha narrative and Beta contract evaluation.
+   * These are the only tokens eligible for trading by Gamma.
+   */
+  async getTokensForTrading(): Promise<WatchedToken[]> {
+    return this.db
+      .prepare("SELECT * FROM watched_tokens WHERE status = 'BETA_PASSED'")
       .all() as WatchedToken[];
   }
 

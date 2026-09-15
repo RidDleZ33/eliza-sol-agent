@@ -1,108 +1,124 @@
 import { watchlistService } from "../services/WatchlistService.ts";
 import { socialEvaluatorService, SocialTelemetry } from "../services/SocialEvaluatorService.ts";
-import { configService } from "../services/ConfigService.ts";
+import { parseAndValidate } from "../utils/jsonParsing.ts";
 
-interface AlphaEvaluationResult {
-  score: number;
-  communityOrganicity: number;
+export type DecisionType = "PASS" | "FAIL" | "DISSENT";
+
+export interface AlphaVerdict {
+  decision: DecisionType;
+  confidenceRatio: number; // 0.0 to 1.0 rating weight for the committee
+  narrativeScore: number;  // Overall narrative strength (0.0 - 1.0)
+  organicityScore: number; // Real vs bot community activity (0.0 - 1.0)
+  narrativeCategory: string; // e.g., "AI_AGENT", "CULTURE", "TIKTOK_MEME", "WEAK/GENERIC"
   reasoning: string;
 }
 
 export async function evaluateAlphaNarrative(runtime: any) {
   try {
-    runtime.logger.info("[Alpha] Scanning pending/deferred tokens for narrative evaluation...");
-
     const tokensToEvaluate = await watchlistService.getTokensForAlphaEvaluation();
     if (tokensToEvaluate.length === 0) return;
 
     for (const token of tokensToEvaluate) {
       try {
         const telemetry = await socialEvaluatorService.evaluateToken(token.mint_address, token.symbol);
-        const evalResult = await alphaEvaluateNarrative(runtime, token, telemetry);
+        const verdict = await alphaEvaluateNarrative(runtime, token, telemetry);
 
-        const minScore = configService.getNumber("MIN_NARRATIVE_SCORE");
+        runtime.logger.info(`[Alpha] ${token.symbol} Verdict: ${verdict.decision} (Confidence: ${verdict.confidenceRatio}, Narrative: ${verdict.narrativeScore})`);
 
-        if (evalResult.score >= minScore && telemetry.botLikelihoodScore < 0.6) {
-          // PASS -> Promote to Beta
-          runtime.logger.info(`[Alpha] ${token.symbol} PASSED (${evalResult.score})`);
-          await watchlistService.updateTokenStatus(token.mint_address, "ALPHA_PASSED", evalResult.score);
+        await watchlistService.updateTokenAlphaVerdict(token.mint_address, verdict);
 
-          const signal = {
-            event: "NARRATIVE_EVALUATION_PASS",
-            mint_address: token.mint_address,
-            symbol: token.symbol,
-            narrative_score: evalResult.score,
-            reasoning: evalResult.reasoning
-          };
-
-          runtime.emitEvent("alpha_narrative_pass", signal);
-        } else if (evalResult.score >= 0.5 && (token.eval_count || 0) < 3) {
-          // DEFER -> Re-evaluate in 15 mins
-          runtime.logger.info(`[Alpha] ${token.symbol} DEFERRED (${evalResult.score}). Retrying later.`);
-          await watchlistService.deferToken(token.mint_address, 15);
-        } else {
-          // FAIL / PRUNE
-          runtime.logger.info(`[Alpha] ${token.symbol} PRUNED (${evalResult.score}, BotScore: ${telemetry.botLikelihoodScore})`);
-          await watchlistService.updateTokenStatus(token.mint_address, "PRUNED", evalResult.score, "LOW_SCORE_OR_BOT_SPAM");
-        }
+        runtime.emitEvent("alpha_evaluation_complete", {
+          mint_address: token.mint_address,
+          symbol: token.symbol,
+          verdict
+        });
       } catch (e) {
         runtime.logger.error(`[Alpha] Error evaluating ${token.symbol}:`, e);
       }
     }
   } catch (e) {
-    runtime.logger.error("[Alpha] Error in narrative evaluation loop:", e);
+    runtime.logger.error("[Alpha] Evaluation loop error:", e);
   }
 }
 
-async function alphaEvaluateNarrative(runtime: any, token: any, telemetry: SocialTelemetry): Promise<AlphaEvaluationResult> {
-  const prompt = `You are Agent Alpha, a crypto narrative analyst. Evaluate this Solana token.
+async function alphaEvaluateNarrative(runtime: any, token: any, telemetry: SocialTelemetry): Promise<AlphaVerdict> {
+  const prompt = `You are Agent Alpha, sentiment and narrative specialist on a 3-agent Solana trading committee.
 
-Token: $${token.symbol} (${token.mint_address})
-DexScreener Platforms: ${telemetry.socialPlatforms.join(", ") || "None"}
-Dex Boosted: ${telemetry.isDexBoosted ? "YES" : "NO"}
-5m Buy/Sell Ratio: ${telemetry.buySellRatio5m.toFixed(2)}
-Volume Acceleration (5m vs 1h): ${telemetry.txAcceleration5mVs1h.toFixed(2)}x
-Detected Bot Spam Likelihood: ${(telemetry.botLikelihoodScore * 100).toFixed(0)}%
+Analyze the sentiment, narrative virality, and organic momentum of this Solana token.
 
-Recent Tweets Sample:
-${telemetry.rawTextSamples.length > 0 ? telemetry.rawTextSamples.slice(0, 5).map(t => `- "${t}"`).join("\n") : "No tweets fetched"}
+TOKEN DETAILS:
+- Symbol: $${token.symbol}
+- Mint Address: ${token.mint_address}
+- DexScreener Platforms: ${telemetry.socialPlatforms.join(", ") || "None"}
+- Dex Boosted: ${telemetry.isDexBoosted ? "YES" : "NO"}
+- 5m Buy/Sell Ratio: ${telemetry.buySellRatio5m.toFixed(2)}
+- 5m Volume Acceleration vs 1h: ${telemetry.txAcceleration5mVs1h.toFixed(2)}x
+- Bot Spam Likelihood: ${(telemetry.botLikelihoodScore * 100).toFixed(0)}%
+- Cashtag Spam Ratio: ${(telemetry.cashtagSpamRatio * 100).toFixed(0)}%
 
-Return strictly valid JSON matching this schema:
+RECENT TWEETS SAMPLE:
+${telemetry.rawTextSamples.length > 0 ? telemetry.rawTextSamples.slice(0, 8).map(t => `- "${t}"`).join("\n") : "No recent tweets fetched"}
+
+COMMITTEE DECISION GUIDELINES:
+1. PASS: Organic chatter, clear meme/narrative theme, reasonable bot score (< 40%). High confidence ratio (0.7 - 1.0).
+2. FAIL: Low chatter, generic ticker, high bot farming (> 60%), or missing social presence.
+3. DISSENT: Explicitly override expected market signals.
+   - Bullish Dissent: High viral momentum/organic vibe despite low DEX metrics.
+   - Bearish Dissent: Massive volume/price pump on DEX, but social chatter is strictly 90%+ bot farms or non-existent.
+
+Respond STRICTLY in valid JSON:
 {
-  "score": <number 0.0 to 1.0>,
-  "communityOrganicity": <number 0.0 to 1.0>,
-  "reasoning": "<concise explanation>"
+  "decision": "PASS" | "FAIL" | "DISSENT",
+  "confidenceRatio": <number 0.00 to 1.00>,
+  "narrativeScore": <number 0.00 to 1.00>,
+  "organicityScore": <number 0.00 to 1.00>,
+  "narrativeCategory": "<AI_AGENT | MEME | CULTURE | UTILITY | WEAK>",
+  "reasoning": "<1-2 sentence concise explanation>"
 }`;
 
   try {
-    const response = await runtime.generateText({
-      messages: [{ role: "user", content: prompt }]
-    });
+    const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('LLM Timeout')), 25000));
+    const response: any = await Promise.race([runtime.generateText(prompt), timeout]);
 
-    const jsonMatch = response.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      const parsed = JSON.parse(jsonMatch[0]);
+    const responseStr = typeof response === 'string' ? response : String(response || '');
+
+    const parsed = parseAndValidate(responseStr, isAlphaVerdict, "Alpha narrative response");
+
+    if (parsed) {
       return {
-        score: Math.max(0, Math.min(1, Number(parsed.score) || 0.5)),
-        communityOrganicity: Math.max(0, Math.min(1, Number(parsed.communityOrganicity) || 0.5)),
-        reasoning: parsed.reasoning || "Evaluated by Agent Alpha"
+        decision: ["PASS", "FAIL", "DISSENT"].includes(parsed.decision) ? parsed.decision : "FAIL",
+        confidenceRatio: Math.max(0, Math.min(1, Number(parsed.confidenceRatio) || 0.5)),
+        narrativeScore: Math.max(0, Math.min(1, Number(parsed.narrativeScore) || 0.0)),
+        organicityScore: Math.max(0, Math.min(1, Number(parsed.organicityScore) || 0.0)),
+        narrativeCategory: parsed.narrativeCategory || "WEAK",
+        reasoning: parsed.reasoning || "Evaluated by Agent Alpha."
       };
     }
   } catch (e) {
-    runtime.logger.warn(`[Alpha] LLM evaluation failed for ${token.symbol}, falling back to heuristic:`, e.message);
+    runtime.logger.warn(`[Alpha] LLM failed for ${token.symbol}, using fallback evaluation.`, e);
   }
 
-  // Fallback heuristic if LLM fails
-  let score = 0.5;
-  if (telemetry.hasSocialLinks) score += 0.15;
-  if (telemetry.isDexBoosted) score += 0.10;
-  if (telemetry.buySellRatio5m > 1.5) score += 0.10;
-  if (telemetry.txAcceleration5mVs1h > 1.3) score += 0.10;
-  if (telemetry.botLikelihoodScore > 0.5) score -= 0.25;
+  // Pure Heuristic Fallback
+  const organicity = 1.0 - telemetry.botLikelihoodScore;
+  const satisfiesSocials = telemetry.hasSocialLinks && telemetry.socialPlatforms.length > 0;
+  
+  if (!satisfiesSocials || telemetry.botLikelihoodScore > 0.65) {
+    return {
+      decision: "FAIL",
+      confidenceRatio: 0.85,
+      narrativeScore: 0.2,
+      organicityScore: organicity,
+      narrativeCategory: "WEAK",
+      reasoning: "Fallback: Dead socials or high bot farming score."
+    };
+  }
 
   return {
-    score: Math.max(0, Math.min(1, score)),
-    communityOrganicity: 1 - telemetry.botLikelihoodScore,
-    reasoning: "Fallback heuristic evaluation based on volume acceleration and social links."
+    decision: "PASS",
+    confidenceRatio: 0.50,
+    narrativeScore: 0.55,
+    organicityScore: organicity,
+    narrativeCategory: "MEME",
+    reasoning: "Fallback heuristic: Basic social channels present with acceptable bot ratio."
   };
 }

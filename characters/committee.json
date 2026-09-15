@@ -1,5 +1,6 @@
 {
   "name": "AI Committee",
+  "modelProvider": "openai",
   "bio": ["Autonomous Solana trading committee"],
   "ai": {
     "model": "openai/qwen2.5:3b",

@@ -176,6 +176,33 @@ export class TelegramAdminBot {
       }
     });
 
+    this.bot.command("cleardb", async (ctx) => {
+      if (!this.isAdmin(ctx.from!.id)) {
+        await ctx.reply("⚠️ Admin access only.");
+        return;
+      }
+      this.pauseLogStream();
+      this.pauseWarRoom();
+      
+      if (!ctx.args || ctx.args.length < 1 || ctx.args[0] !== "yes") {
+        await ctx.reply("⚠️ This will clear all watched tokens, traders, and positions.\nType /cleardb yes to confirm.");
+        return;
+      }
+      
+      try {
+        const db = watchlistService.getDb();
+        db.exec("DELETE FROM watched_tokens");
+        db.exec("DELETE FROM watched_traders");
+        db.exec("DELETE FROM positions");
+        
+        logger.info("TELEGRAM", "TelegramAdminBot", "Database cleared via admin command");
+        await ctx.reply("✅ Database cleared. Fresh start.");
+      } catch (e) {
+        logger.error("TELEGRAM", "TelegramAdminBot", "Failed to clear database", { error: e.message });
+        await ctx.reply(`❌ Failed: ${e.message}`);
+      }
+    });
+
     this.bot.command("warroom", async (ctx) => {
       if (!this.isAdmin(ctx.from!.id)) {
         await ctx.reply("⚠️ Admin access only.");
@@ -262,6 +289,9 @@ export class TelegramAdminBot {
         "📡 Streaming:\n" +
         "/logstream on|off|status - Stream agent logs to chat\n" +
         "/warroom on|off|status - Stream committee conversations to chat\n" +
+        "\n" +
+        "🔧 Debug:\n" +
+        "/cleardb yes - Clear all watchlists and positions\n" +
         "\n" +
         "⚙️ Config:\n" +
         "/set KEY VALUE - Update a setting\n" +
@@ -374,6 +404,16 @@ export class TelegramAdminBot {
           return;
         }
 
+        if (query.data === "clear_db") {
+          const db = watchlistService.getDb();
+          db.exec("DELETE FROM watched_tokens");
+          db.exec("DELETE FROM watched_traders");
+          db.exec("DELETE FROM positions");
+          logger.info("TELEGRAM", "TelegramAdminBot", "Database cleared via button");
+          await ctx.answerCbQuery("Database cleared");
+          return;
+        }
+
         if (query.data === "toggle_war_room") {
           this.warRoomEnabled = !this.warRoomEnabled;
           logger.info("TELEGRAM", "TelegramAdminBot", "War room streaming toggled", { enabled: this.warRoomEnabled });
@@ -420,7 +460,8 @@ export class TelegramAdminBot {
         Markup.button.callback("🧬 Forensics", "forensics")
       ],
       [
-        Markup.button.callback("📝 Logging", "log_menu")
+        Markup.button.callback("📝 Logging", "log_menu"),
+        Markup.button.callback("🗑️ Clear DB", "clear_db")
       ]
     ];
 

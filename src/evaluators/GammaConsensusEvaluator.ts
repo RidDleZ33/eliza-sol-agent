@@ -1,5 +1,6 @@
 import { watchlistService } from "../services/WatchlistService.ts";
 import { tradeExecutionService } from "../services/TradeExecutionService.ts";
+import { WAR_ROOM_ID } from "../utils/warRoom.ts";
 
 export async function evaluateGammaConsensus(runtime) {
   try {
@@ -9,11 +10,10 @@ export async function evaluateGammaConsensus(runtime) {
     // For now, scan for tokens that have both narrative and contract evaluation
     // Both Alpha and Beta must have passed for the same token
 
-    const tokens = await watchlistService.getWatchedTokens();
-    const candidates = tokens.filter((t) => t.narrative_score >= 0.75);
+    const candidates = await watchlistService.getTokensForTrading();
 
     if (candidates.length === 0) {
-      runtime.logger.info("[Gamma] No tokens with both Alpha and Beta approval");
+      runtime.logger.info("[Gamma] No tokens with BETA_PASSED status");
       return;
     }
 
@@ -53,13 +53,17 @@ export async function evaluateGammaConsensus(runtime) {
             trigger_type: "Trending Spike"
           };
 
-          const channel = runtime.getRoom("warmroom");
-          if (channel) {
-            channel.publish({
-              author: { name: "Gamma" },
-              text: JSON.stringify(signal),
-              timestamp: Date.now()
-            });
+          try {
+            const channel = runtime.getRoom(WAR_ROOM_ID);
+            if (channel && typeof channel.publish === "function") {
+              channel.publish({
+                author: { name: "Gamma" },
+                text: JSON.stringify(signal),
+                timestamp: Date.now()
+              });
+            }
+          } catch (e) {
+            runtime.logger.warn(`[Gamma] Room publish skipped for ${token.symbol}:`, e.message);
           }
 
           runtime.emitEvent("gamma_trade_executed", signal);
@@ -73,13 +77,17 @@ export async function evaluateGammaConsensus(runtime) {
             reason: result.error
           };
 
-          const channel = runtime.getRoom("warmroom");
-          if (channel) {
-            channel.publish({
-              author: { name: "Gamma" },
-              text: JSON.stringify(signal),
-              timestamp: Date.now()
-            });
+          try {
+            const channel = runtime.getRoom(WAR_ROOM_ID);
+            if (channel && typeof channel.publish === "function") {
+              channel.publish({
+                author: { name: "Gamma" },
+                text: JSON.stringify(signal),
+                timestamp: Date.now()
+              });
+            }
+          } catch (e) {
+            runtime.logger.warn(`[Gamma] Room publish skipped for ${token.symbol}:`, e.message);
           }
 
           runtime.emitEvent("gamma_trade_rejected", signal);

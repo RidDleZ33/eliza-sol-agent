@@ -3,8 +3,9 @@ import * as dotenv from "dotenv";
 dotenv.config();
 
 const EnvSchema = z.object({
-  OLLAMA_BASE_URL: z.string().default("http://arceus:11434"),
-  MODEL_NAME: z.string().default("qwen2.5:3b"),
+  OLLAMA_BASE_URL: z.string().default(process.env.OPENAI_API_URL || "http://arceus:11434/v1"),
+  OLLAMA_API_KEY: z.string().default(process.env.OPENAI_API_KEY || "ollama"),
+  MODEL_NAME: z.string().default(process.env.LARGE_OPENAI_MODEL || "qwen2.5:3b"),
   ELIZAOS_WEB_PORT: z.string().default("8007"),
   RPC_URL: z.string().default("https://api.mainnet-beta.solana.com"),
   JITO_URL: z.string().default("https://mainnet.block-engine.jito.wtf/api/v1/bundles"),

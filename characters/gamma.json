@@ -1,5 +1,6 @@
 {
   "name": "Gamma",
+  "modelProvider": "openai",
   "ai": {
     "model": "openai/qwen2.5:3b",
     "temperature": 0.0
