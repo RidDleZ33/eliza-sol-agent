@@ -64,41 +64,6 @@ class WatchlistService {
     this.db.pragma("foreign_keys = ON");
     this.initializeSchema();
     this.migrateSchema();
-    this.migrateSchema();
-  }
-
-  private migrateSchema() {
-    try {
-      const columns = this.db.prepare("PRAGMA table_info(watched_tokens)").all() as any[];
-      const columnNames = new Set(columns.map(c => c.name));
-
-      if (!columnNames.has('alpha_decision')) {
-        this.db.exec("ALTER TABLE watched_tokens ADD COLUMN alpha_decision TEXT");
-        logger.info("WATCHLIST", "migrateSchema", "Added alpha_decision column");
-      }
-      if (!columnNames.has('alpha_confidence')) {
-        this.db.exec("ALTER TABLE watched_tokens ADD COLUMN alpha_confidence REAL");
-        logger.info("WATCHLIST", "migrateSchema", "Added alpha_confidence column");
-      }
-      if (!columnNames.has('alpha_narrative_score')) {
-        this.db.exec("ALTER TABLE watched_tokens ADD COLUMN alpha_narrative_score REAL");
-        logger.info("WATCHLIST", "migrateSchema", "Added alpha_narrative_score column");
-      }
-      if (!columnNames.has('alpha_organicity_score')) {
-        this.db.exec("ALTER TABLE watched_tokens ADD COLUMN alpha_organicity_score REAL");
-        logger.info("WATCHLIST", "migrateSchema", "Added alpha_organicity_score column");
-      }
-      if (!columnNames.has('alpha_category')) {
-        this.db.exec("ALTER TABLE watched_tokens ADD COLUMN alpha_category TEXT");
-        logger.info("WATCHLIST", "migrateSchema", "Added alpha_category column");
-      }
-      if (!columnNames.has('alpha_reasoning')) {
-        this.db.exec("ALTER TABLE watched_tokens ADD COLUMN alpha_reasoning TEXT");
-        logger.info("WATCHLIST", "migrateSchema", "Added alpha_reasoning column");
-      }
-    } catch (e) {
-      logger.error("WATCHLIST", "migrateSchema", "Migration failed", { error: e.message });
-    }
   }
 
   private migrateSchema() {
@@ -185,39 +150,6 @@ class WatchlistService {
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `);
-
-    // Migration: Add alpha verdict columns if they don't exist (for existing databases)
-    try {
-      const columns = this.db.prepare("PRAGMA table_info(watched_tokens)").all() as any[];
-      const columnNames = new Set(columns.map(c => c.name));
-
-      if (!columnNames.has('alpha_decision')) {
-        this.db.exec("ALTER TABLE watched_tokens ADD COLUMN alpha_decision TEXT");
-        console.log("[WATCHLIST] Migration: Added alpha_decision column");
-      }
-      if (!columnNames.has('alpha_confidence')) {
-        this.db.exec("ALTER TABLE watched_tokens ADD COLUMN alpha_confidence REAL");
-        console.log("[WATCHLIST] Migration: Added alpha_confidence column");
-      }
-      if (!columnNames.has('alpha_narrative_score')) {
-        this.db.exec("ALTER TABLE watched_tokens ADD COLUMN alpha_narrative_score REAL");
-        console.log("[WATCHLIST] Migration: Added alpha_narrative_score column");
-      }
-      if (!columnNames.has('alpha_organicity_score')) {
-        this.db.exec("ALTER TABLE watched_tokens ADD COLUMN alpha_organicity_score REAL");
-        console.log("[WATCHLIST] Migration: Added alpha_organicity_score column");
-      }
-      if (!columnNames.has('alpha_category')) {
-        this.db.exec("ALTER TABLE watched_tokens ADD COLUMN alpha_category TEXT");
-        console.log("[WATCHLIST] Migration: Added alpha_category column");
-      }
-      if (!columnNames.has('alpha_reasoning')) {
-        this.db.exec("ALTER TABLE watched_tokens ADD COLUMN alpha_reasoning TEXT");
-        console.log("[WATCHLIST] Migration: Added alpha_reasoning column");
-      }
-    } catch (e) {
-      console.error("[WATCHLIST] Migration failed:", e);
-    }
   }
 
   // Token Methods
@@ -247,8 +179,7 @@ class WatchlistService {
 
       this.db
         .prepare(
-          `INSERT INTO watched_tokens (mint_address, symbol, narrative_score, volume_24h, status, added_by_agent)
-           VALUES (?, ?, 0.5, ?, 'PENDING_ALPHA', 'ingestion_manager')`
+          "INSERT INTO watched_tokens (mint_address, symbol, narrative_score, volume_24h, status, added_by_agent) VALUES (?, ?, 0.5, ?, 'PENDING_ALPHA', 'ingestion_manager')"
         )
         .run(mintAddress, symbol, volume24h);
 
@@ -263,10 +194,12 @@ class WatchlistService {
   /**
    * Get tokens ready for Alpha narrative evaluation.
    * Selects tokens that are PENDING_ALPHA, DEFERRED (past eval time), or need re-evaluation.
+   * Uses datetime() for proper ISO vs SQLite timestamp comparison.
+   * Preserves Alpha's ability to intentionally defer tokens to future times.
    */
   async getTokensForAlphaEvaluation(): Promise<WatchedToken[]> {
     return this.db
-      .prepare(`SELECT * FROM watched_tokens WHERE status IN ('PENDING_ALPHA', 'DEFERRED') AND next_eval_at <= CURRENT_TIMESTAMP`)
+      .prepare("SELECT * FROM watched_tokens WHERE status IN ('PENDING_ALPHA', 'DEFERRED') AND datetime(next_eval_at) <= datetime('now')")
       .all() as WatchedToken[];
   }
 
@@ -286,7 +219,7 @@ class WatchlistService {
   ): Promise<void> {
     // PASS and DISSENT both proceed to Beta; only FAIL blocks it
     const status = (verdict.decision === 'PASS' || verdict.decision === 'DISSENT') ? 'ALPHA_PASSED' : 'ALPHA_FAILED';
-    
+
     const stmt = this.db.prepare(
       "UPDATE watched_tokens SET status = ?, narrative_score = ?, alpha_decision = ?, alpha_confidence = ?, alpha_narrative_score = ?, alpha_organicity_score = ?, alpha_category = ?, alpha_reasoning = ?, last_updated = CURRENT_TIMESTAMP WHERE mint_address = ?"
     );
@@ -308,7 +241,8 @@ class WatchlistService {
       confidence: verdict.confidenceRatio,
       narrative: verdict.narrativeScore,
       organicity: verdict.organicityScore,
-      category: verdict.narrativeCategory
+      category: verdict.narrativeCategory,
+      reasoning: verdict.reasoning
     });
   }
 
@@ -345,6 +279,7 @@ class WatchlistService {
 
   /**
    * Defer a token for re-evaluation after a delay.
+   * This allows Alpha to intentionally set future evaluation times.
    */
   async deferToken(mintAddress: string, delayMinutes: number): Promise<void> {
     const nextEval = new Date(Date.now() + delayMinutes * 60 * 1000).toISOString();
@@ -353,7 +288,7 @@ class WatchlistService {
     );
     stmt.run(nextEval, mintAddress);
 
-    logger.info("WATCHLIST", "deferToken", "Token deferred", { mint: mintAddress, delayMinutes });
+    logger.info("WATCHLIST", "deferToken", "Token deferred", { mint: mintAddress, delayMinutes, nextEval });
   }
 
   async addToken(token: WatchedTokenInput): Promise<boolean> {
@@ -368,9 +303,7 @@ class WatchlistService {
     try {
       this.db
         .prepare(
-          `INSERT INTO watched_tokens 
-           (mint_address, symbol, narrative_score, volume_24h, added_by_agent, added_at, last_updated)
-           VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`
+          "INSERT INTO watched_tokens (mint_address, symbol, narrative_score, volume_24h, added_by_agent, added_at, last_updated) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
         )
         .run(
           token.mint_address,
@@ -434,9 +367,7 @@ class WatchlistService {
     try {
       this.db
         .prepare(
-          `INSERT INTO watched_traders 
-           (wallet_address, label, win_rate_7d, pnl_7d_usd, added_by_agent, added_at, last_updated)
-           VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`
+          "INSERT INTO watched_traders (wallet_address, label, win_rate_7d, pnl_7d_usd, added_by_agent, added_at, last_updated) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
         )
         .run(
           trader.wallet_address,
@@ -489,8 +420,7 @@ class WatchlistService {
   async addPosition(mintAddress: string, symbol: string, buyTxSignature: string, entryPriceUsd: number, amountSol: number) {
     this.db
       .prepare(
-        `INSERT INTO positions (mint_address, symbol, buy_tx_signature, entry_price_usd, amount_sol, status, entered_at)
-         VALUES (?, ?, ?, ?, ?, 'OPEN', CURRENT_TIMESTAMP)`
+        "INSERT INTO positions (mint_address, symbol, buy_tx_signature, entry_price_usd, amount_sol, status, entered_at) VALUES (?, ?, ?, ?, ?, 'OPEN', CURRENT_TIMESTAMP)"
       )
       .run(mintAddress, symbol, buyTxSignature, entryPriceUsd, amountSol);
   }
@@ -498,7 +428,7 @@ class WatchlistService {
   async updatePositionStatus(mintAddress: string, status: string, exitPriceUsd?: number, realizedPnl?: number, sellTxSignature?: string) {
     this.db
       .prepare(
-        `UPDATE positions SET status = ?, exit_price_usd = COALESCE(?, exit_price_usd), realized_pnl_usd = COALESCE(?, realized_pnl_usd), sell_tx_signature = COALESCE(?, sell_tx_signature), closed_at = ? WHERE mint_address = ? AND status = 'OPEN'`
+        "UPDATE positions SET status = ?, exit_price_usd = COALESCE(?, exit_price_usd), realized_pnl_usd = COALESCE(?, realized_pnl_usd), sell_tx_signature = COALESCE(?, sell_tx_signature), closed_at = ? WHERE mint_address = ? AND status = 'OPEN'"
       )
       .run(status, exitPriceUsd, realizedPnl, sellTxSignature, new Date().toISOString(), mintAddress);
   }

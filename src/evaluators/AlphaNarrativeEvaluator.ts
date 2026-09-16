@@ -6,10 +6,10 @@ export type DecisionType = "PASS" | "FAIL" | "DISSENT";
 
 export interface AlphaVerdict {
   decision: DecisionType;
-  confidenceRatio: number; // 0.0 to 1.0 rating weight for the committee
-  narrativeScore: number;  // Overall narrative strength (0.0 - 1.0)
-  organicityScore: number; // Real vs bot community activity (0.0 - 1.0)
-  narrativeCategory: string; // e.g., "AI_AGENT", "CULTURE", "TIKTOK_MEME", "WEAK/GENERIC"
+  confidenceRatio: number;
+  narrativeScore: number;
+  organicityScore: number;
+  narrativeCategory: string;
   reasoning: string;
 }
 
@@ -17,6 +17,7 @@ export async function evaluateAlphaNarrative(runtime: any) {
   try {
     runtime.logger.info("[Alpha] Evaluating narrative for pending tokens...");
     const tokensToEvaluate = await watchlistService.getTokensForAlphaEvaluation();
+    
     if (tokensToEvaluate.length === 0) {
       runtime.logger.info("[Alpha] No tokens ready for evaluation (all DEFERRED or already evaluated)");
       return;
@@ -25,13 +26,25 @@ export async function evaluateAlphaNarrative(runtime: any) {
 
     for (const token of tokensToEvaluate) {
       try {
+        runtime.logger.info(`[Alpha] Starting evaluation for ${token.symbol} (${token.mint_address})`);
+
+        // Collect social telemetry
         const telemetry = await socialEvaluatorService.evaluateToken(token.mint_address, token.symbol);
+        runtime.logger.info(`[Alpha] Social telemetry for ${token.symbol}: ${telemetry.tweetVolume1h} tweets, bot likelihood ${(telemetry.botLikelihoodScore * 100).toFixed(0)}%, platforms: ${telemetry.socialPlatforms.join(",") || "none"}`);
+
+        // Evaluate via LLM
         const verdict = await alphaEvaluateNarrative(runtime, token, telemetry);
 
-        runtime.logger.info(`[Alpha] ${token.symbol} Verdict: ${verdict.decision} (Confidence: ${verdict.confidenceRatio}, Narrative: ${verdict.narrativeScore})`);
+        // Log detailed verdict
+        runtime.logger.info(`[Alpha] ${token.symbol} Verdict: ${verdict.decision}`);
+        runtime.logger.info(`[Alpha]   Confidence: ${verdict.confidenceRatio}, Narrative: ${verdict.narrativeScore}, Organicity: ${verdict.organicityScore}`);
+        runtime.logger.info(`[Alpha]   Category: ${verdict.narrativeCategory}`);
+        runtime.logger.info(`[Alpha]   Reasoning: ${verdict.reasoning}`);
 
+        // Store verdict
         await watchlistService.updateTokenAlphaVerdict(token.mint_address, verdict);
 
+        // Emit event
         runtime.emitEvent("alpha_evaluation_complete", {
           mint_address: token.mint_address,
           symbol: token.symbol,
@@ -47,6 +60,8 @@ export async function evaluateAlphaNarrative(runtime: any) {
 }
 
 async function alphaEvaluateNarrative(runtime: any, token: any, telemetry: SocialTelemetry): Promise<AlphaVerdict> {
+  runtime.logger.info(`[Alpha] Calling LLM for narrative evaluation of ${token.symbol}...`);
+  
   const prompt = `You are Agent Alpha, sentiment and narrative specialist on a 3-agent Solana trading committee.
 
 Analyze the sentiment, narrative virality, and organic momentum of this Solana token.
@@ -85,11 +100,27 @@ Respond STRICTLY in valid JSON:
     const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('LLM Timeout')), 25000));
     const response: any = await Promise.race([runtime.generateText(prompt), timeout]);
 
-    const responseStr = typeof response === 'string' ? response : String(response || '');
+    // Extract text from response object (LLM returns { text: "..." })
+    let responseStr: string;
+    if (typeof response === 'object' && response !== null && typeof response.text === 'string') {
+      responseStr = response.text;
+      runtime.logger.info(`[Alpha] LLM response extracted from object.text (${responseStr.length} chars)`);
+    } else if (typeof response === 'string') {
+      responseStr = response;
+      runtime.logger.info(`[Alpha] LLM returned string directly (${responseStr.length} chars)`);
+    } else {
+      responseStr = JSON.stringify(response || '');
+      runtime.logger.info(`[Alpha] LLM response serialized to JSON (${responseStr.length} chars)`);
+    }
+
+    runtime.logger.info(`[Alpha] LLM response for ${token.symbol}: ${responseStr.substring(0, 300)}`);
+    runtime.logger.info(`[Alpha] LLM response received for ${token.symbol} (${responseStr.length} chars)`);
+    runtime.logger.info(`[Alpha] LLM raw response for ${token.symbol}: ${responseStr.substring(0, 500)}`);
 
     const parsed = parseAndValidate(responseStr, isAlphaVerdict, "Alpha narrative response");
 
     if (parsed) {
+      runtime.logger.info(`[Alpha] LLM verdict parsed successfully for ${token.symbol}`);
       return {
         decision: ["PASS", "FAIL", "DISSENT"].includes(parsed.decision) ? parsed.decision : "FAIL",
         confidenceRatio: Math.max(0, Math.min(1, Number(parsed.confidenceRatio) || 0.5)),
@@ -99,6 +130,8 @@ Respond STRICTLY in valid JSON:
         reasoning: parsed.reasoning || "Evaluated by Agent Alpha."
       };
     }
+    
+    runtime.logger.warn(`[Alpha] LLM response parsing failed for ${token.symbol}, falling back to heuristic`);
   } catch (e) {
     runtime.logger.warn(`[Alpha] LLM failed for ${token.symbol}, using fallback evaluation.`, e);
   }
@@ -106,8 +139,9 @@ Respond STRICTLY in valid JSON:
   // Pure Heuristic Fallback
   const organicity = 1.0 - telemetry.botLikelihoodScore;
   const satisfiesSocials = telemetry.hasSocialLinks && telemetry.socialPlatforms.length > 0;
-  
+
   if (!satisfiesSocials || telemetry.botLikelihoodScore > 0.65) {
+    runtime.logger.info(`[Alpha] Fallback verdict for ${token.symbol}: FAIL (dead socials or high bot farming)`);
     return {
       decision: "FAIL",
       confidenceRatio: 0.85,
@@ -118,6 +152,7 @@ Respond STRICTLY in valid JSON:
     };
   }
 
+  runtime.logger.info(`[Alpha] Fallback verdict for ${token.symbol}: PASS (basic socials present, acceptable bot ratio)`);
   return {
     decision: "PASS",
     confidenceRatio: 0.50,
