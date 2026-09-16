@@ -1,6 +1,6 @@
 import { watchlistService } from "../services/WatchlistService.ts";
 import { socialEvaluatorService, SocialTelemetry } from "../services/SocialEvaluatorService.ts";
-import { parseAndValidate } from "../utils/jsonParsing.ts";
+import { parseAndValidate, isAlphaVerdict } from "../utils/jsonParsing.ts";
 
 export type DecisionType = "PASS" | "FAIL" | "DISSENT";
 
@@ -15,8 +15,13 @@ export interface AlphaVerdict {
 
 export async function evaluateAlphaNarrative(runtime: any) {
   try {
+    runtime.logger.info("[Alpha] Evaluating narrative for pending tokens...");
     const tokensToEvaluate = await watchlistService.getTokensForAlphaEvaluation();
-    if (tokensToEvaluate.length === 0) return;
+    if (tokensToEvaluate.length === 0) {
+      runtime.logger.info("[Alpha] No tokens ready for evaluation (all DEFERRED or already evaluated)");
+      return;
+    }
+    runtime.logger.info(`[Alpha] Found ${tokensToEvaluate.length} tokens to evaluate`);
 
     for (const token of tokensToEvaluate) {
       try {

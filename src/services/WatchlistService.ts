@@ -63,6 +63,76 @@ class WatchlistService {
     this.db.pragma("journal_mode = WAL");
     this.db.pragma("foreign_keys = ON");
     this.initializeSchema();
+    this.migrateSchema();
+    this.migrateSchema();
+  }
+
+  private migrateSchema() {
+    try {
+      const columns = this.db.prepare("PRAGMA table_info(watched_tokens)").all() as any[];
+      const columnNames = new Set(columns.map(c => c.name));
+
+      if (!columnNames.has('alpha_decision')) {
+        this.db.exec("ALTER TABLE watched_tokens ADD COLUMN alpha_decision TEXT");
+        logger.info("WATCHLIST", "migrateSchema", "Added alpha_decision column");
+      }
+      if (!columnNames.has('alpha_confidence')) {
+        this.db.exec("ALTER TABLE watched_tokens ADD COLUMN alpha_confidence REAL");
+        logger.info("WATCHLIST", "migrateSchema", "Added alpha_confidence column");
+      }
+      if (!columnNames.has('alpha_narrative_score')) {
+        this.db.exec("ALTER TABLE watched_tokens ADD COLUMN alpha_narrative_score REAL");
+        logger.info("WATCHLIST", "migrateSchema", "Added alpha_narrative_score column");
+      }
+      if (!columnNames.has('alpha_organicity_score')) {
+        this.db.exec("ALTER TABLE watched_tokens ADD COLUMN alpha_organicity_score REAL");
+        logger.info("WATCHLIST", "migrateSchema", "Added alpha_organicity_score column");
+      }
+      if (!columnNames.has('alpha_category')) {
+        this.db.exec("ALTER TABLE watched_tokens ADD COLUMN alpha_category TEXT");
+        logger.info("WATCHLIST", "migrateSchema", "Added alpha_category column");
+      }
+      if (!columnNames.has('alpha_reasoning')) {
+        this.db.exec("ALTER TABLE watched_tokens ADD COLUMN alpha_reasoning TEXT");
+        logger.info("WATCHLIST", "migrateSchema", "Added alpha_reasoning column");
+      }
+    } catch (e) {
+      logger.error("WATCHLIST", "migrateSchema", "Migration failed", { error: e.message });
+    }
+  }
+
+  private migrateSchema() {
+    try {
+      const columns = this.db.prepare("PRAGMA table_info(watched_tokens)").all() as any[];
+      const columnNames = new Set(columns.map(c => c.name));
+
+      if (!columnNames.has('alpha_decision')) {
+        this.db.exec("ALTER TABLE watched_tokens ADD COLUMN alpha_decision TEXT");
+        logger.info("WATCHLIST", "migrateSchema", "Added alpha_decision column");
+      }
+      if (!columnNames.has('alpha_confidence')) {
+        this.db.exec("ALTER TABLE watched_tokens ADD COLUMN alpha_confidence REAL");
+        logger.info("WATCHLIST", "migrateSchema", "Added alpha_confidence column");
+      }
+      if (!columnNames.has('alpha_narrative_score')) {
+        this.db.exec("ALTER TABLE watched_tokens ADD COLUMN alpha_narrative_score REAL");
+        logger.info("WATCHLIST", "migrateSchema", "Added alpha_narrative_score column");
+      }
+      if (!columnNames.has('alpha_organicity_score')) {
+        this.db.exec("ALTER TABLE watched_tokens ADD COLUMN alpha_organicity_score REAL");
+        logger.info("WATCHLIST", "migrateSchema", "Added alpha_organicity_score column");
+      }
+      if (!columnNames.has('alpha_category')) {
+        this.db.exec("ALTER TABLE watched_tokens ADD COLUMN alpha_category TEXT");
+        logger.info("WATCHLIST", "migrateSchema", "Added alpha_category column");
+      }
+      if (!columnNames.has('alpha_reasoning')) {
+        this.db.exec("ALTER TABLE watched_tokens ADD COLUMN alpha_reasoning TEXT");
+        logger.info("WATCHLIST", "migrateSchema", "Added alpha_reasoning column");
+      }
+    } catch (e) {
+      logger.error("WATCHLIST", "migrateSchema", "Migration failed", { error: e.message });
+    }
   }
 
   private initializeSchema() {
@@ -78,13 +148,7 @@ class WatchlistService {
         prune_reason TEXT,
         added_by_agent TEXT,
         added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        alpha_decision TEXT,
-        alpha_confidence REAL,
-        alpha_narrative_score REAL,
-        alpha_organicity_score REAL,
-        alpha_category TEXT,
-        alpha_reasoning TEXT
+        last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
 
       CREATE TABLE IF NOT EXISTS watched_traders (
@@ -121,6 +185,39 @@ class WatchlistService {
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `);
+
+    // Migration: Add alpha verdict columns if they don't exist (for existing databases)
+    try {
+      const columns = this.db.prepare("PRAGMA table_info(watched_tokens)").all() as any[];
+      const columnNames = new Set(columns.map(c => c.name));
+
+      if (!columnNames.has('alpha_decision')) {
+        this.db.exec("ALTER TABLE watched_tokens ADD COLUMN alpha_decision TEXT");
+        console.log("[WATCHLIST] Migration: Added alpha_decision column");
+      }
+      if (!columnNames.has('alpha_confidence')) {
+        this.db.exec("ALTER TABLE watched_tokens ADD COLUMN alpha_confidence REAL");
+        console.log("[WATCHLIST] Migration: Added alpha_confidence column");
+      }
+      if (!columnNames.has('alpha_narrative_score')) {
+        this.db.exec("ALTER TABLE watched_tokens ADD COLUMN alpha_narrative_score REAL");
+        console.log("[WATCHLIST] Migration: Added alpha_narrative_score column");
+      }
+      if (!columnNames.has('alpha_organicity_score')) {
+        this.db.exec("ALTER TABLE watched_tokens ADD COLUMN alpha_organicity_score REAL");
+        console.log("[WATCHLIST] Migration: Added alpha_organicity_score column");
+      }
+      if (!columnNames.has('alpha_category')) {
+        this.db.exec("ALTER TABLE watched_tokens ADD COLUMN alpha_category TEXT");
+        console.log("[WATCHLIST] Migration: Added alpha_category column");
+      }
+      if (!columnNames.has('alpha_reasoning')) {
+        this.db.exec("ALTER TABLE watched_tokens ADD COLUMN alpha_reasoning TEXT");
+        console.log("[WATCHLIST] Migration: Added alpha_reasoning column");
+      }
+    } catch (e) {
+      console.error("[WATCHLIST] Migration failed:", e);
+    }
   }
 
   // Token Methods
@@ -190,31 +287,20 @@ class WatchlistService {
     // PASS and DISSENT both proceed to Beta; only FAIL blocks it
     const status = (verdict.decision === 'PASS' || verdict.decision === 'DISSENT') ? 'ALPHA_PASSED' : 'ALPHA_FAILED';
     
-    this.db
-      .prepare(
-        `UPDATE watched_tokens SET 
-          status = ?,
-          narrative_score = ?,
-          alpha_decision = ?,
-          alpha_confidence = ?,
-          alpha_narrative_score = ?,
-          alpha_organicity_score = ?,
-          alpha_category = ?,
-          alpha_reasoning = ?,
-          last_updated = CURRENT_TIMESTAMP
-         WHERE mint_address = ?`
-      )
-      .run(
-        status,
-        verdict.narrativeScore,
-        verdict.decision,
-        verdict.confidenceRatio,
-        verdict.narrativeScore,
-        verdict.organicityScore,
-        verdict.narrativeCategory,
-        verdict.reasoning,
-        mintAddress
-      );
+    const stmt = this.db.prepare(
+      "UPDATE watched_tokens SET status = ?, narrative_score = ?, alpha_decision = ?, alpha_confidence = ?, alpha_narrative_score = ?, alpha_organicity_score = ?, alpha_category = ?, alpha_reasoning = ?, last_updated = CURRENT_TIMESTAMP WHERE mint_address = ?"
+    );
+    stmt.run(
+      status,
+      verdict.narrativeScore,
+      verdict.decision,
+      verdict.confidenceRatio,
+      verdict.narrativeScore,
+      verdict.organicityScore,
+      verdict.narrativeCategory,
+      verdict.reasoning,
+      mintAddress
+    );
 
     logger.info("WATCHLIST", "updateTokenAlphaVerdict", "Alpha verdict stored", {
       mint: mintAddress,
@@ -249,11 +335,10 @@ class WatchlistService {
    * Update a token's status in the state machine.
    */
   async updateTokenStatus(mintAddress: string, status: string, score?: number, pruneReason?: string): Promise<void> {
-    this.db
-      .prepare(
-        `UPDATE watched_tokens SET status = ?, narrative_score = COALESCE(?, narrative_score), prune_reason = ?, last_updated = CURRENT_TIMESTAMP WHERE mint_address = ?`
-      )
-      .run(status, score, pruneReason, mintAddress);
+    const stmt = this.db.prepare(
+      "UPDATE watched_tokens SET status = ?, narrative_score = COALESCE(?, narrative_score), prune_reason = ?, last_updated = CURRENT_TIMESTAMP WHERE mint_address = ?"
+    );
+    stmt.run(status, score, pruneReason, mintAddress);
 
     logger.info("WATCHLIST", "updateTokenStatus", "Token status updated", { mint: mintAddress, status, score, pruneReason });
   }
@@ -263,11 +348,10 @@ class WatchlistService {
    */
   async deferToken(mintAddress: string, delayMinutes: number): Promise<void> {
     const nextEval = new Date(Date.now() + delayMinutes * 60 * 1000).toISOString();
-    this.db
-      .prepare(
-        `UPDATE watched_tokens SET status = 'DEFERRED', eval_count = eval_count + 1, next_eval_at = ? WHERE mint_address = ?`
-      )
-      .run(nextEval, mintAddress);
+    const stmt = this.db.prepare(
+      "UPDATE watched_tokens SET status = 'DEFERRED', eval_count = eval_count + 1, next_eval_at = ? WHERE mint_address = ?"
+    );
+    stmt.run(nextEval, mintAddress);
 
     logger.info("WATCHLIST", "deferToken", "Token deferred", { mint: mintAddress, delayMinutes });
   }
