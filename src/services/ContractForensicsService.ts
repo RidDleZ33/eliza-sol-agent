@@ -87,23 +87,46 @@ export class ContractForensicsService {
 
   private async fetchRugcheckReport(mintAddress: string) {
     const url = `${this.rugcheckUrl}/${mintAddress}/report/summary`;
-    const response = await fetch(url);
+    const timeoutMs = 30000; // 30 second timeout for API call
 
-    if (!response.ok) {
-      throw new Error(`RugCheck API returned ${response.status}`);
+    logger.info("FORENSICS", "ContractForensics", "Fetching RugCheck report", { mintAddress, url });
+    const startTime = Date.now();
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const response = await fetch(url, { signal: controller.signal });
+      clearTimeout(timeoutId);
+
+      const elapsed = Date.now() - startTime;
+      logger.info("FORENSICS", "ContractForensics", "RugCheck API response", { mintAddress, status: response.status, elapsedMs: elapsed });
+
+      if (!response.ok) {
+        throw new Error(`RugCheck API returned ${response.status}`);
+      }
+
+      const data = await response.json();
+
+      // Parse RugCheck response
+      return {
+        riskScore: data.riskScore || 0,
+        mintAuthority: data.mintAuthority || null,
+        freezeAuthority: data.freezeAuthority || null,
+        liquidityLocked: data.liquidityLocked || false,
+        liquidityUsd: data.liquidityUsd || 0,
+        top10ConcentrationPct: data.top10ConcentrationPct || 0,
+      };
+    } catch (e) {
+      clearTimeout(timeoutId);
+      const elapsed = Date.now() - startTime;
+      if (e.name === 'AbortError') {
+        logger.error("FORENSICS", "ContractForensics", "RugCheck API timeout", { mintAddress, timeoutMs, elapsedMs: elapsed });
+        throw new Error(`RugCheck API timeout after ${timeoutMs}ms`);
+      }
+      logger.error("FORENSICS", "ContractForensics", "RugCheck API error", { mintAddress, elapsedMs: elapsed, error: e.message });
+      throw e;
     }
-
-    const data = await response.json();
-
-    // Parse RugCheck response
-    return {
-      riskScore: data.riskScore || 0,
-      mintAuthority: data.mintAuthority || null,
-      freezeAuthority: data.freezeAuthority || null,
-      liquidityLocked: data.liquidityLocked || false,
-      liquidityUsd: data.liquidityUsd || 0,
-      top10ConcentrationPct: data.top10ConcentrationPct || 0,
-    };
   }
 }
 

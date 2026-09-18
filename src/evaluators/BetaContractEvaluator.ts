@@ -27,7 +27,7 @@ export async function evaluateBetaContract(runtime) {
         let report;
         try {
           const timeout = new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('Contract analysis timeout after 60s')), 60000)
+            setTimeout(() => reject(new Error('Contract analysis timeout after 90s')), 90000)
           );
           report = await Promise.race([
             contractForensicsService.analyzeToken(token.mint_address),
@@ -35,7 +35,10 @@ export async function evaluateBetaContract(runtime) {
           ]);
         } catch (e) {
           runtime.logger.error(`[Beta] Error calling contractForensicsService.analyzeToken for ${token.symbol}:`, e);
-          throw e;
+          // On error/timeout, mark as BETA_FAILED so token doesn't remain stuck
+          await watchlistService.updateTokenStatus(token.mint_address, "BETA_FAILED", 0.0, "ANALYSIS_ERROR");
+          runtime.logger.info(`[Beta] ${token.symbol} marked as BETA_FAILED due to analysis error`);
+          continue; // Skip to next token
         }
 
         runtime.logger.info(`[Beta] ${token.symbol} contract analysis: ${report.status}`);

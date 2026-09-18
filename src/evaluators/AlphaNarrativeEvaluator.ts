@@ -2,7 +2,7 @@ import { watchlistService } from "../services/WatchlistService.ts";
 import { socialEvaluatorService, SocialTelemetry } from "../services/SocialEvaluatorService.ts";
 import { parseAndValidate, isAlphaVerdict } from "../utils/jsonParsing.ts";
 
-export type DecisionType = "PASS" | "FAIL" | "DISSENT";
+export type DecisionType = "PASS" | "FAIL" | "DISSENT" | "DEFER";
 
 export interface AlphaVerdict {
   decision: DecisionType;
@@ -41,8 +41,14 @@ export async function evaluateAlphaNarrative(runtime: any) {
         runtime.logger.info(`[Alpha]   Category: ${verdict.narrativeCategory}`);
         runtime.logger.info(`[Alpha]   Reasoning: ${verdict.reasoning}`);
 
-        // Store verdict
-        await watchlistService.updateTokenAlphaVerdict(token.mint_address, verdict);
+        // Handle DEFER by setting future evaluation time instead of storing verdict
+        if (verdict.decision === "DEFER") {
+          const deferMinutes = Math.max(10, Math.min(120, Math.round((1 - verdict.confidenceRatio) * 120)));
+          runtime.logger.info(`[Alpha] ${token.symbol} DEFERRED for ${deferMinutes} minutes (confidence: ${verdict.confidenceRatio})`);
+          await watchlistService.deferToken(token.mint_address, deferMinutes);
+        } else {
+          await watchlistService.updateTokenAlphaVerdict(token.mint_address, verdict);
+        }
 
         // Emit event
         runtime.emitEvent("alpha_evaluation_complete", {
@@ -85,10 +91,11 @@ COMMITTEE DECISION GUIDELINES:
 3. DISSENT: Explicitly override expected market signals.
    - Bullish Dissent: High viral momentum/organic vibe despite low DEX metrics.
    - Bearish Dissent: Massive volume/price pump on DEX, but social chatter is strictly 90%+ bot farms or non-existent.
+4. DEFER: Insufficient data for confident assessment. Token is new or activity is too low to judge. Recommend re-evaluating later.
 
 Respond STRICTLY in valid JSON:
 {
-  "decision": "PASS" | "FAIL" | "DISSENT",
+  "decision": "PASS" | "FAIL" | "DISSENT" | "DEFER",
   "confidenceRatio": <number 0.00 to 1.00>,
   "narrativeScore": <number 0.00 to 1.00>,
   "organicityScore": <number 0.00 to 1.00>,
@@ -122,7 +129,7 @@ Respond STRICTLY in valid JSON:
     if (parsed) {
       runtime.logger.info(`[Alpha] LLM verdict parsed successfully for ${token.symbol}`);
       return {
-        decision: ["PASS", "FAIL", "DISSENT"].includes(parsed.decision) ? parsed.decision : "FAIL",
+        decision: (parsed.decision as DecisionType) in { PASS: 1, FAIL: 1, DISSENT: 1, DEFER: 1 } ? (parsed.decision as DecisionType) : "FAIL",
         confidenceRatio: Math.max(0, Math.min(1, Number(parsed.confidenceRatio) || 0.5)),
         narrativeScore: Math.max(0, Math.min(1, Number(parsed.narrativeScore) || 0.0)),
         organicityScore: Math.max(0, Math.min(1, Number(parsed.organicityScore) || 0.0)),
@@ -143,7 +150,7 @@ Respond STRICTLY in valid JSON:
   if (!satisfiesSocials || telemetry.botLikelihoodScore > 0.65) {
     runtime.logger.info(`[Alpha] Fallback verdict for ${token.symbol}: FAIL (dead socials or high bot farming)`);
     return {
-      decision: "FAIL",
+      decision: "FAIL" as DecisionType,
       confidenceRatio: 0.85,
       narrativeScore: 0.2,
       organicityScore: organicity,
@@ -154,7 +161,7 @@ Respond STRICTLY in valid JSON:
 
   runtime.logger.info(`[Alpha] Fallback verdict for ${token.symbol}: PASS (basic socials present, acceptable bot ratio)`);
   return {
-    decision: "PASS",
+    decision: "PASS" as DecisionType,
     confidenceRatio: 0.50,
     narrativeScore: 0.55,
     organicityScore: organicity,
