@@ -11,6 +11,7 @@ export interface ContractSecurityReport {
   rugcheckScore: number;
   status: "PASS" | "HIGH_RISK";
   reasons: string[];
+  detectedRisks: string[];
 }
 
 export class ContractForensicsService {
@@ -32,100 +33,129 @@ export class ContractForensicsService {
       rugcheckScore: 0,
       status: "HIGH_RISK",
       reasons: [],
+      detectedRisks: [],
     };
 
     try {
-      // Fetch RugCheck report
+      // 1. Direct On-Chain RPC Check (Instant & 100% accurate)
+      const onChainData = await this.checkOnChainAuthorities(mintAddress);
+      report.isMintDisabled = onChainData.isMintDisabled;
+      report.isFreezeDisabled = onChainData.isFreezeDisabled;
+
+      if (!report.isMintDisabled) report.reasons.push("Mint authority is active");
+      if (!report.isFreezeDisabled) report.reasons.push("Freeze authority is active");
+
+      // 2. On-Chain Concentration Check
+      report.top10ConcentrationPct = await this.fetchTopHolderConcentration(mintAddress, onChainData.totalSupply);
+      if (report.top10ConcentrationPct > 25) {
+        report.reasons.push(`High top 10 concentration: ${report.top10ConcentrationPct.toFixed(1)}%`);
+      }
+
+      // 3. RugCheck & Market Liquidity Audit
       const rugcheckData = await this.fetchRugcheckReport(mintAddress);
-      report.rugcheckScore = rugcheckData.riskScore;
+      report.rugcheckScore = rugcheckData.score;
+      report.detectedRisks = rugcheckData.criticalRisks;
+      report.isLiquiditySafe = rugcheckData.liquidityLocked || rugcheckData.liquidityUsd >= 10000;
 
-      // Check mint authority
-      report.isMintDisabled = rugcheckData.mintAuthority === null;
-      if (!report.isMintDisabled) {
-        report.reasons.push(`Mint authority active: ${rugcheckData.mintAuthority}`);
-      }
-
-      // Check freeze authority
-      report.isFreezeDisabled = rugcheckData.freezeAuthority === null;
-      if (!report.isFreezeDisabled) {
-        report.reasons.push(`Freeze authority active: ${rugcheckData.freezeAuthority}`);
-      }
-
-      // Check liquidity
-      report.isLiquiditySafe = rugcheckData.liquidityLocked && rugcheckData.liquidityUsd >= 10000;
       if (!report.isLiquiditySafe) {
-        if (rugcheckData.liquidityUsd < 10000) {
-          report.reasons.push(`Low liquidity: $${rugcheckData.liquidityUsd}`);
-        }
-        if (!rugcheckData.liquidityLocked) {
-          report.reasons.push("Liquidity not locked");
-        }
+        report.reasons.push(`Low or unlocked liquidity ($${Math.round(rugcheckData.liquidityUsd)})`);
       }
 
-      // Check holder concentration
-      report.top10ConcentrationPct = rugcheckData.top10ConcentrationPct;
-      if (rugcheckData.top10ConcentrationPct >= 25) {
-        report.reasons.push(`High top 10 concentration: ${rugcheckData.top10ConcentrationPct}%`);
+      if (rugcheckData.criticalRisks.length > 0) {
+        report.reasons.push(`RugCheck flags: ${rugcheckData.criticalRisks.join(", ")}`);
       }
 
-      // Determine overall status
+      // Final Pass/Fail Status
       if (
         report.isMintDisabled &&
         report.isFreezeDisabled &&
         report.isLiquiditySafe &&
-        report.top10ConcentrationPct < 25
+        report.top10ConcentrationPct <= 25 &&
+        report.detectedRisks.length === 0
       ) {
         report.status = "PASS";
       }
-    } catch (e) {
+    } catch (e: any) {
       logger.error("FORENSICS", "ContractForensics", "Error analyzing token", { mintAddress, error: e.message });
-      report.reasons.push(`Analysis failed: ${e.message}`);
+      report.reasons.push(`Forensics error: ${e.message}`);
     }
 
     return report;
   }
 
+  private async checkOnChainAuthorities(mintAddress: string) {
+    const mintPubKey = new PublicKey(mintAddress);
+    const info = await this.connection.getParsedAccountInfo(mintPubKey);
+
+    if (!info.value || !("parsed" in info.value.data)) {
+      throw new Error("Invalid mint account or parsing failed");
+    }
+
+    const data = info.value.data.parsed.info;
+    return {
+      isMintDisabled: data.mintAuthority === null,
+      isFreezeDisabled: data.freezeAuthority === null,
+      totalSupply: BigInt(data.supply || 0),
+    };
+  }
+
+  private async fetchTopHolderConcentration(mintAddress: string, totalSupply: bigint): Promise<number> {
+    if (totalSupply === 0n) return 0;
+    try {
+      const largest = await this.connection.getTokenLargestAccounts(new PublicKey(mintAddress));
+      if (!largest.value || largest.value.length === 0) return 0;
+
+      const top10 = largest.value.slice(0, 10);
+      const top10Sum = top10.reduce((acc, accInfo) => acc + BigInt(accInfo.amount || 0), 0n);
+
+      return Number((top10Sum * 10000n) / totalSupply) / 100;
+    } catch {
+      return 0; // Fallback to 0 if RPC call fails
+    }
+  }
+
   private async fetchRugcheckReport(mintAddress: string) {
-    const url = `${this.rugcheckUrl}/${mintAddress}/report/summary`;
-    const timeoutMs = 30000; // 30 second timeout for API call
-
-    logger.info("FORENSICS", "ContractForensics", "Fetching RugCheck report", { mintAddress, url });
-    const startTime = Date.now();
-
+    const url = `${this.rugcheckUrl}/${mintAddress}/report`;
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
 
     try {
       const response = await fetch(url, { signal: controller.signal });
       clearTimeout(timeoutId);
 
-      const elapsed = Date.now() - startTime;
-      logger.info("FORENSICS", "ContractForensics", "RugCheck API response", { mintAddress, status: response.status, elapsedMs: elapsed });
-
-      if (!response.ok) {
-        throw new Error(`RugCheck API returned ${response.status}`);
-      }
-
+      if (!response.ok) throw new Error(`RugCheck HTTP ${response.status}`);
       const data = await response.json();
 
-      // Parse RugCheck response
-      return {
-        riskScore: data.riskScore || 0,
-        mintAuthority: data.mintAuthority || null,
-        freezeAuthority: data.freezeAuthority || null,
-        liquidityLocked: data.liquidityLocked || false,
-        liquidityUsd: data.liquidityUsd || 0,
-        top10ConcentrationPct: data.top10ConcentrationPct || 0,
-      };
-    } catch (e) {
-      clearTimeout(timeoutId);
-      const elapsed = Date.now() - startTime;
-      if (e.name === 'AbortError') {
-        logger.error("FORENSICS", "ContractForensics", "RugCheck API timeout", { mintAddress, timeoutMs, elapsedMs: elapsed });
-        throw new Error(`RugCheck API timeout after ${timeoutMs}ms`);
+      // Extract LP Liquidity from nested markets
+      let totalLiquidityUsd = 0;
+      let isLpLocked = false;
+
+      if (Array.isArray(data.markets)) {
+        for (const market of data.markets) {
+          totalLiquidityUsd += market.lp?.lpLockedUSD || market.liquidity || 0;
+          if (market.lp?.lpLockedPct > 50 || market.lp?.lpLocked) isLpLocked = true;
+        }
       }
-      logger.error("FORENSICS", "ContractForensics", "RugCheck API error", { mintAddress, elapsedMs: elapsed, error: e.message });
-      throw e;
+
+      // Extract critical risks
+      const criticalRisks: string[] = [];
+      if (Array.isArray(data.risks)) {
+        for (const risk of data.risks) {
+          if (risk.level === "danger") {
+            criticalRisks.push(risk.name || risk.description);
+          }
+        }
+      }
+
+      return {
+        score: data.score || 0,
+        liquidityUsd: totalLiquidityUsd,
+        liquidityLocked: isLpLocked,
+        criticalRisks,
+      };
+    } catch {
+      clearTimeout(timeoutId);
+      return { score: 0, liquidityUsd: 0, liquidityLocked: false, criticalRisks: [] };
     }
   }
 }

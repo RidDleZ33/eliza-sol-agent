@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import type { BetaVerdict } from "../evaluators/BetaContractEvaluator.ts";
 import { join, dirname } from "path";
 import { existsSync, mkdirSync } from "fs";
 import {
@@ -94,6 +95,30 @@ class WatchlistService {
       if (!columnNames.has('alpha_reasoning')) {
         this.db.exec("ALTER TABLE watched_tokens ADD COLUMN alpha_reasoning TEXT");
         logger.info("WATCHLIST", "migrateSchema", "Added alpha_reasoning column");
+      }
+      if (!columnNames.has('beta_decision')) {
+        this.db.exec("ALTER TABLE watched_tokens ADD COLUMN beta_decision TEXT");
+        logger.info("WATCHLIST", "migrateSchema", "Added beta_decision column");
+      }
+      if (!columnNames.has('beta_confidence')) {
+        this.db.exec("ALTER TABLE watched_tokens ADD COLUMN beta_confidence REAL");
+        logger.info("WATCHLIST", "migrateSchema", "Added beta_confidence column");
+      }
+      if (!columnNames.has('beta_security_score')) {
+        this.db.exec("ALTER TABLE watched_tokens ADD COLUMN beta_security_score REAL");
+        logger.info("WATCHLIST", "migrateSchema", "Added beta_security_score column");
+      }
+      if (!columnNames.has('beta_mint_disabled')) {
+        this.db.exec("ALTER TABLE watched_tokens ADD COLUMN beta_mint_disabled INTEGER DEFAULT 0");
+        logger.info("WATCHLIST", "migrateSchema", "Added beta_mint_disabled column");
+      }
+      if (!columnNames.has('beta_freeze_disabled')) {
+        this.db.exec("ALTER TABLE watched_tokens ADD COLUMN beta_freeze_disabled INTEGER DEFAULT 0");
+        logger.info("WATCHLIST", "migrateSchema", "Added beta_freeze_disabled column");
+      }
+      if (!columnNames.has('beta_reasons')) {
+        this.db.exec("ALTER TABLE watched_tokens ADD COLUMN beta_reasons TEXT");
+        logger.info("WATCHLIST", "migrateSchema", "Added beta_reasons column");
       }
     } catch (e) {
       logger.error("WATCHLIST", "migrateSchema", "Migration failed", { error: e.message });
@@ -268,6 +293,37 @@ class WatchlistService {
   /**
    * Update a token's status in the state machine.
    */
+  /**
+   * Store Beta contract forensics verdict for a token.
+   */
+  async updateTokenBetaVerdict(mintAddress: string, verdict: BetaVerdict): Promise<void> {
+    const status = (verdict.decision === 'PASS' || verdict.decision === 'DISSENT') ? 'BETA_PASSED' : 'BETA_FAILED';
+
+    const stmt = this.db.prepare(
+      "UPDATE watched_tokens SET status = ?, beta_decision = ?, beta_confidence = ?, beta_security_score = ?, beta_mint_disabled = ?, beta_freeze_disabled = ?, beta_reasons = ?, last_updated = CURRENT_TIMESTAMP WHERE mint_address = ?"
+    );
+    stmt.run(
+      status,
+      verdict.decision,
+      verdict.confidenceRatio,
+      verdict.securityScore,
+      verdict.isMintDisabled ? 1 : 0,
+      verdict.isFreezeDisabled ? 1 : 0,
+      verdict.reasons.join("; "),
+      mintAddress
+    );
+
+    logger.info("WATCHLIST", "updateTokenBetaVerdict", "Beta verdict stored", {
+      mint: mintAddress,
+      decision: verdict.decision,
+      confidence: verdict.confidenceRatio,
+      securityScore: verdict.securityScore,
+      mintDisabled: verdict.isMintDisabled,
+      freezeDisabled: verdict.isFreezeDisabled,
+      reasons: verdict.reasons.join("; ")
+    });
+  }
+
   async updateTokenStatus(mintAddress: string, status: string, score?: number, pruneReason?: string): Promise<void> {
     const stmt = this.db.prepare(
       "UPDATE watched_tokens SET status = ?, narrative_score = COALESCE(?, narrative_score), prune_reason = ?, last_updated = CURRENT_TIMESTAMP WHERE mint_address = ?"
