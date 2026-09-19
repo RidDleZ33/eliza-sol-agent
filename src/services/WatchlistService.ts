@@ -94,34 +94,27 @@ class WatchlistService {
       }
       if (!columnNames.has('alpha_reasoning')) {
         this.db.exec("ALTER TABLE watched_tokens ADD COLUMN alpha_reasoning TEXT");
-        logger.info("WATCHLIST", "migrateSchema", "Added alpha_reasoning column");
       }
       if (!columnNames.has('beta_decision')) {
         this.db.exec("ALTER TABLE watched_tokens ADD COLUMN beta_decision TEXT");
-        logger.info("WATCHLIST", "migrateSchema", "Added beta_decision column");
       }
       if (!columnNames.has('beta_confidence')) {
         this.db.exec("ALTER TABLE watched_tokens ADD COLUMN beta_confidence REAL");
-        logger.info("WATCHLIST", "migrateSchema", "Added beta_confidence column");
       }
       if (!columnNames.has('beta_security_score')) {
         this.db.exec("ALTER TABLE watched_tokens ADD COLUMN beta_security_score REAL");
-        logger.info("WATCHLIST", "migrateSchema", "Added beta_security_score column");
       }
       if (!columnNames.has('beta_mint_disabled')) {
         this.db.exec("ALTER TABLE watched_tokens ADD COLUMN beta_mint_disabled INTEGER DEFAULT 0");
-        logger.info("WATCHLIST", "migrateSchema", "Added beta_mint_disabled column");
       }
       if (!columnNames.has('beta_freeze_disabled')) {
         this.db.exec("ALTER TABLE watched_tokens ADD COLUMN beta_freeze_disabled INTEGER DEFAULT 0");
-        logger.info("WATCHLIST", "migrateSchema", "Added beta_freeze_disabled column");
       }
       if (!columnNames.has('beta_reasons')) {
         this.db.exec("ALTER TABLE watched_tokens ADD COLUMN beta_reasons TEXT");
-        logger.info("WATCHLIST", "migrateSchema", "Added beta_reasons column");
       }
-    } catch (e) {
-      logger.error("WATCHLIST", "migrateSchema", "Migration failed", { error: e.message });
+    } catch (e: any) {
+      console.error(`[WATCHLIST][migrateSchema] Migration failed: ${e.message}`);
     }
   }
 
