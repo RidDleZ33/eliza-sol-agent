@@ -143,6 +143,16 @@ export class TelegramAdminBot {
       }
     });
 
+    this.bot.command("trades", async (ctx) => {
+      if (!this.isAdmin(ctx.from!.id)) {
+        await ctx.reply("⚠️ Admin access only.");
+        return;
+      }
+      this.pauseLogStream();
+      this.pauseWarRoom();
+      await this.showTradeJournal(ctx);
+    });
+
     this.bot.command("status", async (ctx) => {
       if (!this.isAdmin(ctx.from!.id)) {
         await ctx.reply("⚠️ Admin access only.");
@@ -620,7 +630,102 @@ export class TelegramAdminBot {
       logger.error("TELEGRAM", "TelegramAdminBot", "Failed to get open positions", { error: e.message });
     }
 
+    // Show recent trade journal summary
+    try {
+      const tradeState = await watchlistService.getCompleteTradeState();
+      const journal = tradeState.journalAuditTrail;
+      
+      if (journal.length > 0) {
+        statusText += "\n📝 Recent Trade Activity:\n";
+        const recentEntries = journal.slice(0, 5);
+        for (const entry of recentEntries) {
+          let icon = "📝";
+          if (entry.event_type === "BUY_INTENT") icon = "👁️";
+          else if (entry.event_type === "BUY_EXECUTED") icon = "✅";
+          else if (entry.event_type === "BUY_FAILED") icon = "❌";
+          else if (entry.event_type === "SELL_EXECUTED") icon = "💸";
+          else if (entry.event_type === "STOP_LOSS_UPDATED") icon = "🔄";
+          else if (entry.event_type === "PRUNED") icon = "🗑️";
+          
+          const symbol = entry.symbol || entry.mint_address.slice(0, 8) + "...";
+          statusText += `${icon} ${symbol}: ${entry.event_type}`;
+          if (entry.price_usd) statusText += ` @ $${entry.price_usd.toFixed(4)}`;
+          statusText += "\n";
+        }
+        if (journal.length > 5) {
+          statusText += `... ${journal.length - 5} more entries (see /trades)`;
+        }
+      }
+    } catch (e) {
+      logger.error("TELEGRAM", "TelegramAdminBot", "Failed to get trade journal", { error: e.message });
+    }
+
     await ctx.reply(statusText);
+  }
+
+  private async showTradeJournal(ctx: any) {
+    try {
+      const tradeState = await watchlistService.getCompleteTradeState();
+      const journal = tradeState.journalAuditTrail;
+      const openPositions = tradeState.openPositions;
+
+      let text = "📊 TRADE JOURNAL & STATE\n\n";
+      text += `📍 Open Positions: ${tradeState.activePositionsCount}\n`;
+      text += `📋 Pending Candidates: ${tradeState.pendingCandidatesCount}\n`;
+      text += `📝 Journal Entries: ${journal.length}\n\n`;
+
+      if (journal.length === 0) {
+        text += "No trade journal entries yet.";
+        await ctx.reply(text);
+        return;
+      }
+
+      // Group by token
+      const grouped = new Map<string, any[]>();
+      for (const entry of journal) {
+        const key = entry.mint_address;
+        if (!grouped.has(key)) grouped.set(key, []);
+        grouped.get(key)!.push(entry);
+      }
+
+      // Show per token (most recent 10 tokens)
+      let shown = 0;
+      for (const [mint, entries] of grouped.entries()) {
+        if (shown >= 10) break;
+        shown++;
+        const symbol = entries[0].symbol || mint.slice(0, 8) + "...";
+        text += `🪙 ${escapeMd(symbol)} (${entries.length} events)\n`;
+
+        for (const entry of entries.slice(0, 5)) {
+          const eventType = entry.event_type;
+          let icon = "📝";
+          if (eventType === "BUY_INTENT") icon = "👁️";
+          else if (eventType === "BUY_EXECUTED") icon = "✅";
+          else if (eventType === "BUY_FAILED") icon = "❌";
+          else if (eventType === "SELL_EXECUTED") icon = "💸";
+          else if (eventType === "STOP_LOSS_UPDATED") icon = "🔄";
+          else if (eventType === "PRUNED") icon = "🗑️";
+
+          text += `  ${icon} ${escapeMd(eventType)}`;
+          if (entry.price_usd) text += ` @ $${entry.price_usd.toFixed(4)}`;
+          if (entry.tx_signature) text += ` \`${entry.tx_signature.slice(0, 12)}...\``;
+          if (entry.reason) text += ` (${escapeMd(entry.reason.slice(0, 30))})`;
+          text += "\n";
+        }
+      }
+
+      if (text.length > 4000) {
+        const parts = this.splitMessage(text, 4000);
+        for (let i = 0; i < parts.length; i++) {
+          await ctx.reply(parts[i]);
+        }
+      } else {
+        await ctx.reply(text);
+      }
+    } catch (e) {
+      logger.error("TELEGRAM", "TelegramAdminBot", "Failed to show trade journal", { error: e.message });
+      await ctx.reply(`❌ Failed: ${e.message}`);
+    }
   }
 
   async start() {
