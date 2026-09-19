@@ -44,6 +44,18 @@ export interface WatchedTraderInput {
   added_by_agent: string;
 }
 
+export interface JournalEntry {
+  position_id?: number;
+  mint_address: string;
+  symbol: string;
+  event_type: "BUY_INTENT" | "BUY_EXECUTED" | "BUY_FAILED" | "STOP_LOSS_UPDATED" | "SELL_EXECUTED" | "PRUNED";
+  price_usd?: number;
+  amount_sol?: number;
+  conviction_score?: number;
+  reason?: string;
+  tx_signature?: string;
+}
+
 const DB_PATH = join(__dirname, "../../.eliza/watchlist.db");
 
 class WatchlistService {
@@ -167,6 +179,20 @@ class WatchlistService {
         description TEXT,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
+
+      CREATE TABLE IF NOT EXISTS trade_journal (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        position_id INTEGER,
+        mint_address TEXT NOT NULL,
+        symbol TEXT NOT NULL,
+        event_type TEXT NOT NULL,
+        price_usd REAL DEFAULT 0,
+        amount_sol REAL DEFAULT 0,
+        conviction_score REAL DEFAULT 0,
+        reason TEXT,
+        tx_signature TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
     `);
   }
 
@@ -273,6 +299,23 @@ class WatchlistService {
       .all() as WatchedToken[];
   }
 
+    /**
+   * Get candidate tokens that have completed both Alpha and Beta evaluations,
+   * regardless of binary status, for Gamma committee consensus synthesis.
+   */
+  async getTokensForGammaConsensus(): Promise<WatchedToken[]> {
+    return this.db
+      .prepare(`
+        SELECT * FROM watched_tokens 
+        WHERE alpha_decision IS NOT NULL 
+          AND beta_decision IS NOT NULL 
+          AND status IN ('BETA_PASSED', 'ALPHA_PASSED')
+          AND datetime(next_eval_at) <= datetime('now')
+      `)
+      .all() as WatchedToken[];
+  }
+
+
   /**
    * Get tokens that have passed both Alpha narrative and Beta contract evaluation.
    * These are the only tokens eligible for trading by Gamma.
@@ -338,6 +381,50 @@ class WatchlistService {
     stmt.run(nextEval, mintAddress);
 
     logger.info("WATCHLIST", "deferToken", "Token deferred", { mint: mintAddress, delayMinutes, nextEval });
+  }
+
+  /**
+   * Log an audit event to the trade journal
+   */
+  async logTradeJournal(entry: JournalEntry): Promise<void> {
+    try {
+      this.db
+        .prepare(
+          "INSERT INTO trade_journal (position_id, mint_address, symbol, event_type, price_usd, amount_sol, conviction_score, reason, tx_signature) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        )
+        .run(
+          entry.position_id || null,
+          entry.mint_address,
+          entry.symbol,
+          entry.event_type,
+          entry.price_usd || 0,
+          entry.amount_sol || 0,
+          entry.conviction_score || 0,
+          entry.reason || "",
+          entry.tx_signature || ""
+        );
+    } catch (e: any) {
+      logger.error("WATCHLIST", "logTradeJournal", "Failed to write journal entry", { error: e.message });
+    }
+  }
+
+  /**
+   * Complete view of all trade states, open positions, candidate pipeline, and journal audit history.
+   */
+  async getCompleteTradeState(): Promise<any> {
+    const openPositions = this.db.prepare("SELECT * FROM positions WHERE status = 'OPEN'").all();
+    const closedPositions = this.db.prepare("SELECT * FROM positions WHERE status = 'CLOSED' ORDER BY closed_at DESC LIMIT 20").all();
+    const recentJournal = this.db.prepare("SELECT * FROM trade_journal ORDER BY created_at DESC LIMIT 50").all();
+    const pendingCandidates = this.db.prepare("SELECT * FROM watched_tokens WHERE status IN ('PENDING_ALPHA', 'ALPHA_PASSED', 'BETA_PASSED', 'DEFERRED')").all();
+
+    return {
+      activePositionsCount: openPositions.length,
+      openPositions,
+      closedPositions,
+      pendingCandidatesCount: pendingCandidates.length,
+      pendingCandidates,
+      journalAuditTrail: recentJournal,
+    };
   }
 
   async addToken(token: WatchedTokenInput): Promise<boolean> {
