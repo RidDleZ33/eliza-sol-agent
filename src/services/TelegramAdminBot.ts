@@ -79,7 +79,13 @@ export class TelegramAdminBot {
       }
       this.pauseLogStream();
       this.pauseWarRoom();
-      await this.showMainMenu(ctx);
+      
+      const args = ctx.args;
+      if (args && args.length > 0 && args[0].toLowerCase() === "list") {
+        await this.showSettingsList(ctx);
+      } else {
+        await this.showMainMenu(ctx);
+      }
     });
 
     this.bot.command("set", async (ctx) => {
@@ -91,7 +97,14 @@ export class TelegramAdminBot {
       this.pauseWarRoom();
       const args = ctx.args;
       if (!args || args.length < 2) {
-        await ctx.reply("Usage: /set <KEY> <VALUE>\nExample: /set TAKE_PROFIT_PCT 75");
+        await ctx.reply(
+          "Usage: /set <KEY> <VALUE>\n\n" +
+          "See /settings list for available settings.\n" +
+          "Examples:\n" +
+          "  /set TAKE_PROFIT_PCT 75\n" +
+          "  /set STOP_LOSS_PCT 25\n" +
+          "  /set MAX_TRADE_SIZE_SOL 1.5"
+        );
         return;
       }
       const key = args[0].toUpperCase() as ConfigKey;
@@ -283,6 +296,7 @@ export class TelegramAdminBot {
         "🤖 Swarm Admin Commands\n\n" +
         "📋 Management:\n" +
         "/settings - Main configuration menu\n" +
+        "/settings list - View all available settings\n" +
         "/status - Current swarm status\n" +
         "/logs - Logging configuration\n" +
         "\n" +
@@ -294,7 +308,7 @@ export class TelegramAdminBot {
         "/cleardb yes - Clear all watchlists and positions\n" +
         "\n" +
         "⚙️ Config:\n" +
-        "/set KEY VALUE - Update a setting\n" +
+        "/set KEY VALUE - Update a setting (see /settings list)\n" +
         "/toggle KEY - Toggle boolean value\n" +
         "/loglevel LEVEL - Set global log level\n" +
         "/logcategory CAT LEVEL - Set category log level"
@@ -429,6 +443,70 @@ export class TelegramAdminBot {
         }
       }
     });
+  }
+
+  private async showSettingsList(ctx: any) {
+    try {
+      const allConfig = configService.getAll();
+      let message = "⚙️ AVAILABLE SETTINGS\n\n";
+      message += "Use /set <KEY> <VALUE> to update.\n\n";
+
+      const categoryIcons: Record<string, string> = {
+        INGESTION: "🔍",
+        EVALUATOR: "🧠",
+        FORENSICS: "🧬",
+        RISK: "⚠️",
+        EXITS: "💰",
+        LOGGING: "📝"
+      };
+
+      for (const [category, settings] of allConfig) {
+        const icon = categoryIcons[category] || "⚙️";
+        message += `${icon} ${category}\n`;
+        message += "─".repeat(20) + "\n";
+        
+        for (const setting of settings) {
+          message += `• ${setting.key} = ${setting.value}\n`;
+        }
+        message += "\n";
+      }
+
+      // Split if too long for Telegram (4096 char limit)
+      if (message.length > 4000) {
+        const parts = this.splitMessage(message, 4000);
+        for (let i = 0; i < parts.length; i++) {
+          await ctx.reply(parts[i]);
+        }
+      } else {
+        await ctx.reply(message);
+      }
+    } catch (e) {
+      logger.error("TELEGRAM", "TelegramAdminBot", "Failed to show settings list", { error: e.message });
+      await ctx.reply(`❌ Failed: ${e.message}`);
+    }
+  }
+
+  private splitMessage(message: string, maxSize: number): string[] {
+    const parts: string[] = [];
+    let remaining = message;
+    
+    while (remaining.length > 0) {
+      if (remaining.length <= maxSize) {
+        parts.push(remaining);
+        break;
+      }
+      
+      // Find a line break near the end
+      let splitPoint = remaining.lastIndexOf("\n", maxSize);
+      if (splitPoint === -1) {
+        splitPoint = maxSize;
+      }
+      
+      parts.push(remaining.substring(0, splitPoint));
+      remaining = remaining.substring(splitPoint + 1);
+    }
+    
+    return parts;
   }
 
   private async showMainMenu(ctx) {
