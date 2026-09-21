@@ -11,7 +11,7 @@
     "@elizaos/core": "^1.7.2",
     "@elizaos/plugin-jupiter": "^1.0.1",
     "@elizaos/plugin-openai": "^1.6.0",
-    "@elizaos/plugin-solana": "^1.2.6",
+    "@elizaos/plugin-solana": "1.2.6",
     "@elizaos/plugin-sql": "^1.7.2",
     "@elizaos/plugin-telegram": "^1.6.4",
     "@elizaos/plugin-twitter": "^1.2.22",

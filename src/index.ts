@@ -3,7 +3,13 @@ import { openaiPlugin } from "@elizaos/plugin-openai";
 import { plugin as sqlPlugin } from "@elizaos/plugin-sql";
 import { consensusPlugin } from "./plugins/consensus/index.ts";
 import { tradingExecutionPlugin } from "./plugins/trading-execution/index.ts";
-import { solanaPlugin } from "@elizaos/plugin-solana";
+import { SolanaService } from "@elizaos/plugin-solana";
+
+const solanaPlugin = {
+  name: "solana",
+  description: "Solana blockchain integration",
+  services: [SolanaService]
+};
 import { jupiterPlugin } from "@elizaos/plugin-jupiter";
 import { watchlistPlugin } from "./plugins/watchlist/index.ts";
 import { evaluateAlphaNarrative } from "./evaluators/AlphaNarrativeEvaluator.ts";
@@ -118,8 +124,8 @@ async function main() {
   logger.info("CONFIG", "Index", "Adding agents to swarm...");
   const agentIds = await elizaOS.addAgents(
     [
-      { character: alphaCharacter, plugins: [consensusPlugin, watchlistPlugin, solanaPlugin, openaiPlugin, sqlPlugin] },
-      { character: betaCharacter, plugins: [consensusPlugin, watchlistPlugin, solanaPlugin, openaiPlugin, sqlPlugin] },
+      { character: alphaCharacter, plugins: [consensusPlugin, watchlistPlugin, SolanaService, openaiPlugin, sqlPlugin] },
+      { character: betaCharacter, plugins: [consensusPlugin, watchlistPlugin, SolanaService, openaiPlugin, sqlPlugin] },
       { character: gammaCharacter, plugins: [consensusPlugin, tradingExecutionPlugin, jupiterPlugin, openaiPlugin, sqlPlugin] }
     ],
     { autoStart: true }
