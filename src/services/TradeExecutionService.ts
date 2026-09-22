@@ -18,29 +18,55 @@ export class TradeExecutionService {
   }
 
   private async getTokenPrice(mint: string): Promise<number> {
+    logger.info("EXECUTION", "TradeExecution", "Fetching token price", { mint });
+    logger.info("EXECUTION", "TradeExecution", "Runtime available", { hasRuntime: !!this.runtime });
+    
     try {
       // Try Jupiter Price API
       const jupiterService = this.runtime?.getService?.("JUPITER_SERVICE");
+      logger.info("EXECUTION", "TradeExecution", "Jupiter service check", {
+        hasJupiterService: !!jupiterService,
+        hasGetTokenPrice: !!(jupiterService && jupiterService.getTokenPrice)
+      });
+      
       if (jupiterService && jupiterService.getTokenPrice) {
-        return await jupiterService.getTokenPrice(mint);
+        logger.info("EXECUTION", "TradeExecution", "Calling Jupiter getTokenPrice");
+        const price = await jupiterService.getTokenPrice(mint);
+        logger.info("EXECUTION", "TradeExecution", "Jupiter price returned", { price });
+        if (price > 0) return price;
       }
 
       // Fallback to DexScreener
-      const response = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${mint}`);
+      logger.info("EXECUTION", "TradeExecution", "Falling back to DexScreener");
+      const url = `https://api.dexscreener.com/latest/dex/tokens/${mint}`;
+      logger.info("EXECUTION", "TradeExecution", "DexScreener URL", { url });
+      
+      const response = await fetch(url);
+      logger.info("EXECUTION", "TradeExecution", "DexScreener response", { ok: response.ok, status: response.status });
+      
       if (response.ok) {
         const data = await response.json();
-        const pair = data?.pair?.[0];
+        logger.info("EXECUTION", "TradeExecution", "DexScreener data received", {
+          hasPair: !!data?.pair?.[0],
+          pairCount: data?.pairs?.length ?? 0
+        });
+        
+        const pair = data?.pairs?.[0];
         if (pair && pair.priceUsd) {
+          logger.info("EXECUTION", "TradeExecution", "DexScreener price found", { price: pair.priceUsd });
           return parseFloat(pair.priceUsd);
         }
+        logger.info("EXECUTION", "TradeExecution", "No price in DexScreener pair", { pair });
       }
     } catch (e) {
       logger.error("EXECUTION", "TradeExecution", "Error fetching token price", {
         mint,
         error: e.message,
+        stack: e.stack
       });
     }
 
+    logger.warn("EXECUTION", "TradeExecution", "Could not determine price, returning 0", { mint });
     return 0;
   }
 
