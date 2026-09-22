@@ -171,6 +171,7 @@ async function main() {
 
   if (gammaRuntime) {
     logger.info("CONFIG", "Index", "Scheduling Gamma evaluator (every 30s)");
+    tradeExecutionService.runtime = gammaRuntime;
     setInterval(async () => {
       try {
         await evaluateGammaConsensus(gammaRuntime);
