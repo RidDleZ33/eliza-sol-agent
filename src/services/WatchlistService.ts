@@ -7,6 +7,7 @@ import {
   getMaxTopTraders,
 } from "../utils/env.ts";
 import { logger } from "./LoggerService.ts";
+import { configService } from "./ConfigService.ts";
 
 export interface WatchedToken {
   mint_address: string;
@@ -54,6 +55,43 @@ export interface JournalEntry {
   conviction_score?: number;
   reason?: string;
   tx_signature?: string;
+}
+
+export interface PositionMetric {
+  id: number;
+  mint_address: string;
+  symbol: string;
+  amount_sol: number;
+  entry_price_usd: number;
+  peak_price_usd: number;
+  current_price_usd: number;
+  unrealized_pnl_usd: number;
+  unrealized_pnl_pct: number;
+  drop_from_peak_pct: number;
+  trailing_stop_level_usd: number;
+  trailing_tier: string;
+  entered_at: string;
+  buy_tx_signature: string;
+}
+
+export interface DashboardMetrics {
+  portfolio: {
+    active_positions_count: number;
+    max_positions: number;
+    total_sol_deployed: number;
+    unrealized_pnl_usd: number;
+    realized_pnl_usd: number;
+    win_rate_pct: number;
+    total_trades_closed: number;
+  };
+  positions: PositionMetric[];
+  pipeline: {
+    pending_alpha: number;
+    alpha_passed: number;
+    beta_passed: number;
+    evaluating: number;
+  };
+  recent_journal: any[];
 }
 
 const DB_PATH = join(__dirname, "../../.eliza/watchlist.db");
@@ -599,6 +637,111 @@ class WatchlistService {
       .prepare("SELECT COUNT(*) as count FROM positions WHERE mint_address = ? AND status = 'OPEN'")
       .get(mintAddress);
     return result.count > 0;
+  }
+
+  /**
+   * Generates comprehensive metrics for Telegram Admin Dashboard
+   */
+  async getDashboardMetrics(): Promise<DashboardMetrics> {
+    const openPositions = this.db.prepare("SELECT * FROM positions WHERE status = 'OPEN'").all() as any[];
+    const closedPositions = this.db.prepare("SELECT * FROM positions WHERE status = 'CLOSED'").all() as any[];
+    const recentJournal = this.db.prepare("SELECT * FROM trade_journal ORDER BY created_at DESC LIMIT 5").all() as any[];
+
+    // Pipeline counts
+    const counts = this.db.prepare(`
+      SELECT status, COUNT(*) as count
+      FROM watched_tokens
+      GROUP BY status
+    `).all() as { status: string; count: number }[];
+
+    const countMap: Record<string, number> = {};
+    counts.forEach(c => countMap[c.status] = c.count);
+
+    // Calculate Realized Stats
+    let totalRealizedPnlUsd = 0;
+    let winningTrades = 0;
+    closedPositions.forEach((pos) => {
+      const pnl = pos.realized_pnl_usd || 0;
+      totalRealizedPnlUsd += pnl;
+      if (pnl > 0) winningTrades++;
+    });
+
+    const totalClosed = closedPositions.length;
+    const winRatePct = totalClosed > 0 ? (winningTrades / totalClosed) * 100 : 0;
+
+    // Calculate Active Positions & Live Unrealized PnL
+    let totalSolDeployed = 0;
+    let totalUnrealizedPnlUsd = 0;
+    const positionMetrics: PositionMetric[] = [];
+
+    for (const pos of openPositions) {
+      totalSolDeployed += pos.amount_sol || 0;
+
+      let currentPrice = pos.entry_price_usd || 0;
+
+      const entryPrice = pos.entry_price_usd || currentPrice;
+      const peakPrice = Math.max(pos.peak_price_usd || entryPrice, currentPrice);
+
+      const pnlPct = entryPrice > 0 ? ((currentPrice - entryPrice) / entryPrice) * 100 : 0;
+      const pnlUsd = (pnlPct / 100) * (pos.amount_sol * entryPrice);
+      totalUnrealizedPnlUsd += pnlUsd;
+
+      const dropFromPeakPct = peakPrice > 0 ? ((peakPrice - currentPrice) / peakPrice) * 100 : 0;
+
+      // Determine Dynamic Trailing Stop Level & Active Tier
+      let stopPriceUsd = entryPrice * 0.88; // Hard -12% Stop
+      let trailingTier = "HARD_STOP (-12%)";
+
+      if (pnlPct >= 100) {
+        stopPriceUsd = peakPrice * 0.90; // Dynamic -10% from peak
+        trailingTier = "TIER_3 (+100% / Trail -10%)";
+      } else if (pnlPct >= 50) {
+        stopPriceUsd = peakPrice * 0.85; // Dynamic -15% from peak
+        trailingTier = "TIER_2 (+50% / Trail -15%)";
+      } else if (pnlPct >= 25) {
+        stopPriceUsd = entryPrice * 1.02; // Breakeven +2%
+        trailingTier = "TIER_1 (Breakeven +2%)";
+      }
+
+      positionMetrics.push({
+        id: pos.id,
+        mint_address: pos.mint_address,
+        symbol: pos.symbol,
+        amount_sol: pos.amount_sol,
+        entry_price_usd: entryPrice,
+        peak_price_usd: peakPrice,
+        current_price_usd: currentPrice,
+        unrealized_pnl_usd: pnlUsd,
+        unrealized_pnl_pct: pnlPct,
+        drop_from_peak_pct: dropFromPeakPct,
+        trailing_stop_level_usd: stopPriceUsd,
+        trailing_tier: trailingTier,
+        entered_at: pos.entered_at,
+        buy_tx_signature: pos.buy_tx_signature || "N/A",
+      });
+    }
+
+    const maxPositions = configService.getNumber("MAX_CONCURRENT_POSITIONS");
+
+    return {
+      portfolio: {
+        active_positions_count: openPositions.length,
+        max_positions: maxPositions,
+        total_sol_deployed: parseFloat(totalSolDeployed.toFixed(3)),
+        unrealized_pnl_usd: parseFloat(totalUnrealizedPnlUsd.toFixed(2)),
+        realized_pnl_usd: parseFloat(totalRealizedPnlUsd.toFixed(2)),
+        win_rate_pct: parseFloat(winRatePct.toFixed(1)),
+        total_trades_closed: totalClosed,
+      },
+      positions: positionMetrics,
+      pipeline: {
+        pending_alpha: countMap["PENDING_ALPHA"] || 0,
+        alpha_passed: countMap["ALPHA_PASSED"] || 0,
+        beta_passed: countMap["BETA_PASSED"] || 0,
+        evaluating: countMap["GAMMA_EVALUATING"] || 0,
+      },
+      recent_journal: recentJournal,
+    };
   }
 
   getDb(): Database.Database {

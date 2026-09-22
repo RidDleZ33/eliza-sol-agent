@@ -2,6 +2,7 @@ import { Telegraf, Markup } from "telegraf";
 import { configService, ConfigKey } from "./ConfigService.ts";
 import { logger, LogLevel } from "./LoggerService.ts";
 import { watchlistService } from "./WatchlistService.ts";
+import { TelegramDashboardFormatter } from "../utils/TelegramDashboardFormatter.ts";
 
 const ADMIN_BOT_VERSION = "2.4.0";
 
@@ -153,6 +154,26 @@ export class TelegramAdminBot {
       await this.showTradeJournal(ctx);
     });
 
+    this.bot.command("dashboard", async (ctx) => {
+      if (!this.isAdmin(ctx.from!.id)) {
+        await ctx.reply("⚠️ Admin access only.");
+        return;
+      }
+      this.pauseLogStream();
+      this.pauseWarRoom();
+      await this.showDashboard(ctx);
+    });
+
+    this.bot.command("positions", async (ctx) => {
+      if (!this.isAdmin(ctx.from!.id)) {
+        await ctx.reply("⚠️ Admin access only.");
+        return;
+      }
+      this.pauseLogStream();
+      this.pauseWarRoom();
+      await this.showPositions(ctx);
+    });
+
     this.bot.command("status", async (ctx) => {
       if (!this.isAdmin(ctx.from!.id)) {
         await ctx.reply("⚠️ Admin access only.");
@@ -160,7 +181,7 @@ export class TelegramAdminBot {
       }
       this.pauseLogStream();
       this.pauseWarRoom();
-      await this.showStatus(ctx);
+      await this.showDashboard(ctx);
     });
 
     this.bot.command("logs", async (ctx) => {
@@ -344,7 +365,7 @@ export class TelegramAdminBot {
 
         if (query.data === "show_status") {
           await ctx.answerCbQuery();
-          await this.showStatus(ctx);
+          await this.showDashboard(ctx);
           return;
         }
 
@@ -606,61 +627,53 @@ export class TelegramAdminBot {
     await ctx.reply(text, keyboard);
   }
 
-  private async showStatus(ctx) {
-    const positions = watchlistService.getActivePositionsCount();
-    const dryRun = configService.getBoolean("DRY_RUN_MODE");
-    const tradeSize = configService.getNumber("MAX_TRADE_SIZE_SOL");
-
-    let statusText = "🤖 SWARM STATUS\n\n";
-    statusText += `📍 Active Positions: ${positions}\n`;
-    statusText += `💰 Trade Size: ${tradeSize} SOL\n`;
-    statusText += `🔴 Mode: ${dryRun ? "DRY_RUN" : "LIVE"}\n`;
-    statusText += `📈 Take Profit: ${configService.getNumber("TAKE_PROFIT_PCT")}%\n`;
-    statusText += `📉 Stop Loss: ${configService.getNumber("STOP_LOSS_PCT")}%\n`;
-
+  private async showDashboard(ctx: any) {
     try {
-      const openPositions = await watchlistService.getOpenPositions(isDryRun);
-      if (openPositions.length > 0) {
-        statusText += `\nOpen ${currentMode} Positions:\n`;
-        for (const pos of openPositions) {
-          statusText += `• ${pos.symbol || pos.mint_address}\n`;
+      await ctx.replyWithChatAction("typing");
+      const metrics = await watchlistService.getDashboardMetrics();
+      const formattedHtml = TelegramDashboardFormatter.formatDashboard(metrics);
+      await ctx.reply(formattedHtml, { parse_mode: "HTML" });
+    } catch (e) {
+      logger.error("TELEGRAM", "TelegramAdminBot", "Failed to generate dashboard", { error: e.message });
+      await ctx.reply(`⚠️ Dashboard generation error: ${e.message}`);
+    }
+  }
+
+  private async showPositions(ctx: any) {
+    try {
+      const metrics = await watchlistService.getDashboardMetrics();
+
+      if (metrics.positions.length === 0) {
+        return ctx.reply("ℹ️ No active open positions.");
+      }
+
+      let msg = `<b>🎯 OPEN POSITIONS (${metrics.positions.length})</b>\n\n`;
+      metrics.positions.forEach((pos, i) => {
+        const posPnlEmoji = pos.unrealized_pnl_pct >= 0 ? "📈" : "📉";
+        const shortenedMint = `${pos.mint_address.slice(0, 4)}...${pos.mint_address.slice(-4)}`;
+
+        msg += `<b>${i + 1}. $${pos.symbol}</b> (<code>${shortenedMint}</code>)\n`;
+        msg += `  • <b>Size:</b> <code>${pos.amount_sol} SOL</code>\n`;
+        msg += `  • <b>Entry $ :</b> <code>$${pos.entry_price_usd.toFixed(6)}</code>\n`;
+        msg += `  • <b>Current $:</b> <code>$${pos.current_price_usd.toFixed(6)}</code>\n`;
+        msg += `  • <b>Peak High $:</b> <code>$${pos.peak_price_usd.toFixed(6)}</code>\n`;
+        msg += `  • <b>PnL:</b> ${posPnlEmoji} <b>${pos.unrealized_pnl_pct.toFixed(2)}%</b> (<code>$${pos.unrealized_pnl_usd.toFixed(2)}</code>)\n`;
+        msg += `  • <b>Trailing SL:</b> <code>$${pos.trailing_stop_level_usd.toFixed(6)}</code>\n`;
+        msg += `  • <b>Tier:</b> <code>${pos.trailing_tier}</code>\n\n`;
+      });
+
+      if (msg.length > 4000) {
+        const parts = this.splitMessage(msg, 4000);
+        for (let i = 0; i < parts.length; i++) {
+          await ctx.reply(parts[i], { parse_mode: "HTML" });
         }
+      } else {
+        await ctx.reply(msg, { parse_mode: "HTML" });
       }
     } catch (e) {
-      logger.error("TELEGRAM", "TelegramAdminBot", "Failed to get open positions", { error: e.message });
+      logger.error("TELEGRAM", "TelegramAdminBot", "Failed to get positions", { error: e.message });
+      await ctx.reply(`Error fetching positions: ${e.message}`);
     }
-
-    // Show recent trade journal summary
-    try {
-      const tradeState = await watchlistService.getCompleteTradeState();
-      const journal = tradeState.journalAuditTrail;
-      
-      if (journal.length > 0) {
-        statusText += "\n📝 Recent Trade Activity:\n";
-        const recentEntries = journal.slice(0, 5);
-        for (const entry of recentEntries) {
-          let icon = "📝";
-          if (entry.event_type === "BUY_INTENT") icon = "👁️";
-          else if (entry.event_type === "BUY_EXECUTED") icon = "✅";
-          else if (entry.event_type === "BUY_FAILED") icon = "❌";
-          else if (entry.event_type === "SELL_EXECUTED") icon = "💸";
-          else if (entry.event_type === "STOP_LOSS_UPDATED") icon = "🔄";
-          else if (entry.event_type === "PRUNED") icon = "🗑️";
-          
-          const symbol = entry.symbol || entry.mint_address.slice(0, 8) + "...";
-          statusText += `${icon} ${symbol}: ${entry.event_type}`;
-          if (entry.price_usd) statusText += ` @ $${entry.price_usd.toFixed(4)}`;
-          statusText += "\n";
-        }
-        if (journal.length > 5) {
-          statusText += `... ${journal.length - 5} more entries (see /trades)`;
-        }
-      }
-    } catch (e) {
-      logger.error("TELEGRAM", "TelegramAdminBot", "Failed to get trade journal", { error: e.message });
-    }
-
-    await ctx.reply(statusText);
   }
 
   private async showTradeJournal(ctx: any) {
