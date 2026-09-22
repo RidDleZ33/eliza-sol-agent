@@ -163,6 +163,23 @@ class WatchlistService {
       if (!columnNames.has('beta_reasons')) {
         this.db.exec("ALTER TABLE watched_tokens ADD COLUMN beta_reasons TEXT");
       }
+
+      // Position price tracking columns
+      const positionColumns = this.db.prepare("PRAGMA table_info(positions)").all() as any[];
+      const positionColumnNames = new Set(positionColumns.map(c => c.name));
+
+      if (!positionColumnNames.has('current_price_usd')) {
+        this.db.exec("ALTER TABLE positions ADD COLUMN current_price_usd REAL DEFAULT 0");
+        logger.info("WATCHLIST", "migrateSchema", "Added current_price_usd column to positions");
+      }
+      if (!positionColumnNames.has('unrealized_pnl_usd')) {
+        this.db.exec("ALTER TABLE positions ADD COLUMN unrealized_pnl_usd REAL DEFAULT 0");
+        logger.info("WATCHLIST", "migrateSchema", "Added unrealized_pnl_usd column to positions");
+      }
+      if (!positionColumnNames.has('unrealized_pnl_pct')) {
+        this.db.exec("ALTER TABLE positions ADD COLUMN unrealized_pnl_pct REAL DEFAULT 0");
+        logger.info("WATCHLIST", "migrateSchema", "Added unrealized_pnl_pct column to positions");
+      }
     } catch (e: any) {
       console.error(`[WATCHLIST][migrateSchema] Migration failed: ${e.message}`);
     }
@@ -626,6 +643,19 @@ class WatchlistService {
       .run(peakPriceUsd, mintAddress);
   }
 
+  async updatePositionPrice(
+    mintAddress: string,
+    currentPriceUsd: number,
+    unrealizedPnlUsd: number,
+    unrealizedPnlPct: number
+  ) {
+    this.db
+      .prepare(
+        "UPDATE positions SET current_price_usd = ?, unrealized_pnl_usd = ?, unrealized_pnl_pct = ?, last_updated = CURRENT_TIMESTAMP WHERE mint_address = ?"
+      )
+      .run(currentPriceUsd, unrealizedPnlUsd, unrealizedPnlPct, mintAddress);
+  }
+
   async removePosition(mintAddress: string) {
     this.db
       .prepare("DELETE FROM positions WHERE mint_address = ?")
@@ -677,7 +707,8 @@ class WatchlistService {
     for (const pos of openPositions) {
       totalSolDeployed += pos.amount_sol || 0;
 
-      let currentPrice = pos.entry_price_usd || 0;
+      // Use cached current price from position updates
+      let currentPrice = pos.current_price_usd || pos.entry_price_usd || 0;
 
       const entryPrice = pos.entry_price_usd || currentPrice;
       const peakPrice = Math.max(pos.peak_price_usd || entryPrice, currentPrice);

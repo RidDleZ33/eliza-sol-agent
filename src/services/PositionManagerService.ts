@@ -105,8 +105,12 @@ export class PositionManagerService {
 
     const entryPrice = position.entry_price_usd || currentPrice;
     const pnlPct = ((currentPrice - entryPrice) / entryPrice) * 100;
+    const unrealizedPnlUsd = position.amount_sol * (currentPrice - entryPrice);
     const peakPrice = this.positionPeaks.get(mint) || currentPrice;
     const trailingStopDistance = ((peakPrice - currentPrice) / peakPrice) * 100;
+
+    // Update position record with live price and unrealized PnL
+    await watchlistService.updatePositionPrice(mint, currentPrice, unrealizedPnlUsd, pnlPct);
 
     // Check exit conditions
     const takeProfitPct = configService.getNumber("TAKE_PROFIT_PCT");
@@ -174,10 +178,11 @@ export class PositionManagerService {
 
     if (result.success) {
       // Calculate realized PnL in USD
-      const position = await watchlistService.getOpenPositions();
-      const pos = position.find((p) => p.mint_address === mint);
+      const openPositions = await watchlistService.getOpenPositions();
+      const pos = openPositions.find((p) => p.mint_address === mint);
       const amountSol = pos ? pos.amount_sol : 0;
-      const realizedPnl = amountSol * (pnlPct / 100);
+      const entryPrice = pos ? (pos.entry_price_usd || exitPrice) : exitPrice;
+      const realizedPnl = amountSol * (exitPrice - entryPrice);
 
       // Update position status
       await watchlistService.updatePositionStatus(
@@ -240,7 +245,7 @@ export class PositionManagerService {
       const response = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${mint}`);
       if (response.ok) {
         const data = await response.json();
-        const pair = data?.pair?.[0];
+        const pair = data?.pairs?.[0];
         if (pair && pair.priceUsd) {
           return parseFloat(pair.priceUsd);
         }
