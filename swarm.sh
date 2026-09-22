@@ -1,6 +1,6 @@
 #!/bin/bash
 # Swarm Management Script
-# Usage: ./swarm.sh {start|stop|restart|status}
+# Usage: ./swarm.sh {start|stop|restart|status|build}
 
 PID_FILE="/home/user/eliza-sol-agent/swarm.pid"
 LOG_FILE="/home/user/eliza-sol-agent/swarm.log"
@@ -82,6 +82,12 @@ status_swarm() {
     fi
 }
 
+build_swarm() {
+    echo "Building swarm..."
+    cd "$SWARM_DIR"
+    $BUN run build
+}
+
 case "$1" in
     start)
         start_swarm
@@ -95,8 +101,11 @@ case "$1" in
     status)
         status_swarm
         ;;
+    build)
+        build_swarm
+        ;;
     *)
-        echo "Usage: $0 {start|stop|restart|status}"
+        echo "Usage: $0 {start|stop|restart|status|build}"
         exit 1
         ;;
 esac
