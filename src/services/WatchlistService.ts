@@ -180,6 +180,10 @@ class WatchlistService {
         this.db.exec("ALTER TABLE positions ADD COLUMN unrealized_pnl_pct REAL DEFAULT 0");
         logger.info("WATCHLIST", "migrateSchema", "Added unrealized_pnl_pct column to positions");
       }
+      if (!positionColumnNames.has('last_updated')) {
+        this.db.exec("ALTER TABLE positions ADD COLUMN last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP");
+        logger.info("WATCHLIST", "migrateSchema", "Added last_updated column to positions");
+      }
     } catch (e: any) {
       console.error(`[WATCHLIST][migrateSchema] Migration failed: ${e.message}`);
     }
