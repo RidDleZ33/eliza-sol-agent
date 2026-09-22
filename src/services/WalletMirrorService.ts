@@ -125,9 +125,10 @@ export class WalletMirrorService {
         // Parse input/output from accounts and data
         try {
           // Simplified: detect SOL->token swaps by checking account changes
+          // TODO: Parse actual instruction data for mint and SOL amount
           return {
             mint_address: "DETECTED_MINT", // Would be parsed from instruction data
-            sol_amount: 0.5, // Would be calculated from balance changes
+            sol_amount: 1.0, // Default - would be calculated from balance changes
           };
         } catch (e) {
           // Continue parsing

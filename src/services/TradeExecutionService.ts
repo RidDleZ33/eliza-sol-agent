@@ -17,6 +17,33 @@ export class TradeExecutionService {
     this.runtime = runtime;
   }
 
+  private async getTokenPrice(mint: string): Promise<number> {
+    try {
+      // Try Jupiter Price API
+      const jupiterService = this.runtime?.getService?.("JUPITER_SERVICE");
+      if (jupiterService && jupiterService.getTokenPrice) {
+        return await jupiterService.getTokenPrice(mint);
+      }
+
+      // Fallback to DexScreener
+      const response = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${mint}`);
+      if (response.ok) {
+        const data = await response.json();
+        const pair = data?.pair?.[0];
+        if (pair && pair.priceUsd) {
+          return parseFloat(pair.priceUsd);
+        }
+      }
+    } catch (e) {
+      logger.error("EXECUTION", "TradeExecution", "Error fetching token price", {
+        mint,
+        error: e.message,
+      });
+    }
+
+    return 0;
+  }
+
   async executeBuy(
     mintAddress: string,
     symbol: string,
@@ -57,7 +84,8 @@ export class TradeExecutionService {
         });
 
         const txSignature = "DRY_RUN_BUY_" + Date.now();
-        await watchlistService.addPosition(mintAddress, symbol, txSignature, 0, tradeSize);
+        const entryPrice = await this.getTokenPrice(mintAddress);
+        await watchlistService.addPosition(mintAddress, symbol, txSignature, entryPrice, tradeSize);
         return { success: true, txSignature, dryRun: true };
       }
 
@@ -100,7 +128,8 @@ export class TradeExecutionService {
         txSignature = await connection.sendTransaction(decoded);
       }
 
-      await watchlistService.addPosition(mintAddress, symbol, txSignature, 0, tradeSize);
+      const entryPrice = await this.getTokenPrice(mintAddress);
+      await watchlistService.addPosition(mintAddress, symbol, txSignature, entryPrice, tradeSize);
       return { success: true, txSignature };
 
     } catch (e: any) {
@@ -125,10 +154,14 @@ export class TradeExecutionService {
       const jupiterService = this.runtime.getService("JUPITER_SERVICE");
       if (!jupiterService) return { success: false, error: "Jupiter service unavailable" };
 
+      // Get actual token balance to sell full position
+      const tokenBalance = await this.getTokenBalance(mintAddress);
+      if (!tokenBalance) return { success: false, error: "Could not determine token balance for sell" };
+
       const quote = await jupiterService.getQuote({
         inputMint: mintAddress,
         outputMint: "So11111111111111111111111111111111111111112",
-        amount: 100, // 100% of token account balance
+        amount: tokenBalance,
         slippageBps: configService.getNumber("SLIPPAGE_BPS"),
       });
 
@@ -154,6 +187,35 @@ export class TradeExecutionService {
     } catch (e: any) {
       logger.error("EXECUTION", "TradeExecution", "Sell execution failed", { symbol, error: e.message });
       return { success: false, error: e.message };
+    }
+  }
+
+  private async getTokenBalance(mint: string): Promise<number | null> {
+    try {
+      const keypair = this.getKeypair();
+      if (!keypair) return null;
+
+      const connection = this.runtime?.getService?.("SOLANA_CONNECTION");
+      if (!connection) return null;
+
+      const { TOKEN_PROGRAM_ID, getAssociatedTokenAddress } = require("@solana/spl-token");
+      const ata = await getAssociatedTokenAddress(
+        new (require("@solana/web3.js").PublicKey)(mint),
+        keypair.publicKey
+      );
+
+      const accountInfo = await connection.getAccountInfo(ata);
+      if (!accountInfo) return 0;
+
+      // Parse SPL token account balance (bytes 64-71)
+      const balance = accountInfo.data.readBigUInt64LE(64);
+      return Number(balance);
+    } catch (e) {
+      logger.error("EXECUTION", "TradeExecution", "Error getting token balance", {
+        mint,
+        error: e.message,
+      });
+      return null;
     }
   }
 

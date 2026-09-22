@@ -69,6 +69,11 @@ export class PositionManagerService {
     const mint = position.mint_address;
     const symbol = position.symbol || mint;
 
+    // Calculate position age first (independent of price)
+    const enteredAt = new Date(position.entered_at);
+    const ageMinutes = (Date.now() - enteredAt.getTime()) / (1000 * 60);
+    const staleMinutes = configService.getNumber("STALE_POSITION_MINUTES");
+
     // Fetch current price
     const currentPrice = await this.getTokenPrice(mint);
     if (!currentPrice || currentPrice === 0) {
@@ -76,6 +81,15 @@ export class PositionManagerService {
         symbol,
         mint,
       });
+      // Still check stale even if we can't get a price
+      if (ageMinutes > staleMinutes) {
+        logger.info("POSITIONS", "PositionManager", "STALE_POSITION triggered (no price)", {
+          symbol,
+          ageMinutes: ageMinutes.toFixed(0),
+          staleMinutes,
+        });
+        await this.exitPosition(mint, symbol, `STALE_POSITION (${ageMinutes.toFixed(0)} min)`, 0, 0);
+      }
       return;
     }
 
@@ -94,15 +108,10 @@ export class PositionManagerService {
     const peakPrice = this.positionPeaks.get(mint) || currentPrice;
     const trailingStopDistance = ((peakPrice - currentPrice) / peakPrice) * 100;
 
-    // Calculate position age in minutes
-    const enteredAt = new Date(position.entered_at);
-    const ageMinutes = (Date.now() - enteredAt.getTime()) / (1000 * 60);
-
     // Check exit conditions
     const takeProfitPct = configService.getNumber("TAKE_PROFIT_PCT");
     const stopLossPct = configService.getNumber("STOP_LOSS_PCT");
     const trailingStopPct = configService.getNumber("TRAILING_STOP_PCT");
-    const staleMinutes = configService.getNumber("STALE_POSITION_MINUTES");
 
     if (pnlPct >= takeProfitPct) {
       logger.info("POSITIONS", "PositionManager", "TAKE_PROFIT triggered", {
