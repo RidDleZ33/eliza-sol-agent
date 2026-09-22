@@ -328,7 +328,10 @@ export class TelegramAdminBot {
         "📋 Management:\n" +
         "/settings - Main configuration menu\n" +
         "/settings list - View all available settings\n" +
-        "/status - Current swarm status\n" +
+        "/status - Live portfolio dashboard\n" +
+        "/dashboard - Live portfolio dashboard (same as /status)\n" +
+        "/positions - Detailed active position list\n" +
+        "/trades - Trade journal and state\n" +
         "/logs - Logging configuration\n" +
         "\n" +
         "📡 Streaming:\n" +
