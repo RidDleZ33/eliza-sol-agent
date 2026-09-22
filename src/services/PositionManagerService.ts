@@ -39,9 +39,13 @@ export class PositionManagerService {
 
   private async checkPositions() {
     try {
-      const positions = await watchlistService.getOpenPositions();
+      // Only manage positions matching current mode (dry run vs live)
+      const isDryRun = configService.getBoolean("DRY_RUN_MODE");
+      const currentMode = isDryRun ? "DRY_RUN" : "LIVE";
+      const positions = await watchlistService.getOpenPositions(isDryRun);
       logger.debug("POSITIONS", "PositionManager", "Checking positions", {
         count: positions.length,
+        mode: currentMode,
       });
 
       for (const position of positions) {

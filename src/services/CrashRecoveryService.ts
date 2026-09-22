@@ -1,6 +1,7 @@
 import { watchlistService } from "./WatchlistService.ts";
 import { getSolanaPrivateKey } from "../utils/env.ts";
 import { logger } from "./LoggerService.ts";
+import { configService } from "./ConfigService.ts";
 
 export class CrashRecoveryService {
   private runtime: any;
@@ -17,25 +18,38 @@ export class CrashRecoveryService {
     try {
       log("[CrashRecovery] Reconciling positions...");
 
-      // Get all open positions from DB
-      const openPositions = await watchlistService.getOpenPositions();
-      
-      log(`[CrashRecovery] Found ${openPositions.length} open positions in DB`);
+      // Determine current mode
+      const isDryRun = configService.getBoolean("DRY_RUN_MODE");
+      const recoveryMode = isDryRun ? "DRY_RUN" : "LIVE";
+      log(`[CrashRecovery] Recovery mode: ${recoveryMode}`);
 
-      for (const position of openPositions) {
+      // Get positions matching current mode by tx signature prefix
+      let positionsToRecover: any[];
+      if (isDryRun) {
+        positionsToRecover = await watchlistService.getOpenPositions(true);
+      } else {
+        positionsToRecover = await watchlistService.getOpenPositions(false);
+      }
+      log(`[CrashRecovery] Found ${positionsToRecover.length} open positions matching mode ${recoveryMode}`);
+
+      for (const position of positionsToRecover) {
         try {
-          // Check actual wallet balance
-          const balance = await this.getTokenBalance(position.mint_address, logWarn);
-          
-          if (balance > 0) {
-            log(`[CrashRecovery] Position ${position.symbol} still active (balance: ${balance})`);
-            // Position is still valid, keep it open
+          if (isDryRun) {
+            // Dry run positions are simulated - just confirm they're restored
+            log(`[CrashRecovery] [DRY_RUN] Position ${position.symbol} restored (simulated)`);
           } else {
-            log(`[CrashRecovery] Position ${position.symbol} closed externally (balance: 0)`);
-            await watchlistService.updatePositionStatus(
-              position.mint_address,
-              "CLOSED_EXTERNALLY"
-            );
+            // Live positions need blockchain balance verification
+            const balance = await this.getTokenBalance(position.mint_address, logWarn);
+            
+            if (balance > 0) {
+              log(`[CrashRecovery] [LIVE] Position ${position.symbol} still active (balance: ${balance})`);
+            } else {
+              log(`[CrashRecovery] [LIVE] Position ${position.symbol} closed externally (balance: 0)`);
+              await watchlistService.updatePositionStatus(
+                position.mint_address,
+                "CLOSED_EXTERNALLY"
+              );
+            }
           }
         } catch (e) {
           logError(`[CrashRecovery] Error checking position ${position.symbol}:`, e);
@@ -43,7 +57,7 @@ export class CrashRecoveryService {
       }
 
       log("[CrashRecovery] Position reconciliation complete");
-      return openPositions.length;
+      return positionsToRecover.length;
     } catch (e) {
       logError("[CrashRecovery] Error during reconciliation:", e);
       return 0;

@@ -547,7 +547,20 @@ class WatchlistService {
       .get().count;
   }
 
-  async getOpenPositions(): Promise<any[]> {
+  async getOpenPositions(isDryRun?: boolean): Promise<any[]> {
+    if (isDryRun === true) {
+      // Only return dry run positions (tx signatures start with DRY_RUN_BUY_)
+      return this.db
+        .prepare("SELECT * FROM positions WHERE status = 'OPEN' AND buy_tx_signature LIKE 'DRY_RUN_BUY_%'")
+        .all();
+    }
+    if (isDryRun === false) {
+      // Only return live positions (tx signatures do NOT start with DRY_RUN_)
+      return this.db
+        .prepare("SELECT * FROM positions WHERE status = 'OPEN' AND buy_tx_signature NOT LIKE 'DRY_RUN_%'")
+        .all();
+    }
+    // Return all open positions
     return this.db
       .prepare("SELECT * FROM positions WHERE status = 'OPEN'")
       .all();

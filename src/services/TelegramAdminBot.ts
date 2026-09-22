@@ -619,11 +619,11 @@ export class TelegramAdminBot {
     statusText += `📉 Stop Loss: ${configService.getNumber("STOP_LOSS_PCT")}%\n`;
 
     try {
-      const openPositions = await watchlistService.getOpenPositions();
+      const openPositions = await watchlistService.getOpenPositions(isDryRun);
       if (openPositions.length > 0) {
-        statusText += "\nOpen Positions:\n";
+        statusText += `\nOpen ${currentMode} Positions:\n`;
         for (const pos of openPositions) {
-          statusText += `• ${pos.symbol || pos.mint_address} (entered ${pos.entered_at})\n`;
+          statusText += `• ${pos.symbol || pos.mint_address}\n`;
         }
       }
     } catch (e) {
