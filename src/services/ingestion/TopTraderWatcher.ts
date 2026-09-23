@@ -2,6 +2,7 @@ import { watchlistService } from "../WatchlistService.ts";
 import { getBirdeyeApiKey } from "../../utils/env.ts";
 import { configService } from "../ConfigService.ts";
 import { logger } from "../LoggerService.ts";
+import { IngestionWatcher } from "./IngestionWatcher.ts";
 
 interface TopTrader {
   walletAddress: string;
@@ -11,7 +12,8 @@ interface TopTrader {
   tradesSell: number;
 }
 
-export class TopTraderWatcher {
+export class TopTraderWatcher implements IngestionWatcher {
+  public name = "TopTraderWatcher";
   private birdeyeApiKey: string | undefined;
   private intervalId: ReturnType<typeof setInterval> | null = null;
   private backoffMs: number = 1000;
@@ -85,7 +87,7 @@ export class TopTraderWatcher {
       // and call watchlistService.addDiscoveredToken() on those mints
 
       this.backoffMs = 1000;
-    } catch (e) {
+    } catch (e: any) {
       logger.error("INGESTION", "TopTraderWatcher", "Error polling", { error: e.message });
       this.backoffMs = Math.min(this.backoffMs * 2, this.maxBackoffMs);
       logger.warn("INGESTION", "TopTraderWatcher", "Backing off", { backoffMs: this.backoffMs });

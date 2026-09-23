@@ -3,6 +3,7 @@ import { getBirdeyeApiKey } from "../../utils/env.ts";
 import { configService } from "../ConfigService.ts";
 import { logger } from "../LoggerService.ts";
 import { fetchWithRetry } from "../../utils/circuitBreaker.ts";
+import { IngestionWatcher } from "./IngestionWatcher.ts";
 
 interface TrendingToken {
   address: string;
@@ -11,7 +12,8 @@ interface TrendingToken {
   liquidity?: number;
 }
 
-export class TrendingTokenWatcher {
+export class TrendingTokenWatcher implements IngestionWatcher {
+  public name = "TrendingTokenWatcher";
   private birdeyeApiKey: string | undefined;
   private intervalId: ReturnType<typeof setInterval> | null = null;
   private backoffMs: number = 1000;
@@ -91,7 +93,7 @@ export class TrendingTokenWatcher {
       }
 
       this.backoffMs = 1000;
-    } catch (e) {
+    } catch (e: any) {
       logger.error("INGESTION", "TrendingTokenWatcher", "Error polling", { error: e.message });
       this.backoffMs = Math.min(this.backoffMs * 2, this.maxBackoffMs);
       logger.warn("INGESTION", "TrendingTokenWatcher", "Backing off", { backoffMs: this.backoffMs });
@@ -164,7 +166,7 @@ export class TrendingTokenWatcher {
       } catch (e) {
         logger.warn("INGESTION", "TrendingTokenWatcher", "Failed to fetch pair data", {
           address: profile.tokenAddress,
-          error: e.message,
+          error: (e as any).message,
         });
       }
     }
