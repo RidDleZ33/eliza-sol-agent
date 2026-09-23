@@ -30,6 +30,7 @@ import { telegramAdminBot } from "./services/TelegramAdminBot.ts";
 import { watchlistService } from "./services/WatchlistService.ts";
 import { logger } from "./services/LoggerService.ts";
 import { ensureWarRoomJoined } from "./utils/warRoom.ts";
+import { priceActionService } from "./services/PriceActionService.ts";
 
 const sleep = promisify(setTimeout);
 
