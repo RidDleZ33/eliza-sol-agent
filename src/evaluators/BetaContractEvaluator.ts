@@ -1,5 +1,6 @@
 import { watchlistService } from "../services/WatchlistService.ts";
 import { contractForensicsService } from "../services/ContractForensicsService.ts";
+import { postWarRoomMessage } from "../services/WarRoomService.ts";
 
 export type DecisionType = "PASS" | "FAIL" | "DISSENT";
 
@@ -58,6 +59,14 @@ export async function evaluateBetaContract(runtime: any) {
         }
 
         runtime.logger.info(`[Beta] ${token.symbol} Verdict: ${verdict.decision} (${verdict.reasons.join("; ")})`);
+
+        // War room: broadcast risk assessment
+        await postWarRoomMessage("BETA", "RISK_ASSESSMENT", {
+          symbol: token.symbol,
+          decision: verdict.decision === "PASS" ? "BUY" : "SELL",
+          confidence: verdict.confidenceRatio,
+          reasoning: verdict.reasons.join("; ")
+        });
 
         await watchlistService.updateTokenBetaVerdict(token.mint_address, verdict);
 

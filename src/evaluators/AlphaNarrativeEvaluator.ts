@@ -1,6 +1,7 @@
 import { watchlistService } from "../services/WatchlistService.ts";
 import { socialEvaluatorService, SocialTelemetry } from "../services/SocialEvaluatorService.ts";
 import { parseAndValidate, isAlphaVerdict } from "../utils/jsonParsing.ts";
+import { postWarRoomMessage } from "../services/WarRoomService.ts";
 
 export type DecisionType = "PASS" | "FAIL" | "DISSENT" | "DEFER";
 
@@ -40,6 +41,23 @@ export async function evaluateAlphaNarrative(runtime: any) {
         runtime.logger.info(`[Alpha]   Confidence: ${verdict.confidenceRatio}, Narrative: ${verdict.narrativeScore}, Organicity: ${verdict.organicityScore}`);
         runtime.logger.info(`[Alpha]   Category: ${verdict.narrativeCategory}`);
         runtime.logger.info(`[Alpha]   Reasoning: ${verdict.reasoning}`);
+
+        // War room: broadcast evaluation decision
+        if (verdict.decision === "DEFER") {
+          await postWarRoomMessage("ALPHA", "VOTE_CAST", {
+            symbol: token.symbol,
+            decision: "HOLD",
+            confidence: verdict.confidenceRatio,
+            reasoning: `Deferred - insufficient data`
+          });
+        } else {
+          await postWarRoomMessage("ALPHA", "VOTE_CAST", {
+            symbol: token.symbol,
+            decision: verdict.decision === "PASS" ? "BUY" : "SELL",
+            confidence: verdict.confidenceRatio,
+            reasoning: verdict.reasoning
+          });
+        }
 
         // Handle DEFER by setting future evaluation time instead of storing verdict
         if (verdict.decision === "DEFER") {
