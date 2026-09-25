@@ -1,10 +1,9 @@
 // SOL/USD mark poller
-// Uses a well-known SOL/USDC pair on DexScreener (e.g., Raydium SOL/USDC)
-// Writes to sol_marks table
+// Uses Raydium SOL/USDC pair
 
 import { getDb } from "../db";
 
-const SOL_USDC_PAIR = "58oQChx4yW2t3T7c2GqN4GKvKkN7QgNqPmYqYqYqYqYq"; // Raydium SOL/USDC
+const SOL_USDC_PAIR = "Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE";
 
 export async function pollSolMark(): Promise<number | null> {
   try {
@@ -22,8 +21,6 @@ export async function pollSolMark(): Promise<number | null> {
       return null;
     }
 
-    // priceUsd is for USDC (1.00). We need SOL price in USD.
-    // Actually the pair is SOL/USDC so priceUsd = SOL price in USD
     const solUsd = parseFloat(data.pair.priceUsd);
 
     const db = getDb();

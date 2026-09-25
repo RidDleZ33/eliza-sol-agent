@@ -1,7 +1,6 @@
 // DexScreener poller v1
-// 1. Poll token-profiles/latest + latest boosts (public, 60/min)
-// 2. For each Solana address, fetch /tokens/v1/solana/{mints} in batches (public 300/min)
-// 3. Persist every pair on that token, not just the first
+// Polls token-profiles/latest and fetches pair data for each Solana mint.
+// Writes market_ticks + discovery_events.
 
 import { normalizeDexScreenerPair } from "../normalize";
 import { shouldRecordFirstSeen, recordDiscoveryEvent, shouldRecordTrendingEnter } from "../discover";
@@ -17,14 +16,12 @@ interface PollerResult {
   errors: number;
 }
 
-let lastTrendingCheck: Map<string, number> = new Map();
-
 export async function pollDexScreener(runId: number): Promise<PollerResult> {
   const db = getDb();
   const result: PollerResult = { ticks: 0, firstSeen: 0, trending: 0, errors: 0 };
 
   try {
-    // Step 1: Get latest token profiles (new trending tokens)
+    // Step 1: Get latest token profiles
     const profilesUrl = `${DS_BASE}/token-profiles/latest/v1?limit=25`;
     const profilesResp = await fetch(profilesUrl);
     if (!profilesResp.ok) {
@@ -41,7 +38,7 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
           }
         }
 
-        // Step 2: Fetch token details in batches (max 15 at a time per docs)
+        // Step 2: Fetch token details in batches (max 15 at a time)
         const mintArray = Array.from(mints);
         for (let i = 0; i < mintArray.length; i += 15) {
           const batch = mintArray.slice(i, i + 15);
@@ -85,16 +82,80 @@ async function pollTokenBatch(
     if (!data || !data.pairs || !Array.isArray(data.pairs)) return;
 
     for (const pair of data.pairs) {
+      // Filter to Solana only
+      if (pair.chainId !== "solana") continue;
       if (!pair.pairAddress) continue;
 
       const mint = pair.baseToken?.address;
       if (!mint) continue;
 
       try {
-        const tick = normalizeDexScreenerPair(pair, `/latest/dex/tokens/solana/${mint}`);
+        const tick = normalizeDexScreenerPair(pair, `/latest/dex/tokens/${mint}`);
 
         // Insert tick (append-only)
-        const tickId = insertTick(db, runId, tick);
+        const stmt = db.prepare(`
+          INSERT INTO market_ticks (
+            ingest_run_id, schema_version, observed_at, observed_at_ms,
+            source, source_endpoint, chain_id, mint, quote_mint, pair_address, dex_id,
+            symbol, name, price_usd, price_native, liq_usd, liq_base, liq_quote,
+            fdv_usd, mcap_usd, vol_5m_usd, vol_1h_usd, vol_6h_usd, vol_24h_usd,
+            tx_5m_buys, tx_5m_sells, tx_1h_buys, tx_1h_sells, tx_24h_buys, tx_24h_sells,
+            change_5m_pct, change_1h_pct, change_6h_pct, change_24h_pct,
+            pair_created_at, pair_created_at_ms, boost_active, has_socials, socials_json,
+            sol_usd, universe_hint, raw_json, raw_sha256
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+            ?, ?, ?)
+        `);
+
+        const now = Date.now();
+        const insertResult = stmt.run(
+          runId,
+          SCHEMA_VERSION,
+          new Date(now).toISOString(),
+          now,
+          tick.source,
+          tick.source_endpoint,
+          tick.chain_id,
+          tick.mint,
+          tick.quote_mint,
+          tick.pair_address,
+          tick.dex_id,
+          tick.symbol,
+          tick.name,
+          tick.price_usd,
+          tick.price_native,
+          tick.liq_usd,
+          tick.liq_base,
+          tick.liq_quote,
+          tick.fdv_usd,
+          tick.mcap_usd,
+          tick.vol_5m_usd,
+          tick.vol_1h_usd,
+          tick.vol_6h_usd,
+          tick.vol_24h_usd,
+          tick.tx_5m_buys,
+          tick.tx_5m_sells,
+          tick.tx_1h_buys,
+          tick.tx_1h_sells,
+          tick.tx_24h_buys,
+          tick.tx_24h_sells,
+          tick.change_5m_pct,
+          tick.change_1h_pct,
+          tick.change_6h_pct,
+          tick.change_24h_pct,
+          tick.pair_created_at,
+          tick.pair_created_at_ms,
+          tick.boost_active,
+          tick.has_socials,
+          tick.socials_json,
+          null, // sol_usd
+          tick.universe_hint,
+          tick.raw_json,
+          tick.raw_sha256
+        );
+
+        const tickId = insertResult.lastInsertRowid;
         result.ticks++;
 
         // First seen?
@@ -108,6 +169,7 @@ async function pollTokenBatch(
             dex_id: tick.dex_id,
             pair_created_at_ms: tick.pair_created_at_ms,
             extra_json: null,
+            tick_id: tickId,
           });
           result.firstSeen++;
         }
@@ -123,6 +185,7 @@ async function pollTokenBatch(
             dex_id: tick.dex_id,
             pair_created_at_ms: tick.pair_created_at_ms,
             extra_json: null,
+            tick_id: tickId,
           });
           result.trending++;
         }
@@ -135,74 +198,6 @@ async function pollTokenBatch(
     recordError("dexscreener", "http", `batch error: ${err.message}`, null);
     result.errors++;
   }
-}
-
-function insertTick(db: any, runId: number, tick: any): number {
-  const now = Date.now();
-  const stmt = db.prepare(`
-    INSERT INTO market_ticks (
-      ingest_run_id, schema_version, observed_at, observed_at_ms,
-      source, source_endpoint, chain_id, mint, quote_mint, pair_address, dex_id,
-      symbol, name, price_usd, price_native, liq_usd, liq_base, liq_quote,
-      fdv_usd, mcap_usd, vol_5m_usd, vol_1h_usd, vol_6h_usd, vol_24h_usd,
-      tx_5m_buys, tx_5m_sells, tx_1h_buys, tx_1h_sells, tx_24h_buys, tx_24h_sells,
-      change_5m_pct, change_1h_pct, change_6h_pct, change_24h_pct,
-      pair_created_at, pair_created_at_ms, boost_active, has_socials, socials_json,
-      sol_usd, universe_hint, raw_json, raw_sha256
-    ) VALUES (
-      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-      ?, ?, ?
-    )
-  `);
-
-  stmt.run(
-    runId,
-    SCHEMA_VERSION,
-    new Date(now).toISOString(),
-    now,
-    tick.source,
-    tick.source_endpoint,
-    tick.chain_id,
-    tick.mint,
-    tick.quote_mint,
-    tick.pair_address,
-    tick.dex_id,
-    tick.symbol,
-    tick.name,
-    tick.price_usd,
-    tick.price_native,
-    tick.liq_usd,
-    tick.liq_base,
-    tick.liq_quote,
-    tick.fdv_usd,
-    tick.mcap_usd,
-    tick.vol_5m_usd,
-    tick.vol_1h_usd,
-    tick.vol_6h_usd,
-    tick.vol_24h_usd,
-    tick.tx_5m_buys,
-    tick.tx_5m_sells,
-    tick.tx_1h_buys,
-    tick.tx_1h_sells,
-    tick.tx_24h_buys,
-    tick.tx_24h_sells,
-    tick.change_5m_pct,
-    tick.change_1h_pct,
-    tick.change_6h_pct,
-    tick.change_24h_pct,
-    tick.pair_created_at,
-    tick.pair_created_at_ms,
-    tick.boost_active,
-    tick.has_socials,
-    tick.socials_json,
-    null, // sol_usd - will be updated from sol_marks later if needed
-    tick.universe_hint,
-    tick.raw_json,
-    tick.raw_sha256
-  );
-
-  return db.prepare("SELECT last_insert_rowid()").get().value;
 }
 
 export function recordError(source: string, kind: string, message: string, extra: string | null) {

@@ -1,24 +1,29 @@
 // Main recorder loop
 // Polls DexScreener every TAPE_POLL_MS (default 20s)
 // Polls SOL mark every TAPE_SOL_MARK_MS (default 60s)
-// Handles SIGTERM gracefully
+// Uses loop + sleep to prevent overlapping polls
 
 import { openDb, closeDb, getDb } from "./db";
 import { SCHEMA_VERSION } from "./schema";
-import { pollDexScreener, recordError } from "./pollers/dexscreener";
+import { pollDexScreener } from "./pollers/dexscreener";
 import { pollSolMark } from "./pollers/solmark";
 
 const dbPath = process.env.TAPE_DB_PATH || "data/tape/tape.sqlite";
 const pollMs = parseInt(process.env.TAPE_POLL_MS || "20000", 10);
 const solMarkMs = parseInt(process.env.TAPE_SOL_MARK_MS || "60000", 10);
-const jsonl = process.env.TAPE_JSONL === "1";
 
-let running = true;
 let runId = 0;
 let tickCount = 0;
 let firstSeenCount = 0;
 let trendingCount = 0;
 let errorCount = 0;
+let lastSolMark = 0;
+let lastPoll = 0;
+let running = true;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
 
 async function start() {
   console.log(`[tape] schema_version=${SCHEMA_VERSION} db=${dbPath} poll_ms=${pollMs}`);
@@ -39,73 +44,66 @@ async function start() {
     SCHEMA_VERSION,
     JSON.stringify({ poll_ms: pollMs, sol_mark_ms: solMarkMs })
   );
-  const runRow = db.prepare("SELECT last_insert_rowid() as rid").get();
-  runId = runRow.rid;
+  runId = db.prepare("SELECT last_insert_rowid() as rid").get().rid;
 
   console.log(`[tape] ingest_run_id=${runId}`);
 
-  // SOL mark poller (every 60s)
-  let lastSolMark = 0;
-  setInterval(async () => {
-    if (!running) return;
-    await pollSolMark();
-    lastSolMark = Date.now();
-  }, solMarkMs);
+  // Initial SOL mark poll
+  await pollSolMark();
+  lastSolMark = Date.now() - now;
 
-  // Main poller (every pollMs)
-  let lastPoll = 0;
-  let pollInterval = setInterval(async () => {
-    if (!running) return;
-    lastPoll = Date.now();
+  // Run loop
+  while (running) {
+    const elapsed = Date.now() - now;
 
-    const result = await pollDexScreener(runId);
-    tickCount += result.ticks;
-    firstSeenCount += result.firstSeen;
-    trendingCount += result.trending;
-    errorCount += result.errors;
-
-    console.log(`[tape] poll ticks=${result.ticks} firstSeen=${result.firstSeen} trending=${result.trending} errors=${result.errors} totalTicks=${tickCount}`);
-
-    // Self-check: after first successful poll, verify we have data
-    if (tickCount === 0 && result.ticks === 0 && Date.now() - now > pollMs * 3) {
-      console.log("[tape] WARNING: no ticks recorded after 3 polls");
-      const row = db.prepare("SELECT COUNT(*) as cnt FROM market_ticks").get();
-      console.log(`[tape] market_ticks count: ${row.cnt}`);
+    // SOL mark poller (every solMarkMs)
+    if (elapsed - lastSolMark >= solMarkMs) {
+      await pollSolMark();
+      lastSolMark = elapsed;
     }
-  }, pollMs);
 
-  // SIGTERM handler
-  process.on("SIGTERM", () => {
-    console.log("[tape] SIGTERM received, shutting down...");
-    running = false;
-    clearInterval(pollInterval);
-    // Stop current poll if in progress (best effort)
-    setTimeout(() => {
-      db.prepare("UPDATE ingest_runs SET stopped_at = ? WHERE id = ?").run(
-        new Date().toISOString(),
-        runId
-      );
-      closeDb();
-      console.log("[tape] stopped");
-      process.exit(0);
-    }, 1000);
-  });
+    // Main poller (every pollMs)
+    if (elapsed - lastPoll >= pollMs) {
+      lastPoll = elapsed;
 
-  process.on("SIGINT", () => {
-    console.log("[tape] SIGINT received, shutting down...");
-    running = false;
-    clearInterval(pollInterval);
-    setTimeout(() => {
-      db.prepare("UPDATE ingest_runs SET stopped_at = ? WHERE id = ?").run(
-        new Date().toISOString(),
-        runId
-      );
-      closeDb();
-      console.log("[tape] stopped");
-      process.exit(0);
-    }, 1000);
-  });
+      const result = await pollDexScreener(runId);
+      tickCount += result.ticks;
+      firstSeenCount += result.firstSeen;
+      trendingCount += result.trending;
+      errorCount += result.errors;
+
+      console.log(`[tape] poll ticks=${result.ticks} firstSeen=${result.firstSeen} trending=${result.trending} errors=${result.errors} totalTicks=${tickCount}`);
+
+      // Self-check after first successful poll
+      if (tickCount === 0 && result.ticks === 0 && elapsed > pollMs * 3) {
+        console.log("[tape] WARNING: no ticks recorded after 3 polls");
+        const row = db.prepare("SELECT COUNT(*) as cnt FROM market_ticks").get();
+        console.log(`[tape] market_ticks count: ${row.cnt}`);
+      }
+    }
+
+    // Sleep for a short interval
+    await sleep(1000);
+  }
+
+  // Cleanup
+  db.prepare("UPDATE ingest_runs SET stopped_at = ? WHERE id = ?").run(
+    new Date().toISOString(),
+    runId
+  );
+  closeDb();
+  console.log("[tape] stopped");
 }
+
+process.on("SIGTERM", () => {
+  console.log("[tape] SIGTERM received, shutting down...");
+  running = false;
+});
+
+process.on("SIGINT", () => {
+  console.log("[tape] SIGINT received, shutting down...");
+  running = false;
+});
 
 start().catch((err) => {
   console.error("[tape] fatal:", err);

@@ -14,6 +14,7 @@ export interface DiscoveryEvent {
   dex_id: string | null;
   pair_created_at_ms: number | null;
   extra_json: string | null;
+  tick_id?: number;
 }
 
 export function shouldRecordFirstSeen(mint: string, pairAddress: string): boolean {
@@ -25,6 +26,17 @@ export function shouldRecordFirstSeen(mint: string, pairAddress: string): boolea
   return row.cnt === 0;
 }
 
+export function shouldRecordTrendingEnter(mint: string, pairAddress: string): boolean {
+  const db = getDb();
+  const sixHoursAgo = Date.now() - 6 * 60 * 60 * 1000;
+  const row = db.prepare(`
+    SELECT COUNT(*) as cnt FROM discovery_events
+    WHERE event_type = 'TRENDING_ENTER' AND mint = ? AND pair_address = ?
+    AND observed_at_ms > ?
+  `).get(mint, pairAddress, sixHoursAgo);
+  return row.cnt === 0;
+}
+
 export function recordDiscoveryEvent(runId: number, ev: DiscoveryEvent) {
   const db = getDb();
   const now = Date.now();
@@ -32,8 +44,8 @@ export function recordDiscoveryEvent(runId: number, ev: DiscoveryEvent) {
     INSERT INTO discovery_events (
       ingest_run_id, schema_version, observed_at, observed_at_ms,
       event_type, source, mint, quote_mint, pair_address, dex_id,
-      pair_created_at_ms, extra_json
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      pair_created_at_ms, extra_json, tick_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   stmt.run(
     runId,
@@ -47,18 +59,7 @@ export function recordDiscoveryEvent(runId: number, ev: DiscoveryEvent) {
     ev.pair_address,
     ev.dex_id,
     ev.pair_created_at_ms,
-    ev.extra_json
+    ev.extra_json,
+    ev.tick_id || null
   );
-}
-
-export function shouldRecordTrendingEnter(mint: string, pairAddress: string): boolean {
-  const db = getDb();
-  // Throttle: only write TRENDING_ENTER once per 6 hours per mint+pair
-  const sixHoursAgo = Date.now() - 6 * 60 * 60 * 1000;
-  const row = db.prepare(`
-    SELECT COUNT(*) as cnt FROM discovery_events
-    WHERE event_type = 'TRENDING_ENTER' AND mint = ? AND pair_address = ?
-    AND observed_at_ms > ?
-  `).get(mint, pairAddress, sixHoursAgo);
-  return row.cnt === 0;
 }
