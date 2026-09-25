@@ -5,7 +5,8 @@
   "main": "src/index.ts",
   "scripts": {
     "start": "node --loader ts-node/esm src/index.ts",
-    "build": "bun build src/index.ts --target=bun --outfile=dist/index.js --external:@elizaos/core --external:@elizaos/plugin-solana --external:@elizaos/plugin-twitter --external:@elizaos/plugin-telegram --external:@elizaos/plugin-jupiter --external:@solana/web3.js --external:jito-ts --external:zod --external:dotenv"
+    "build": "bun build src/index.ts --target=bun --outfile=dist/index.js --external:@elizaos/core --external:@elizaos/plugin-solana --external:@elizaos/plugin-twitter --external:@elizaos/plugin-telegram --external:@elizaos/plugin-jupiter --external:@solana/web3.js --external:jito-ts --external:zod --external:dotenv",
+    "tape": "bun src/tape/index.ts"
   },
   "dependencies": {
     "@elizaos/core": "^1.7.2",
