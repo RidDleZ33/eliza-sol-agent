@@ -2,6 +2,7 @@
 // Uses Raydium SOL/USDC pair
 
 import { getDb } from "../db";
+import { recordError } from "./dexscreener";
 
 const SOL_USDC_PAIR = "Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE";
 
@@ -12,12 +13,14 @@ export async function pollSolMark(): Promise<number | null> {
     );
     if (!resp.ok) {
       console.log(`[solmark] HTTP ${resp.status}`);
+      recordError("solmark", "http", `SOL/USD mark: HTTP ${resp.status}`, null);
       return null;
     }
 
     const data = await resp.json();
     if (!data || !data.pair || !data.pair.priceUsd) {
       console.log("[solmark] no priceUsd in response");
+      recordError("solmark", "parse", "SOL/USD mark: no priceUsd in response", JSON.stringify({ pair_address: SOL_USDC_PAIR }));
       return null;
     }
 
@@ -34,6 +37,7 @@ export async function pollSolMark(): Promise<number | null> {
     return solUsd;
   } catch (err: any) {
     console.log(`[solmark] error: ${err.message}`);
+    recordError("solmark", "exception", `SOL/USD mark: ${err.message}`, JSON.stringify({ pair_address: SOL_USDC_PAIR }));
     return null;
   }
 }
