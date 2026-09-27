@@ -4,5 +4,13 @@ dist/
 .env.local
 *.log
 .DS_Store
-data/tape/
+.eliza/
+*.db
 *.sqlite
+data/tape/
+*.pem
+*.key
+id.json
+keypair.json
+vector.tar.gz
+fuzzystrmatch.tar.gz
