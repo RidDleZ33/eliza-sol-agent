@@ -7,6 +7,7 @@ import { openDb, closeDb, getDb } from "./db";
 import { SCHEMA_VERSION } from "./schema";
 import { pollDexScreener } from "./pollers/dexscreener";
 import { pollSolMark } from "./pollers/solmark";
+import { initJsonl, isJsonlEnabled } from "./jsonl";
 
 const dbPath = process.env.TAPE_DB_PATH || "data/tape/tape.sqlite";
 const pollMs = parseInt(process.env.TAPE_POLL_MS || "20000", 10);
@@ -17,32 +18,65 @@ let tickCount = 0;
 let firstSeenCount = 0;
 let trendingCount = 0;
 let errorCount = 0;
-let lastSolMark = 0;
-let lastPoll = 0;
+let lastSolMark = Date.now();
+let lastPoll = Date.now() - pollMs;
 let running = true;
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-async function start() {
-  console.log(`[tape] schema_version=${SCHEMA_VERSION} db=${dbPath} poll_ms=${pollMs}`);
+function getGitSha(): string | null {
+  try {
+    const cp = require("child_process");
+    const result = cp.execSync("git rev-parse --short HEAD 2>/dev/null", {
+      timeout: 2000,
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    const sha = result.toString().trim();
+    if (sha.length > 0) return sha;
+  } catch {
+    // ignore
+  }
+  return null;
+}
 
+async function start() {
   openDb(dbPath);
   const db = getDb();
 
+  // Get actual journal mode for startup honesty
+  const journalRow = db.prepare("PRAGMA journal_mode").get();
+  const actualJournalMode = journalRow.journal_mode;
+
+  initJsonl();
+
+  console.log(
+    `[tape] schema_version=${SCHEMA_VERSION} db=${dbPath} journal=${actualJournalMode} ` +
+    `jsonl=${isJsonlEnabled() ? "on" : "off"} poll_ms=${pollMs}`
+  );
+
   // Register ingest run
   const now = Date.now();
+  const gitSha = getGitSha();
+  const configObj = {
+    poll_ms: pollMs,
+    sol_mark_ms: solMarkMs,
+    jsonl: isJsonlEnabled(),
+    dexscreener_host: "api.dexscreener.com",
+  };
+
   const stmt = db.prepare(`
-    INSERT INTO ingest_runs (started_at, started_at_ms, hostname, schema_version, config_json)
-    VALUES (?, ?, ?, ?, ?)
+    INSERT INTO ingest_runs (started_at, started_at_ms, hostname, git_sha, schema_version, config_json)
+    VALUES (?, ?, ?, ?, ?, ?)
   `);
   stmt.run(
     new Date(now).toISOString(),
     now,
     require("os").hostname(),
+    gitSha,
     SCHEMA_VERSION,
-    JSON.stringify({ poll_ms: pollMs, sol_mark_ms: solMarkMs })
+    JSON.stringify(configObj)
   );
   runId = db.prepare("SELECT last_insert_rowid() as rid").get().rid;
 
@@ -50,21 +84,21 @@ async function start() {
 
   // Initial SOL mark poll
   await pollSolMark();
-  lastSolMark = Date.now() - now;
+  lastSolMark = Date.now();
 
   // Run loop
   while (running) {
-    const elapsed = Date.now() - now;
+    const now2 = Date.now();
 
     // SOL mark poller (every solMarkMs)
-    if (elapsed - lastSolMark >= solMarkMs) {
+    if (now2 - lastSolMark >= solMarkMs) {
       await pollSolMark();
-      lastSolMark = elapsed;
+      lastSolMark = Date.now();
     }
 
     // Main poller (every pollMs)
-    if (elapsed - lastPoll >= pollMs) {
-      lastPoll = elapsed;
+    if (now2 - lastPoll >= pollMs) {
+      lastPoll = Date.now();
 
       const result = await pollDexScreener(runId);
       tickCount += result.ticks;
@@ -75,7 +109,7 @@ async function start() {
       console.log(`[tape] poll ticks=${result.ticks} firstSeen=${result.firstSeen} trending=${result.trending} errors=${result.errors} totalTicks=${tickCount}`);
 
       // Self-check after first successful poll
-      if (tickCount === 0 && result.ticks === 0 && elapsed > pollMs * 3) {
+      if (tickCount === 0 && result.ticks === 0 && now2 - now > pollMs * 3) {
         console.log("[tape] WARNING: no ticks recorded after 3 polls");
         const row = db.prepare("SELECT COUNT(*) as cnt FROM market_ticks").get();
         console.log(`[tape] market_ticks count: ${row.cnt}`);
@@ -87,10 +121,39 @@ async function start() {
   }
 
   // Cleanup
-  db.prepare("UPDATE ingest_runs SET stopped_at = ? WHERE id = ?").run(
-    new Date().toISOString(),
-    runId
-  );
+  try {
+    db.prepare("UPDATE ingest_runs SET stopped_at = ? WHERE id = ?").run(
+      new Date().toISOString(),
+      runId
+    );
+  } catch {
+    // ignore
+  }
+
+  // Backup on shutdown
+  try {
+    const fs = require("fs");
+    const path = require("path");
+
+    // Checkpoint WAL first
+    try {
+      db.exec("PRAGMA wal_checkpoint(TRUNCATE);");
+    } catch {
+      // ignore
+    }
+
+    const backupsDir = "data/tape/backups";
+    if (!fs.existsSync(backupsDir)) {
+      fs.mkdirSync(backupsDir, { recursive: true });
+    }
+
+    const backupPath = path.join(backupsDir, `tape-${new Date().toISOString().split("T")[0]}.sqlite`);
+    fs.copyFileSync(dbPath, backupPath);
+    console.log(`[tape] backup saved to ${backupPath}`);
+  } catch (err: any) {
+    console.log(`[tape] backup failed: ${err.message}`);
+  }
+
   closeDb();
   console.log("[tape] stopped");
 }

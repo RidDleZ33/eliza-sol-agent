@@ -6,6 +6,7 @@ import { normalizeDexScreenerPair } from "../normalize";
 import { shouldRecordFirstSeen, recordDiscoveryEvent, shouldRecordTrendingEnter } from "../discover";
 import { getDb } from "../db";
 import { SCHEMA_VERSION } from "../schema";
+import { appendTickToJsonl } from "../jsonl";
 
 const DS_BASE = "https://api.dexscreener.com";
 
@@ -157,6 +158,19 @@ async function pollTokenBatch(
 
         const tickId = insertResult.lastInsertRowid;
         result.ticks++;
+
+        // JSONL sidecar
+        appendTickToJsonl({
+          observed_at_ms: now,
+          source: tick.source,
+          mint: tick.mint,
+          pair_address: tick.pair_address,
+          price_native: tick.price_native,
+          price_usd: tick.price_usd,
+          liq_quote: tick.liq_quote,
+          raw_json: tick.raw_json,
+          raw_sha256: tick.raw_sha256,
+        });
 
         // First seen?
         if (shouldRecordFirstSeen(mint, pair.pairAddress)) {
