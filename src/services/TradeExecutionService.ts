@@ -1,5 +1,5 @@
 import { watchlistService } from "./WatchlistService.ts";
-import { getSolanaPrivateKey } from "../utils/env.ts";
+import { getHouseKeypair } from "../utils/wallet.ts";
 import { configService } from "./ConfigService.ts";
 import { logger } from "./LoggerService.ts";
 
@@ -128,8 +128,8 @@ export class TradeExecutionService {
 
       if (!quote || !quote.outAmount) return { success: false, error: "Failed to fetch Jupiter quote" };
 
-      const keypair = this.getKeypair();
-      if (!keypair) return { success: false, error: "SOLANA_PRIVATE_KEY missing or invalid" };
+      const keypair = getHouseKeypair();
+      if (!keypair) return { success: false, error: "House keypair missing or invalid (set SOLANA_PRIVATE_KEY or GAMMA_PRIVATE_KEY)" };
 
       const swapResult = await jupiterService.executeSwap({
         quoteResponse: quote,
@@ -193,8 +193,8 @@ export class TradeExecutionService {
 
       if (!quote || !quote.outAmount) return { success: false, error: "Failed to get sell quote" };
 
-      const keypair = this.getKeypair();
-      if (!keypair) return { success: false, error: "SOLANA_PRIVATE_KEY missing" };
+      const keypair = getHouseKeypair();
+      if (!keypair) return { success: false, error: "House keypair missing" };
 
       const swapResult = await jupiterService.executeSwap({
         quoteResponse: quote,
@@ -218,7 +218,7 @@ export class TradeExecutionService {
 
   private async getTokenBalance(mint: string): Promise<number | null> {
     try {
-      const keypair = this.getKeypair();
+      const keypair = getHouseKeypair();
       if (!keypair) return null;
 
       const connection = this.runtime?.getService?.("SOLANA_CONNECTION");
@@ -241,18 +241,6 @@ export class TradeExecutionService {
         mint,
         error: e.message,
       });
-      return null;
-    }
-  }
-
-  private getKeypair() {
-    const privateKey = getSolanaPrivateKey();
-    if (!privateKey) return null;
-    try {
-      const { Keypair } = require("@solana/web3.js");
-      const bytes = Buffer.from(privateKey, "base64");
-      return Keypair.fromSecretKey(bytes);
-    } catch {
       return null;
     }
   }

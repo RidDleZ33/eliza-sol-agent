@@ -41,8 +41,39 @@ const EnvSchema = z.object({
 
 export const env = EnvSchema.parse(process.env);
 
+function isTruthyFlag(val: string | undefined): boolean {
+  return val === "true" || val === "1";
+}
+
+/**
+ * Unified dry-run check (phase 0C).
+ *
+ * Rules:
+ *   - Either DRY_RUN or DRY_RUN_MODE set true/1 → dry-run
+ *   - Both set and disagree → dry-run + loud error (fail closed)
+ *   - Neither or both explicitly false → live
+ */
+let _dryRunComputed = false;
+let _dryRunValue = false;
+
 export function isDryRun(): boolean {
-  return env.DRY_RUN === "true" || env.DRY_RUN === "1" || env.DRY_RUN_MODE === "true";
+  if (_dryRunComputed) return _dryRunValue;
+  _dryRunComputed = true;
+
+  const dryRun = isTruthyFlag(env.DRY_RUN);
+  const dryRunMode = isTruthyFlag(env.DRY_RUN_MODE);
+
+  if (dryRun || dryRunMode) {
+    _dryRunValue = true;
+    if (env.DRY_RUN !== undefined && env.DRY_RUN_MODE !== undefined && dryRun !== dryRunMode) {
+      console.error("[risk] DRY_RUN and DRY_RUN_MODE disagree; refusing live. Forcing dry-run.");
+    }
+    return true;
+  }
+
+  // Both explicitly false? Live.
+  _dryRunValue = false;
+  return false;
 }
 
 export function getMaxTradeSizeSol(): number {
