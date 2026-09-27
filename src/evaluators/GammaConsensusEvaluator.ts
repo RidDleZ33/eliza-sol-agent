@@ -5,114 +5,20 @@ import { postWarRoomMessage } from "../services/WarRoomService.ts";
 import { priceActionService } from "../services/PriceActionService.ts";
 import { PAMetrics } from "../types/priceAction.ts";
 
+// Gamma evaluator: entry decisions only. Exit management is the sole responsibility
+// of PositionManagerService (stop/TP/trailing logic runs on its own interval).
 export async function evaluateGammaConsensus(runtime: any) {
   try {
-    // PHASE 1: Active Trade Checkup (Position Management)
-    runtime.logger.info("[Gamma Phase 1] Checking health of active open positions...");
-    await manageActivePositions(runtime);
-
-    // PHASE 2: Candidate Pipeline Evaluation (Potential Buy Check)
-    runtime.logger.info("[Gamma Phase 2] Evaluating new candidate pipeline...");
+    // Candidate Pipeline Evaluation (Potential Buy Check)
+    runtime.logger.info("[Gamma] Evaluating new candidate pipeline...");
     await evaluateCandidatePipeline(runtime);
-
   } catch (e: any) {
     runtime.logger.error("[Gamma] Error in consensus loop:", e);
   }
 }
 
 /**
- * PHASE 1: Active Trade Checkup & Stop/Profit Management
- */
-async function manageActivePositions(runtime: any) {
-  const openPositions = await watchlistService.getOpenPositions();
-  if (openPositions.length === 0) return;
-
-  const priceService = runtime.getService("PRICE_SERVICE");
-
-  for (const pos of openPositions) {
-    try {
-      const currentPrice = priceService ? await priceService.getPrice(pos.mint_address) : pos.entry_price_usd;
-      if (!currentPrice || currentPrice === 0) continue;
-
-      const entryPrice = pos.entry_price_usd || currentPrice;
-      const peakPrice = Math.max(pos.peak_price_usd || entryPrice, currentPrice);
-
-      if (peakPrice > (pos.peak_price_usd || 0)) {
-        await watchlistService.updatePeakPrice(pos.mint_address, peakPrice);
-        await watchlistService.logTradeJournal({
-          position_id: pos.id,
-          mint_address: pos.mint_address,
-          symbol: pos.symbol,
-          event_type: "STOP_LOSS_UPDATED",
-          price_usd: peakPrice,
-          reason: `New peak high reached: $${peakPrice.toFixed(6)}`,
-        });
-      }
-
-      const pnlPct = ((currentPrice - entryPrice) / entryPrice) * 100;
-      const dropFromPeakPct = ((peakPrice - currentPrice) / peakPrice) * 100;
-
-      let shouldSell = false;
-      let sellReason = "";
-
-      if (pnlPct <= -12) {
-        shouldSell = true;
-        sellReason = `HARD_STOP_LOSS: PnL dropped to ${pnlPct.toFixed(2)}%`;
-      } else if (pnlPct >= 100 && dropFromPeakPct >= 10) {
-        shouldSell = true;
-        sellReason = `TRAILING_STOP_TIER_3: Peak $${peakPrice.toFixed(4)}, dropped ${dropFromPeakPct.toFixed(2)}%`;
-      } else if (pnlPct >= 50 && dropFromPeakPct >= 15) {
-        shouldSell = true;
-        sellReason = `TRAILING_STOP_TIER_2: Peak $${peakPrice.toFixed(4)}, dropped ${dropFromPeakPct.toFixed(2)}%`;
-      } else if (pnlPct >= 25 && pnlPct < 50 && currentPrice <= entryPrice * 1.02) {
-        shouldSell = true;
-        sellReason = `BREAKEVEN_STOP: Retraced to entry +2% after +25% move`;
-      }
-
-      if (shouldSell) {
-        runtime.logger.info(`[Gamma] Executing sell for ${pos.symbol}: ${sellReason}`);
-        const sellResult = await tradeExecutionService.executeSell(pos.mint_address, pos.symbol, sellReason);
-
-        if (sellResult.success) {
-          // War room: broadcast position closure
-          await postWarRoomMessage("GAMMA", "TRADE_EXECUTED", {
-            symbol: pos.symbol,
-            action: "SELL",
-            reason: sellReason,
-            txSignature: sellResult.txSignature
-          });
-
-          const realizedPnl = (currentPrice - entryPrice) * pos.amount_sol;
-          await watchlistService.updatePositionStatus(pos.mint_address, "CLOSED", currentPrice, realizedPnl, sellResult.txSignature);
-          await watchlistService.updateTokenStatus(pos.mint_address, "POSITION_CLOSED");
-
-          await watchlistService.logTradeJournal({
-            position_id: pos.id,
-            mint_address: pos.mint_address,
-            symbol: pos.symbol,
-            event_type: "SELL_EXECUTED",
-            price_usd: currentPrice,
-            reason: sellReason,
-            tx_signature: sellResult.txSignature,
-          });
-
-          await publishSignal(runtime, "POSITION_CLOSED", {
-            mint_address: pos.mint_address,
-            symbol: pos.symbol,
-            pnlPct: pnlPct.toFixed(2),
-            reason: sellReason,
-            txSignature: sellResult.txSignature,
-          });
-        }
-      }
-    } catch (e: any) {
-      runtime.logger.error(`[Gamma] Error managing open position ${pos.symbol}:`, e);
-    }
-  }
-}
-
-/**
- * PHASE 2: Candidate Pipeline Evaluation & Buy Execution
+ * Candidate Pipeline Evaluation & Buy Execution
  */
 async function evaluateCandidatePipeline(runtime: any) {
   const candidates = await watchlistService.getTokensForGammaConsensus();

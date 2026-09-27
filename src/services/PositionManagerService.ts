@@ -1,3 +1,6 @@
+// PositionManagerService: sole exit engine. Gamma evaluator only makes entry decisions;
+// this service independently checks open positions on its own interval and executes
+// stop-loss, take-profit, and trailing-stop exits via executeSell.
 import { watchlistService } from "./WatchlistService.ts";
 import { tradeExecutionService } from "./TradeExecutionService.ts";
 import { configService } from "./ConfigService.ts";
