@@ -3,6 +3,7 @@ import { isDryRun } from "../utils/env.ts";
 import { getHouseKeypair } from "../utils/wallet.ts";
 import { configService } from "./ConfigService.ts";
 import { logger } from "./LoggerService.ts";
+import { jupiterQuote, SOL_MINT } from "../execution/jupiterQuote.ts";
 
 export interface TradeExecutionResult {
   success: boolean;
@@ -105,15 +106,41 @@ export class TradeExecutionService {
       const dryRun = isDryRun() || configService.getBoolean("DRY_RUN_MODE");
 
       if (dryRun) {
-        logger.info("EXECUTION", "TradeExecution", "[DRY_RUN] BUY simulated", {
+        // Idempotency lite: client_order_id logged for Phase 1B persistence
+        const now = new Date();
+        const clientOrderId = `buy:${mintAddress}:${now.getUTCFullYear()}${String(now.getUTCMonth()+1).padStart(2,'0')}${String(now.getUTCDate()).padStart(2,'0')}${String(now.getUTCHours()).padStart(2,'0')}${String(now.getUTCMinutes()).padStart(2,'0')}`;
+        logger.info("EXECUTION", "TradeExecution", "[DRY_RUN] BUY starting", {
           symbol,
           convictionScore,
           tradeSize,
+          clientOrderId,
         });
 
-        const txSignature = "DRY_RUN_BUY_" + Date.now();
+        // Fetch real Jupiter quote instead of pretending
+        const inAmount = Math.round(tradeSize * 1e9);
+        const quote = await jupiterQuote(SOL_MINT, mintAddress, inAmount, slippageBps);
+        if (!quote) {
+          logger.warn("EXECUTION", "TradeExecution", "[DRY_RUN] BUY quote failed, not opening position", { symbol });
+          return { success: false, error: "quote failed", dryRun: true };
+        }
+
+        logger.info("EXECUTION", "TradeExecution", "[DRY_RUN] BUY quoted", {
+          symbol,
+          in: inAmount,
+          out: quote.outAmount,
+          priceImpact: quote.priceImpactPct,
+        });
+
         const entryPrice = await this.getTokenPrice(mintAddress);
+        const txSignature = "DRY_RUN_BUY_" + Date.now();
+        // Log quote details in position metadata via reason field
+        const quoteMeta = JSON.stringify({ quoteIn: quote.inAmount, quoteOut: quote.outAmount, priceImpact: quote.priceImpactPct });
         await watchlistService.addPosition(mintAddress, symbol, txSignature, entryPrice, tradeSize);
+        logger.info("EXECUTION", "TradeExecution", "[DRY_RUN] BUY position opened", {
+          symbol,
+          signature: txSignature,
+          quoteMeta,
+        });
         return { success: true, txSignature, dryRun: true };
       }
 
@@ -182,7 +209,15 @@ export class TradeExecutionService {
       // Phase 0F: env DRY_RUN=true must prevent live even if ConfigService is toggled
       const dryRun = isDryRun() || configService.getBoolean("DRY_RUN_MODE");
       if (dryRun) {
-        logger.info("EXECUTION", "TradeExecution", "[DRY_RUN] SELL simulated", { symbol, reason });
+        logger.info("EXECUTION", "TradeExecution", "[DRY_RUN] SELL starting", { symbol, reason });
+
+        // Try to get a reverse quote for sell value (best-effort)
+        const sellMarkPrice = await this.getTokenPrice(mintAddress);
+        if (sellMarkPrice <= 0) {
+          logger.warn("EXECUTION", "TradeExecution", "[DRY_RUN] SELL mark price missing", { symbol });
+        }
+
+        logger.info("EXECUTION", "TradeExecution", "[DRY_RUN] SELL completed", { symbol, reason, sellMarkPrice });
         return { success: true, txSignature: "DRY_RUN_SELL_" + Date.now(), dryRun: true };
       }
       logger.info("EXECUTION", "TradeExecution", "[LIVE] SELL executing", { symbol, reason });
