@@ -7,6 +7,7 @@ import { configService } from "./ConfigService.ts";
 import { logger } from "./LoggerService.ts";
 import { addSessionPnl } from "../execution/risk.ts";
 import { priceActionService } from "./PriceActionService.ts";
+import { volStopPct } from "../execution/volStop.ts";
 
 export class PositionManagerService {
   private runtime: any;
@@ -129,7 +130,7 @@ export class PositionManagerService {
 
     if (hv !== null) {
       // stop_pct = clamp(k * hv, 0.08, 0.25)
-      stopPct = Math.min(0.25, Math.max(0.08, atrK * hv)) * 100;
+      stopPct = volStopPct(hv, atrK);
       regime = priceActionService.labelRegime(hv);
       logger.info("POSITIONS", "PositionManager", "Volatility stop computed", {
         symbol,
