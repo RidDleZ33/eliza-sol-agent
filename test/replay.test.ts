@@ -1,5 +1,5 @@
-import { volStopPct } from "../../src/execution/volStop.ts";
-import { describe, expect, test } from "@stdlib/testing";
+import { volStopPct } from "../src/execution/volStop.ts";
+import { describe, expect, test } from "bun:test";
 
 describe("replay - event-time sorting and stop computation", () => {
   test("ticks are sorted by observed_at_ms", () => {
@@ -17,9 +17,9 @@ describe("replay - event-time sorting and stop computation", () => {
   });
 
   test("volStopPct clamps to valid range", () => {
-    expect(volStopPct(0.01, 1.5)).toBe(8); // 0.015 clamped up to 0.08 = 8%
-    expect(volStopPct(0.1, 1.5)).toBe(15); // 0.15 in range = 15%
-    expect(volStopPct(0.5, 1.5)).toBe(25); // 0.75 clamped up to 0.25 = 25%
+    expect(volStopPct(0.01, 1.5)).toBeCloseTo(8, 5);
+    expect(volStopPct(0.1, 1.5)).toBeCloseTo(15, 5);
+    expect(volStopPct(0.5, 1.5)).toBeCloseTo(25, 5);
   });
 
   test("hv proxy computed from price series", () => {

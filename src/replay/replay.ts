@@ -61,6 +61,52 @@ function computeHvProxy(prices: number[]): number {
   return Math.max(hv, 0.001);
 }
 
+export function replayTape(ticks: Tick[], opts?: { k?: number }) {
+  const k = opts?.k ?? 1.5;
+
+  // Group by mint
+  const mints = new Map<string, Tick[]>();
+  for (const tick of ticks) {
+    if (!mints.has(tick.mint)) mints.set(tick.mint, []);
+    mints.get(tick.mint)!.push(tick);
+  }
+
+  const results = [];
+  for (const [mint, mintTicks] of mints) {
+    mintTicks.sort((a, b) => a.observed_at_ms - b.observed_at_ms);
+    const prices = mintTicks.map(t => t.price_usd).filter(p => p > 0);
+
+    if (prices.length < 5) continue;
+
+    // Compute HV proxy from full series
+    const high = Math.max(...prices);
+    const low = Math.min(...prices);
+    const last = prices[prices.length - 1];
+    const hv = Math.max((high - low) / last, 0.001);
+    const stopPct = volStopPct(hv, k);
+
+    // Simulate: enter at first price, check if max drawdown exceeds stop
+    const entry = prices[0];
+    let maxDrawdown = 0;
+    for (let i = 1; i < prices.length; i++) {
+      const drawdown = ((entry - prices[i]) / entry) * 100;
+      if (drawdown > maxDrawdown) {
+        maxDrawdown = drawdown;
+      }
+    }
+
+    if (maxDrawdown >= stopPct) {
+      results.push({ mint, hv, stopPct, maxDrawdown });
+    }
+  }
+
+  return {
+    mints: mints.size,
+    stops: results.length,
+    rows: results,
+  };
+}
+
 function main() {
   let ticks: Tick[] = [];
   const dbPath = process.env.TAPE_DB_PATH || "data/tape/tape.sqlite";
@@ -149,4 +195,8 @@ function main() {
   }
 }
 
-main();
+// Only run main() when replay.ts is executed directly, not when imported.
+const isEntryPoint = process.argv[1]?.includes("replay.ts");
+if (isEntryPoint) {
+  main();
+}
