@@ -17,6 +17,7 @@ export interface BetaVerdict {
 export async function evaluateBetaContract(runtime: any) {
   try {
     const tokensNeedingEval = await watchlistService.getTokensForBetaEvaluation();
+    runtime.logger.info(`[BETA] BetaContractEvaluator: queue ALPHA_PASSED=${tokensNeedingEval.length}`);
     if (tokensNeedingEval.length === 0) return;
 
     for (const token of tokensNeedingEval) {

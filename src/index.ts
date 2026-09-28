@@ -56,13 +56,46 @@ Signal: ${signal}`;
  * ElizaOS boot is opt-in via ELIZA_BOOT=1 (not yet implemented in this slice).
  */
 
+// Adapter: Eliza-style single-string logs -> LoggerService four-slot API
+function adaptLog(level: "info"|"warn"|"error"|"debug") {
+  return (...args: any[]) => {
+    // Detect Eliza-style (single string) vs proper four-slot call
+    if (typeof args[0] === "string" && args.length >= 3 && typeof args[1] === "string") {
+      // Already (category, component, message, extra?) - pass through
+      (logger as any)[level](...args);
+      return;
+    }
+    // Eliza-style: single message string
+    const raw = args[0];
+    const text = typeof raw === "string" ? raw : String(raw ?? "");
+    // Match evaluator prefix specifically to avoid false positives (e.g. "ALPHA_PASSED" in Beta msg)
+    let cat: "ALPHA"|"BETA"|"GAMMA"|"CONFIG" = "CONFIG";
+    let comp = "Runtime";
+    if (/^\[?(?:alpha|Alpha)/i.test(text)) { cat = "ALPHA"; comp = "ALPHA"; }
+    else if (/^\[?(?:beta|Beta)/i.test(text)) { cat = "BETA"; comp = "BETA"; }
+    else if (/^\[?(?:gamma|Gamma)/i.test(text)) { cat = "GAMMA"; comp = "GAMMA"; }
+    // Handle extra: if second arg is object use as extra, else wrap
+    let extra: Record<string, unknown> | undefined;
+    if (args.length > 1) {
+      if (typeof args[1] === "object" && args[1] !== null && !(args[1] instanceof Error)) {
+        extra = args[1] as Record<string, unknown>;
+      } else if (args[1] instanceof Error) {
+        extra = { error: args[1].message ?? String(args[1]) };
+      } else {
+        extra = { detail: args[1] };
+      }
+    }
+    (logger as any)[level](cat, comp, text, extra);
+  };
+}
+
 // Stub runtime for evaluators that expect a runtime object
 const stubRuntime = {
   logger: {
-    info: (...args: any[]) => logger.info(...args),
-    warn: (...args: any[]) => logger.warn(...args),
-    error: (...args: any[]) => logger.error(...args),
-    debug: (...args: any[]) => logger.debug(...args)
+    info: adaptLog("info"),
+    warn: adaptLog("warn"),
+    error: adaptLog("error"),
+    debug: adaptLog("debug")
   },
   getService: () => null,
   emitEvent: () => {}

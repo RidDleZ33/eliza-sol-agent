@@ -22,6 +22,7 @@ export async function evaluateGammaConsensus(runtime: any) {
  */
 async function evaluateCandidatePipeline(runtime: any) {
   const candidates = await watchlistService.getTokensForGammaConsensus();
+  runtime.logger.info(`[GAMMA] GammaConsensusEvaluator: queue candidates=${candidates.length}`);
 
   for (const candidate of candidates) {
     try {

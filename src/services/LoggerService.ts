@@ -13,7 +13,10 @@ export type LogCategory =
   | "CIRCUIT_BREAKER"
   | "CONFIG"
   | "CRASH_RECOVERY"
-  | "DEX";
+  | "DEX"
+  | "ALPHA"
+  | "BETA"
+  | "GAMMA";
 
 const LEVEL_PRIORITY: Record<LogLevel, number> = {
   DEBUG: 0,
@@ -206,6 +209,9 @@ class LoggerService {
       "CONFIG",
       "CRASH_RECOVERY",
       "DEX",
+      "ALPHA",
+      "BETA",
+      "GAMMA",
     ];
 
     const lines: string[] = [];
