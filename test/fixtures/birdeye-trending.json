@@ -1,0 +1,21 @@
+{
+  "success": true,
+  "data": {
+    "tokens": [
+      {
+        "address": "BirdeyeTrendingOneSolanaSolanaSolanaSo",
+        "symbol": "BIRDEYE1",
+        "name": "Birdeye Trend One",
+        "volume24hUSD": 12000000,
+        "liquidity": 2500000
+      },
+      {
+        "address": "BirdeyeTrendingTwoSolanaSolanaSolanaSo",
+        "symbol": "BIRDEYE2",
+        "name": "Birdeye Trend Two",
+        "volume24hUSD": 6500000,
+        "liquidity": 1200000
+      }
+    ]
+  }
+}

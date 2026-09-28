@@ -1,0 +1,44 @@
+[
+  {
+    "chainId": "solana",
+    "baseToken": {
+      "address": "So11111111111111111111111111111111111111112",
+      "symbol": "BONK",
+      "name": "Bonk"
+    },
+    "volume": {
+      "h24": 15000000
+    },
+    "liquidity": {
+      "usd": 2000000
+    }
+  },
+  {
+    "chainId": "ethereum",
+    "baseToken": {
+      "address": "0x1234567890123456789012345678901234567890",
+      "symbol": "ETHPEPE",
+      "name": "Ethereum Pepe"
+    },
+    "volume": {
+      "h24": 500000
+    },
+    "liquidity": {
+      "usd": 50000
+    }
+  },
+  {
+    "chainId": "solana",
+    "baseToken": {
+      "address": "Wormt4r4aRkXmzXkRcCwNcJyVJQwTqyTnNnZqZzQqQq",
+      "symbol": "WORM",
+      "name": "Wormhole"
+    },
+    "volume": {
+      "h24": 3000000
+    },
+    "liquidity": {
+      "usd": 750000
+    }
+  }
+]

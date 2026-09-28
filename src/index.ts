@@ -4,7 +4,7 @@ import { tradeExecutionService } from "./services/TradeExecutionService.ts";
 import { evaluateGammaConsensus } from "./evaluators/GammaConsensusEvaluator.ts";
 import { crashRecoveryService } from "./services/CrashRecoveryService.ts";
 import { positionManagerService } from "./services/PositionManagerService.ts";
-import { env } from "./utils/env.ts";
+import { env, ingestFlag, getDexscreenerTrendingPeriod, getBirdeyeApiKey } from "./utils/env.ts";
 import { ingestionManager } from "./services/ingestion/IngestionManager.ts";
 import { telegramAdminBot } from "./services/TelegramAdminBot.ts";
 import { watchlistService } from "./services/WatchlistService.ts";
@@ -128,6 +128,18 @@ async function main() {
 
   // Start ingestion services
   ingestionManager.start();
+
+  // Phase 6D: boot visibility — log exactly which sources are enabled
+  const dsLatest = ingestFlag("INGEST_DEXSCREENER_LATEST") ? "ON" : "OFF";
+  const dsTrending = ingestFlag("INGEST_DEXSCREENER_TRENDING") ? "ON" : "OFF";
+  const period = getDexscreenerTrendingPeriod();
+  const bullish = ingestFlag("INGEST_DEXSCREENER_TRENDING_BULLISH") ? "ON" : "OFF";
+  let birdeyeLabel = "OFF";
+  if (ingestFlag("INGEST_BIRDEYE_TRENDING")) {
+    birdeyeLabel = getBirdeyeApiKey() ? "ON" : "NO_KEY";
+  }
+  const phantom = ingestFlag("INGEST_PHANTOM") ? "ON" : "OFF";
+  logger.info("INGESTION", "Index", `ingest sources: ds_latest=${dsLatest} ds_trending=${dsTrending} period=${period} bullish=${bullish} birdeye=${birdeyeLabel} phantom=${phantom}`);
 
   logger.info("CONFIG", "Index", "AI Committee services initialized.");
 

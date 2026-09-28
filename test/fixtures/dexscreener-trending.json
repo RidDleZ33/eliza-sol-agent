@@ -1,0 +1,44 @@
+[
+  {
+    "chainId": "solana",
+    "baseToken": {
+      "address": "MintTrendingOneSolanaSolanaSolanaSolanaSol",
+      "symbol": "TRND1",
+      "name": "Trend One"
+    },
+    "volume": {
+      "h24": 8000000
+    },
+    "liquidity": {
+      "usd": 1200000
+    }
+  },
+  {
+    "chainId": "solana",
+    "baseToken": {
+      "address": "MintTrendingTwoSolanaSolanaSolanaSolanaSol",
+      "symbol": "TRND2",
+      "name": "Trend Two"
+    },
+    "volume": {
+      "h24": 4500000
+    },
+    "liquidity": {
+      "usd": 800000
+    }
+  },
+  {
+    "chainId": "bsc",
+    "baseToken": {
+      "address": "0xabcabcabcabcabcabcabcabcabcabcabcabc",
+      "symbol": "BSCPEPE",
+      "name": "BSC Pepe"
+    },
+    "volume": {
+      "h24": 1000000
+    },
+    "liquidity": {
+      "usd": 100000
+    }
+  }
+]
