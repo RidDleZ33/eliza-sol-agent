@@ -8,7 +8,7 @@ import {
 } from "../utils/env.ts";
 import { logger } from "./LoggerService.ts";
 import { configService } from "./ConfigService.ts";
-import { telegramAdminBot } from "./TelegramAdminBot.ts";
+
 
 export interface WatchedToken {
   mint_address: string;
@@ -512,20 +512,8 @@ class WatchlistService {
         Date.now()
       );
 
-      // Phase 2B: notify Telegram on PAPER/FILLED (non-blocking)
-      if (trade.status === "PAPER" || trade.status === "FILLED") {
-        try {
-          const modeLabel = trade.mode === "DRY_RUN" ? "PAPER" : "LIVE";
-          const symbol = trade.symbol || trade.mint.slice(0, 6) + "...";
-          let msg = `📊 ${modeLabel} ${trade.side} ${symbol}`;
-          if (trade.solIn != null) msg += ` (in ${trade.solIn.toFixed(2)} SOL)`;
-          if (trade.solOut != null) msg += ` (out ${trade.solOut.toFixed(2)} SOL)`;
-          if (trade.txSig) msg += ` \`${trade.txSig.slice(0, 12)}...\``;
-          telegramAdminBot.notifyAdmin(msg).catch(() => {});
-        } catch (_) {
-          // never block fill path
-        }
-      }
+      // Phase 2C: notify moved to TradeExecutionService to break circular import.
+      // WatchlistService no longer imports TelegramAdminBot.
 
       return result.lastInsertRowid as number;
     } catch (e: any) {
@@ -545,6 +533,41 @@ class WatchlistService {
     return this.db
       .prepare("SELECT * FROM trades ORDER BY created_at DESC LIMIT ?")
       .all(limit);
+  }
+
+  /**
+   * Phase 2C: filtered blotter query.
+   */
+  listTrades(opts?: { mint?: string; side?: string; mode?: string; status?: string; limit?: number }): any[] {
+    let sql = "SELECT * FROM trades WHERE 1=1";
+    const params: any[] = [];
+    if (opts?.mint) { sql += " AND mint = ?"; params.push(opts.mint); }
+    if (opts?.side) { sql += " AND side = ?"; params.push(opts.side); }
+    if (opts?.mode) { sql += " AND mode = ?"; params.push(opts.mode); }
+    if (opts?.status) { sql += " AND status = ?"; params.push(opts.status); }
+    sql += " ORDER BY created_at DESC LIMIT ?";
+    params.push(opts?.limit ?? 10);
+    return this.db.prepare(sql).all(...params);
+  }
+
+  /**
+   * Phase 2C: status histogram for blotter.
+   */
+  countTradesByStatus(): { PAPER: number; FILLED: number; FAILED: number; QUOTED: number } {
+    const rows = this.db.prepare("SELECT status, COUNT(*) as cnt FROM trades GROUP BY status").all();
+    const out = { PAPER: 0, FILLED: 0, FAILED: 0, QUOTED: 0 };
+    for (const r of rows) {
+      if (r.status in out) out[r.status] = r.cnt;
+    }
+    return out;
+  }
+
+  /**
+   * Phase 2C: total SOL across OPEN positions.
+   */
+  openExposureSol(): number {
+    const row = this.db.prepare("SELECT COALESCE(SUM(amount_sol),0) as total FROM positions WHERE status='OPEN'").get();
+    return row.total;
   }
 
   /**

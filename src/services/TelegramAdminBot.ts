@@ -692,13 +692,28 @@ export class TelegramAdminBot {
 
   private async showTradeJournal(ctx: any) {
     try {
-      const trades = watchlistService.listRecentTrades(10);
+      // Phase 2C: support optional filter arg, e.g. /trades BONK or /trades FAILED
+      let trades = watchlistService.listRecentTrades(10);
+      let filterLabel = "last 10";
 
-      if (trades.length === 0) {
-        return ctx.reply("no trades yet");
+      if (ctx.args && ctx.args.length > 0) {
+        const arg = ctx.args[0].toUpperCase();
+        // Treat arg as mint or status
+        const statuses = ["PAPER", "FILLED", "FAILED", "QUOTED"];
+        if (statuses.includes(arg)) {
+          trades = watchlistService.listTrades({ status: arg, limit: 10 });
+          filterLabel = `status=${arg}`;
+        } else {
+          trades = watchlistService.listTrades({ mint: arg, limit: 10 });
+          filterLabel = `mint=${arg}`;
+        }
       }
 
-      let text = "📊 TRADE JOURNAL (last 10)\n";
+      if (trades.length === 0) {
+        return ctx.reply(`no trades (${filterLabel})`);
+      }
+
+      let text = `📊 TRADE JOURNAL (${filterLabel})\n`;
       text += "mode | side | sym | sol_in/sol_out | status | age\n";
       text += "─".repeat(60) + "\n";
 
@@ -727,7 +742,7 @@ export class TelegramAdminBot {
       const positions = watchlistService.getActivePositionsCount();
 
       const pnlEmoji = pnl >= 0 ? "📈" : "📉";
-      const text = `${pnlEmoji} SESSION PnL\n`;
+      let text = `${pnlEmoji} SESSION PnL\n`;
       text += `PnL: ${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)}\n`;
       text += `Open positions: ${positions}\n`;
       text += `Mode: ${mode}`;
@@ -784,6 +799,29 @@ export class TelegramAdminBot {
     } catch (e) {
       logger.error("TELEGRAM", "TelegramAdminBot", "Failed to send notification", { error: e.message });
     }
+  }
+
+  /**
+   * Phase 2C: single trade fill notify, called from TradeExecutionService.
+   */
+  async notifyTrade(trade: {
+    side: string;
+    symbol: string;
+    status: string;
+    mode?: string;
+    solIn?: number;
+    solOut?: number;
+    mint?: string;
+    txSig?: string;
+    reason?: string;
+  }) {
+    const modeLabel = trade.mode === "DRY_RUN" ? "PAPER" : "LIVE";
+    const symbol = trade.symbol || trade.mint?.slice(0, 6) + "...";
+    let msg = `📊 ${modeLabel} ${trade.side} ${symbol}`;
+    if (trade.solIn != null) msg += ` (in ${trade.solIn.toFixed(2)} SOL)`;
+    if (trade.solOut != null) msg += ` (out ${trade.solOut.toFixed(2)} SOL)`;
+    if (trade.txSig) msg += ` \`${trade.txSig.slice(0, 12)}...\``;
+    await this.notifyAdmin(msg);
   }
 
   async sendToChat(text: string): Promise<void> {

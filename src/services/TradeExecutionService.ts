@@ -13,6 +13,7 @@ import { isDryRun, getSolanaRpcUrl } from "../utils/env.ts";
 import { getHouseKeypair } from "../utils/wallet.ts";
 import { configService } from "./ConfigService.ts";
 import { logger } from "./LoggerService.ts";
+import { telegramAdminBot } from "./TelegramAdminBot.ts";
 import { jupiterQuote, jupiterBuildSwap, SOL_MINT } from "../execution/jupiterApi.ts";
 import {
   checkBuyRisk,
@@ -187,6 +188,7 @@ export class TradeExecutionService {
           status: "FAILED",
           reason: sellConfirmError,
         });
+        telegramAdminBot.notifyTrade({ side: "SELL", symbol, status: "FAILED", mint: mintAddress, txSig: signature, reason: sellConfirmError }).catch(() => {});
         return {
           success: false,
           txSignature: signature,
@@ -215,6 +217,7 @@ export class TradeExecutionService {
         status: "FILLED",
         reason: reason,
       });
+      telegramAdminBot.notifyTrade({ side: "SELL", symbol, status: "FILLED", mode: "LIVE", solOut: Number(quoteResult.slim.outAmount) / 1e9, mint: mintAddress, txSig: signature, reason }).catch(() => {});
 
       return { success: true, txSignature: signature };
     } catch (e: any) {
@@ -359,6 +362,7 @@ export class TradeExecutionService {
           status: "FAILED",
           reason: confirmError,
         });
+        telegramAdminBot.notifyTrade({ side: "BUY", symbol, status: "FAILED", mode: "LIVE", solIn: tradeSize, mint: mintAddress, txSig: signature, reason: confirmError }).catch(() => {});
         return {
           success: false,
           txSignature: signature,
@@ -378,6 +382,7 @@ export class TradeExecutionService {
         txSig: signature,
         status: "FILLED",
       });
+      telegramAdminBot.notifyTrade({ side: "BUY", symbol, status: "FILLED", mode: "LIVE", solIn: tradeSize, mint: mintAddress, txSig: signature }).catch(() => {});
 
       // 9. Reconcile ATA balance after confirmed buy
       try {
@@ -616,6 +621,7 @@ export class TradeExecutionService {
           status: "PAPER",
           reason: "dry-run buy",
         });
+        telegramAdminBot.notifyTrade({ side: "BUY", symbol, status: "PAPER", mode: "DRY_RUN", solIn: tradeSize, mint: mintAddress, txSig: txSignature, reason: "dry-run buy" }).catch(() => {});
 
         return { success: true, txSignature, dryRun: true };
       }
@@ -689,6 +695,7 @@ export class TradeExecutionService {
           status: "PAPER",
           reason: "dry-run sell",
         });
+        telegramAdminBot.notifyTrade({ side: "SELL", symbol, status: "PAPER", mode: "DRY_RUN", solOut, mint: mintAddress, txSig: txSignature, reason: "dry-run sell" }).catch(() => {});
 
         return { success: true, txSignature, dryRun: true };
       }
