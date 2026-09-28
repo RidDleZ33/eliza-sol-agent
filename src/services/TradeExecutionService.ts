@@ -1,4 +1,5 @@
 import { watchlistService } from "./WatchlistService.ts";
+import { isDryRun } from "../utils/env.ts";
 import { getHouseKeypair } from "../utils/wallet.ts";
 import { configService } from "./ConfigService.ts";
 import { logger } from "./LoggerService.ts";
@@ -100,10 +101,11 @@ export class TradeExecutionService {
       const tradeSize = parseFloat((baseTradeSize * dynamicMultiplier).toFixed(4));
 
       const slippageBps = configService.getNumber("SLIPPAGE_BPS");
-      const dryRun = configService.getBoolean("DRY_RUN_MODE");
+      // Phase 0F: env DRY_RUN=true must prevent live even if ConfigService is toggled
+      const dryRun = isDryRun() || configService.getBoolean("DRY_RUN_MODE");
 
       if (dryRun) {
-        logger.info("EXECUTION", "TradeExecution", "[DRY RUN] Dynamic Buy Simulated", {
+        logger.info("EXECUTION", "TradeExecution", "[DRY_RUN] BUY simulated", {
           symbol,
           convictionScore,
           tradeSize,
@@ -115,6 +117,11 @@ export class TradeExecutionService {
         return { success: true, txSignature, dryRun: true };
       }
 
+      logger.info("EXECUTION", "TradeExecution", "[LIVE] BUY executing", {
+        symbol,
+        convictionScore,
+        tradeSize,
+      });
       // Real Execution Path
       const jupiterService = this.runtime.getService("JUPITER_SERVICE");
       if (!jupiterService) return { success: false, error: "Jupiter service unavailable" };
@@ -172,10 +179,13 @@ export class TradeExecutionService {
     logger.info("EXECUTION", "TradeExecution", "Executing sell order", { symbol, reason });
 
     try {
-      if (configService.getBoolean("DRY_RUN_MODE")) {
-        logger.info("EXECUTION", "TradeExecution", "[DRY RUN] Sell Simulated", { symbol, reason });
+      // Phase 0F: env DRY_RUN=true must prevent live even if ConfigService is toggled
+      const dryRun = isDryRun() || configService.getBoolean("DRY_RUN_MODE");
+      if (dryRun) {
+        logger.info("EXECUTION", "TradeExecution", "[DRY_RUN] SELL simulated", { symbol, reason });
         return { success: true, txSignature: "DRY_RUN_SELL_" + Date.now(), dryRun: true };
       }
+      logger.info("EXECUTION", "TradeExecution", "[LIVE] SELL executing", { symbol, reason });
 
       const jupiterService = this.runtime.getService("JUPITER_SERVICE");
       if (!jupiterService) return { success: false, error: "Jupiter service unavailable" };

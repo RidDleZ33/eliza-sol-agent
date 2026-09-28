@@ -4,9 +4,13 @@
   "description": "AI Committee: Multi-agent Solana trading swarm on ElizaOS",
   "main": "src/index.ts",
   "scripts": {
-    "start": "node --loader ts-node/esm src/index.ts",
+    "start": "bun src/index.ts",
+    "dev": "bun --watch src/index.ts",
     "build": "bun build src/index.ts --target=bun --outfile=dist/index.js --external:@elizaos/core --external:@elizaos/plugin-solana --external:@elizaos/plugin-twitter --external:@elizaos/plugin-telegram --external:@elizaos/plugin-jupiter --external:@solana/web3.js --external:jito-ts --external:zod --external:dotenv",
     "tape": "bun src/tape/index.ts"
+  },
+  "engines": {
+    "bun": ">=1.1.0"
   },
   "dependencies": {
     "@elizaos/core": "^1.7.2",
@@ -20,6 +24,7 @@
     "better-sqlite3": "^13.0.3",
     "dotenv": "^17.4.2",
     "jito-ts": "^4.2.1",
+    "telegraf": "^4.16.0",
     "zod": "^4.6.2"
   },
   "devDependencies": {

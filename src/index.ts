@@ -9,6 +9,8 @@ import { ingestionManager } from "./services/ingestion/IngestionManager.ts";
 import { telegramAdminBot } from "./services/TelegramAdminBot.ts";
 import { watchlistService } from "./services/WatchlistService.ts";
 import { logger } from "./services/LoggerService.ts";
+import { runInterlock } from "./boot/interlock.ts";
+import { isDryRun } from "./utils/env.ts";
 
 let shuttingDown = false;
 
@@ -69,6 +71,9 @@ async function main() {
   logger.info("CONFIG", "Index", "Initializing AI Committee (Phase 0E: services-only boot)...");
   logger.info("CONFIG", "Index", "LLM configuration", { url: env.OPENAI_BASE_URL || env.OLLAMA_BASE_URL, model: env.MODEL_NAME });
 
+  // Phase 0F: boot interlock — compute and log mode, fail closed on LIVE if checks fail
+  const interlock = runInterlock();
+
   // Run crash recovery before starting watchers
   try {
     await crashRecoveryService.reconcilePositions();
@@ -108,6 +113,12 @@ async function main() {
     }
   }, 30000);
 
+  // Phase 0F: fire each evaluator once immediately, then interval
+  logger.info("CONFIG", "Index", "Firing initial evaluator ticks");
+  try { await evaluateAlphaNarrative(stubRuntime); } catch (e) { logger.error("CONFIG", "Index", "Initial Alpha error", { error: e.message }); }
+  try { await evaluateBetaContract(stubRuntime); } catch (e) { logger.error("CONFIG", "Index", "Initial Beta error", { error: e.message }); }
+  try { await evaluateGammaConsensus(stubRuntime); } catch (e) { logger.error("CONFIG", "Index", "Initial Gamma error", { error: e.message }); }
+
   // Start ingestion services
   ingestionManager.start();
 
@@ -121,13 +132,14 @@ async function main() {
 
     // Send startup notification via the admin bot
     const timestamp = new Date().toISOString();
+    const modeLabel = isDryRun() ? "DRY_RUN" : "LIVE";
     const message = `AI Committee War Room Started
 Time: ${timestamp}
 
 Agents: Alpha, Beta, Gamma
 Monitoring Solana ecosystem
 Consensus room active
-Trading in DRY_RUN mode`;
+Mode: ${modeLabel}`;
     await telegramAdminBot.sendToChat(message);
     logger.info("TELEGRAM", "Index", "Startup notification sent to Telegram");
   } catch (e) {
