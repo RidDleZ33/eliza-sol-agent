@@ -1,7 +1,8 @@
 import { watchlistService } from "../services/WatchlistService.ts";
 import { socialEvaluatorService, SocialTelemetry } from "../services/SocialEvaluatorService.ts";
-import { parseAndValidate, isAlphaVerdict } from "../utils/jsonParsing.ts";
 import { postWarRoomMessage } from "../services/WarRoomService.ts";
+import { llmComplete } from "../llm/LlmClient.ts";
+import { logger } from "../services/LoggerService.ts";
 
 export type DecisionType = "PASS" | "FAIL" | "DISSENT" | "DEFER";
 
@@ -14,33 +15,33 @@ export interface AlphaVerdict {
   reasoning: string;
 }
 
-export async function evaluateAlphaNarrative(runtime: any) {
+export async function evaluateAlphaNarrative(_runtime?: any) {
   try {
-    runtime.logger.info("[Alpha] Evaluating narrative for pending tokens...");
+    logger.info("ALPHA", "AlphaNarrativeEvaluator", "Evaluating narrative for pending tokens...");
     const tokensToEvaluate = await watchlistService.getTokensForAlphaEvaluation();
-    
+
     if (tokensToEvaluate.length === 0) {
-      runtime.logger.info("[Alpha] No tokens ready for evaluation (all DEFERRED or already evaluated)");
+      logger.info("ALPHA", "AlphaNarrativeEvaluator", "No tokens ready for evaluation (all DEFERRED or already evaluated)");
       return;
     }
-    runtime.logger.info(`[Alpha] Found ${tokensToEvaluate.length} tokens to evaluate`);
+    logger.info("ALPHA", "AlphaNarrativeEvaluator", `Found ${tokensToEvaluate.length} tokens to evaluate`);
 
     for (const token of tokensToEvaluate) {
       try {
-        runtime.logger.info(`[Alpha] Starting evaluation for ${token.symbol} (${token.mint_address})`);
+        logger.info("ALPHA", "AlphaNarrativeEvaluator", `Starting evaluation for ${token.symbol} (${token.mint_address})`);
 
         // Collect social telemetry
         const telemetry = await socialEvaluatorService.evaluateToken(token.mint_address, token.symbol);
-        runtime.logger.info(`[Alpha] Social telemetry for ${token.symbol}: ${telemetry.tweetVolume1h} tweets, bot likelihood ${(telemetry.botLikelihoodScore * 100).toFixed(0)}%, platforms: ${telemetry.socialPlatforms.join(",") || "none"}`);
+        logger.info("ALPHA", "AlphaNarrativeEvaluator", `Social telemetry for ${token.symbol}: ${telemetry.tweetVolume1h} tweets, bot likelihood ${(telemetry.botLikelihoodScore * 100).toFixed(0)}%, platforms: ${telemetry.socialPlatforms.join(",") || "none"}`);
 
         // Evaluate via LLM
-        const verdict = await alphaEvaluateNarrative(runtime, token, telemetry);
+        const verdict = await alphaEvaluateNarrative(token, telemetry);
 
         // Log detailed verdict
-        runtime.logger.info(`[Alpha] ${token.symbol} Verdict: ${verdict.decision}`);
-        runtime.logger.info(`[Alpha]   Confidence: ${verdict.confidenceRatio}, Narrative: ${verdict.narrativeScore}, Organicity: ${verdict.organicityScore}`);
-        runtime.logger.info(`[Alpha]   Category: ${verdict.narrativeCategory}`);
-        runtime.logger.info(`[Alpha]   Reasoning: ${verdict.reasoning}`);
+        logger.info("ALPHA", "AlphaNarrativeEvaluator", `${token.symbol} Verdict: ${verdict.decision}`);
+        logger.info("ALPHA", "AlphaNarrativeEvaluator", `  Confidence: ${verdict.confidenceRatio}, Narrative: ${verdict.narrativeScore}, Organicity: ${verdict.organicityScore}`);
+        logger.info("ALPHA", "AlphaNarrativeEvaluator", `  Category: ${verdict.narrativeCategory}`);
+        logger.info("ALPHA", "AlphaNarrativeEvaluator", `  Reasoning: ${verdict.reasoning}`);
 
         // War room: broadcast evaluation decision
         if (verdict.decision === "DEFER") {
@@ -62,30 +63,23 @@ export async function evaluateAlphaNarrative(runtime: any) {
         // Handle DEFER by setting future evaluation time instead of storing verdict
         if (verdict.decision === "DEFER") {
           const deferMinutes = Math.max(10, Math.min(120, Math.round((1 - verdict.confidenceRatio) * 120)));
-          runtime.logger.info(`[Alpha] ${token.symbol} DEFERRED for ${deferMinutes} minutes (confidence: ${verdict.confidenceRatio})`);
+          logger.info("ALPHA", "AlphaNarrativeEvaluator", `${token.symbol} DEFERRED for ${deferMinutes} minutes (confidence: ${verdict.confidenceRatio})`);
           await watchlistService.deferToken(token.mint_address, deferMinutes);
         } else {
           await watchlistService.updateTokenAlphaVerdict(token.mint_address, verdict);
         }
-
-        // Emit event
-        runtime.emitEvent("alpha_evaluation_complete", {
-          mint_address: token.mint_address,
-          symbol: token.symbol,
-          verdict
-        });
       } catch (e) {
-        runtime.logger.error(`[Alpha] Error evaluating ${token.symbol}:`, e);
+        logger.error("ALPHA", "AlphaNarrativeEvaluator", `Error evaluating ${token.symbol}`, { error: e });
       }
     }
   } catch (e) {
-    runtime.logger.error("[Alpha] Evaluation loop error:", e);
+    logger.error("ALPHA", "AlphaNarrativeEvaluator", "Evaluation loop error", { error: e });
   }
 }
 
-async function alphaEvaluateNarrative(runtime: any, token: any, telemetry: SocialTelemetry): Promise<AlphaVerdict> {
-  runtime.logger.info(`[Alpha] Calling LLM for narrative evaluation of ${token.symbol}...`);
-  
+async function alphaEvaluateNarrative(token: any, telemetry: SocialTelemetry): Promise<AlphaVerdict> {
+  logger.info("ALPHA", "AlphaNarrativeEvaluator", `Calling LLM for narrative evaluation of ${token.symbol}...`);
+
   const prompt = `You are Agent Alpha, sentiment and narrative specialist on a 3-agent Solana trading committee.
 
 Analyze the sentiment, narrative virality, and organic momentum of this Solana token.
@@ -121,69 +115,40 @@ Respond STRICTLY in valid JSON:
   "reasoning": "<1-2 sentence concise explanation>"
 }`;
 
-  try {
-    const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('LLM Timeout')), 25000));
-    const response: any = await Promise.race([runtime.generateText(prompt), timeout]);
+  const result = await llmComplete(prompt, { json: true });
 
-    // Extract text from response object (LLM returns { text: "..." })
-    let responseStr: string;
-    if (typeof response === 'object' && response !== null && typeof response.text === 'string') {
-      responseStr = response.text;
-      runtime.logger.info(`[Alpha] LLM response extracted from object.text (${responseStr.length} chars)`);
-    } else if (typeof response === 'string') {
-      responseStr = response;
-      runtime.logger.info(`[Alpha] LLM returned string directly (${responseStr.length} chars)`);
-    } else {
-      responseStr = JSON.stringify(response || '');
-      runtime.logger.info(`[Alpha] LLM response serialized to JSON (${responseStr.length} chars)`);
-    }
-
-    runtime.logger.info(`[Alpha] LLM response for ${token.symbol}: ${responseStr.substring(0, 300)}`);
-    runtime.logger.info(`[Alpha] LLM response received for ${token.symbol} (${responseStr.length} chars)`);
-    runtime.logger.info(`[Alpha] LLM raw response for ${token.symbol}: ${responseStr.substring(0, 500)}`);
-
-    const parsed = parseAndValidate(responseStr, isAlphaVerdict, "Alpha narrative response");
-
-    if (parsed) {
-      runtime.logger.info(`[Alpha] LLM verdict parsed successfully for ${token.symbol}`);
+  if (result.parsed) {
+    const parsed = result.parsed as any;
+    const validDecisions = ["PASS", "FAIL", "DISSENT", "DEFER"];
+    if (!validDecisions.includes(parsed.decision)) {
+      logger.warn("ALPHA", "AlphaNarrativeEvaluator", `Invalid decision from LLM for ${token.symbol}: ${parsed.decision}`);
       return {
-        decision: (parsed.decision as DecisionType) in { PASS: 1, FAIL: 1, DISSENT: 1, DEFER: 1 } ? (parsed.decision as DecisionType) : "FAIL",
-        confidenceRatio: Math.max(0, Math.min(1, Number(parsed.confidenceRatio) || 0.5)),
-        narrativeScore: Math.max(0, Math.min(1, Number(parsed.narrativeScore) || 0.0)),
-        organicityScore: Math.max(0, Math.min(1, Number(parsed.organicityScore) || 0.0)),
-        narrativeCategory: parsed.narrativeCategory || "WEAK",
-        reasoning: parsed.reasoning || "Evaluated by Agent Alpha."
+        decision: "DEFER",
+        confidenceRatio: 0.3,
+        narrativeScore: 0.0,
+        organicityScore: 0.0,
+        narrativeCategory: "WEAK",
+        reasoning: "LLM response format invalid."
       };
     }
-    
-    runtime.logger.warn(`[Alpha] LLM response parsing failed for ${token.symbol}, falling back to heuristic`);
-  } catch (e) {
-    runtime.logger.warn(`[Alpha] LLM failed for ${token.symbol}, using fallback evaluation.`, e);
-  }
-
-  // Pure Heuristic Fallback
-  const organicity = 1.0 - telemetry.botLikelihoodScore;
-  const satisfiesSocials = telemetry.hasSocialLinks && telemetry.socialPlatforms.length > 0;
-
-  if (!satisfiesSocials || telemetry.botLikelihoodScore > 0.65) {
-    runtime.logger.info(`[Alpha] Fallback verdict for ${token.symbol}: FAIL (dead socials or high bot farming)`);
     return {
-      decision: "FAIL" as DecisionType,
-      confidenceRatio: 0.85,
-      narrativeScore: 0.2,
-      organicityScore: organicity,
-      narrativeCategory: "WEAK",
-      reasoning: "Fallback: Dead socials or high bot farming score."
+      decision: parsed.decision as DecisionType,
+      confidenceRatio: Math.max(0, Math.min(1, Number(parsed.confidenceRatio) || 0.5)),
+      narrativeScore: Math.max(0, Math.min(1, Number(parsed.narrativeScore) || 0.0)),
+      organicityScore: Math.max(0, Math.min(1, Number(parsed.organicityScore) || 0.0)),
+      narrativeCategory: parsed.narrativeCategory || "WEAK",
+      reasoning: parsed.reasoning || "Evaluated by Agent Alpha."
     };
   }
 
-  runtime.logger.info(`[Alpha] Fallback verdict for ${token.symbol}: PASS (basic socials present, acceptable bot ratio)`);
+  // LLM timeout or parse fail -> fail closed to DEFER, not heuristic PASS
+  logger.warn("ALPHA", "AlphaNarrativeEvaluator", `LLM failed or unparseable for ${token.symbol}, deferring`);
   return {
-    decision: "PASS" as DecisionType,
-    confidenceRatio: 0.50,
-    narrativeScore: 0.55,
-    organicityScore: organicity,
-    narrativeCategory: "MEME",
-    reasoning: "Fallback heuristic: Basic social channels present with acceptable bot ratio."
+    decision: "DEFER",
+    confidenceRatio: 0.3,
+    narrativeScore: 0.0,
+    organicityScore: 0.0,
+    narrativeCategory: "WEAK",
+    reasoning: "LLM unavailable or response unparseable. Deferring."
   };
 }

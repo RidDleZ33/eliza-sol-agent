@@ -3,7 +3,8 @@ import * as dotenv from "dotenv";
 dotenv.config();
 
 const EnvSchema = z.object({
-  OLLAMA_BASE_URL: z.string().default(process.env.OPENAI_API_URL || "http://arceus:11434/v1"),
+  OPENAI_BASE_URL: z.string().optional(),
+  OLLAMA_BASE_URL: z.string().default(process.env.OPENAI_BASE_URL || process.env.OPENAI_API_URL || "http://arceus:11434/v1"),
   OLLAMA_API_KEY: z.string().default(process.env.OPENAI_API_KEY || "ollama"),
   MODEL_NAME: z.string().default(process.env.LARGE_OPENAI_MODEL || "qwen2.5:3b"),
   ELIZAOS_WEB_PORT: z.string().default("8007"),
