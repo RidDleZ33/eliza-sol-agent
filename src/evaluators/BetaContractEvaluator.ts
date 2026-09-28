@@ -63,7 +63,7 @@ export async function evaluateBetaContract(runtime: any) {
         // War room: broadcast risk assessment
         await postWarRoomMessage("BETA", "RISK_ASSESSMENT", {
           symbol: token.symbol,
-          decision: verdict.decision === "PASS" ? "BUY" : "SELL",
+          decision: verdict.decision,
           confidence: verdict.confidenceRatio,
           reasoning: verdict.reasons.join("; ")
         });
