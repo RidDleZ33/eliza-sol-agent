@@ -154,6 +154,16 @@ export class TelegramAdminBot {
       await this.showTradeJournal(ctx);
     });
 
+    this.bot.command("pnl", async (ctx) => {
+      if (!this.isAdmin(ctx.from!.id)) {
+        await ctx.reply("⚠️ Admin access only.");
+        return;
+      }
+      this.pauseLogStream();
+      this.pauseWarRoom();
+      await this.showPnl(ctx);
+    });
+
     this.bot.command("dashboard", async (ctx) => {
       if (!this.isAdmin(ctx.from!.id)) {
         await ctx.reply("⚠️ Admin access only.");
@@ -332,6 +342,7 @@ export class TelegramAdminBot {
         "/dashboard - Live portfolio dashboard (same as /status)\n" +
         "/positions - Detailed active position list\n" +
         "/trades - Trade journal and state\n" +
+        "/pnl - Session PnL and position count\n" +
         "/logs - Logging configuration\n" +
         "\n" +
         "📡 Streaming:\n" +
@@ -681,67 +692,60 @@ export class TelegramAdminBot {
 
   private async showTradeJournal(ctx: any) {
     try {
-      const tradeState = await watchlistService.getCompleteTradeState();
-      const journal = tradeState.journalAuditTrail;
-      const openPositions = tradeState.openPositions;
+      const trades = watchlistService.listRecentTrades(10);
 
-      let text = "📊 TRADE JOURNAL & STATE\n\n";
-      text += `📍 Open Positions: ${tradeState.activePositionsCount}\n`;
-      text += `📋 Pending Candidates: ${tradeState.pendingCandidatesCount}\n`;
-      text += `📝 Journal Entries: ${journal.length}\n\n`;
-
-      if (journal.length === 0) {
-        text += "No trade journal entries yet.";
-        await ctx.reply(text);
-        return;
+      if (trades.length === 0) {
+        return ctx.reply("no trades yet");
       }
 
-      // Group by token
-      const grouped = new Map<string, any[]>();
-      for (const entry of journal) {
-        const key = entry.mint_address;
-        if (!grouped.has(key)) grouped.set(key, []);
-        grouped.get(key)!.push(entry);
+      let text = "📊 TRADE JOURNAL (last 10)\n";
+      text += "mode | side | sym | sol_in/sol_out | status | age\n";
+      text += "─".repeat(60) + "\n";
+
+      for (const t of trades) {
+        const mode = t.mode === "DRY_RUN" ? "DRY" : "LIVE";
+        const symbol = t.symbol || t.mint.slice(0, 6) + "...";
+        const solIn = t.sol_in != null ? t.sol_in.toFixed(2) : "—";
+        const solOut = t.sol_out != null ? t.sol_out.toFixed(2) : "—";
+        const age = this.relativeAge(t.created_at);
+        text += `${mode} ${t.side} ${symbol} ${solIn}/${solOut} ${t.status} ${age}\n`;
       }
 
-      // Show per token (most recent 10 tokens)
-      let shown = 0;
-      for (const [mint, entries] of grouped.entries()) {
-        if (shown >= 10) break;
-        shown++;
-        const symbol = entries[0].symbol || mint.slice(0, 8) + "...";
-        text += `🪙 ${escapeMd(symbol)} (${entries.length} events)\n`;
-
-        for (const entry of entries.slice(0, 5)) {
-          const eventType = entry.event_type;
-          let icon = "📝";
-          if (eventType === "BUY_INTENT") icon = "👁️";
-          else if (eventType === "BUY_EXECUTED") icon = "✅";
-          else if (eventType === "BUY_FAILED") icon = "❌";
-          else if (eventType === "SELL_EXECUTED") icon = "💸";
-          else if (eventType === "STOP_LOSS_UPDATED") icon = "🔄";
-          else if (eventType === "PRUNED") icon = "🗑️";
-
-          text += `  ${icon} ${escapeMd(eventType)}`;
-          if (entry.price_usd) text += ` @ $${entry.price_usd.toFixed(4)}`;
-          if (entry.tx_signature) text += ` \`${entry.tx_signature.slice(0, 12)}...\``;
-          if (entry.reason) text += ` (${escapeMd(entry.reason.slice(0, 30))})`;
-          text += "\n";
-        }
-      }
-
-      if (text.length > 4000) {
-        const parts = this.splitMessage(text, 4000);
-        for (let i = 0; i < parts.length; i++) {
-          await ctx.reply(parts[i]);
-        }
-      } else {
-        await ctx.reply(text);
-      }
+      await ctx.reply(text);
     } catch (e) {
       logger.error("TELEGRAM", "TelegramAdminBot", "Failed to show trade journal", { error: e.message });
       await ctx.reply(`❌ Failed: ${e.message}`);
     }
+  }
+
+  private async showPnl(ctx: any) {
+    try {
+      const { getSessionPnl } = await import("../execution/risk.ts");
+      const { isDryRun } = await import("../utils/env.ts");
+      const pnl = getSessionPnl();
+      const mode = isDryRun() ? "DRY_RUN" : "LIVE";
+      const positions = watchlistService.getActivePositionsCount();
+
+      const pnlEmoji = pnl >= 0 ? "📈" : "📉";
+      const text = `${pnlEmoji} SESSION PnL\n`;
+      text += `PnL: ${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)}\n`;
+      text += `Open positions: ${positions}\n`;
+      text += `Mode: ${mode}`;
+
+      await ctx.reply(text);
+    } catch (e) {
+      logger.error("TELEGRAM", "TelegramAdminBot", "Failed to show PnL", { error: e.message });
+      await ctx.reply(`❌ Failed: ${e.message}`);
+    }
+  }
+
+  private relativeAge(timestampMs: number): string {
+    const now = Date.now();
+    const diff = now - timestampMs;
+    if (diff < 60000) return `${Math.floor(diff / 1000)}s`;
+    if (diff < 3600000) return `${Math.floor(diff / 60000)}m`;
+    if (diff < 86400000) return `${Math.floor(diff / 3600000)}h`;
+    return `${Math.floor(diff / 86400000)}d`;
   }
 
   async start() {

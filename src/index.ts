@@ -133,13 +133,15 @@ async function main() {
     // Send startup notification via the admin bot
     const timestamp = new Date().toISOString();
     const modeLabel = isDryRun() ? "DRY_RUN" : "LIVE";
+    const tradesCount = watchlistService.listRecentTrades(1).length;
     const message = `AI Committee War Room Started
 Time: ${timestamp}
 
 Agents: Alpha, Beta, Gamma
 Monitoring Solana ecosystem
 Consensus room active
-Mode: ${modeLabel}`;
+Mode: ${modeLabel}
+trades_db: watchlist (${tradesCount} trades)`;
     await telegramAdminBot.sendToChat(message);
     logger.info("TELEGRAM", "Index", "Startup notification sent to Telegram");
   } catch (e) {

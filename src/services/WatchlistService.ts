@@ -8,6 +8,7 @@ import {
 } from "../utils/env.ts";
 import { logger } from "./LoggerService.ts";
 import { configService } from "./ConfigService.ts";
+import { telegramAdminBot } from "./TelegramAdminBot.ts";
 
 export interface WatchedToken {
   mint_address: string;
@@ -510,6 +511,22 @@ class WatchlistService {
         trade.reason ?? null,
         Date.now()
       );
+
+      // Phase 2B: notify Telegram on PAPER/FILLED (non-blocking)
+      if (trade.status === "PAPER" || trade.status === "FILLED") {
+        try {
+          const modeLabel = trade.mode === "DRY_RUN" ? "PAPER" : "LIVE";
+          const symbol = trade.symbol || trade.mint.slice(0, 6) + "...";
+          let msg = `📊 ${modeLabel} ${trade.side} ${symbol}`;
+          if (trade.solIn != null) msg += ` (in ${trade.solIn.toFixed(2)} SOL)`;
+          if (trade.solOut != null) msg += ` (out ${trade.solOut.toFixed(2)} SOL)`;
+          if (trade.txSig) msg += ` \`${trade.txSig.slice(0, 12)}...\``;
+          telegramAdminBot.notifyAdmin(msg).catch(() => {});
+        } catch (_) {
+          // never block fill path
+        }
+      }
+
       return result.lastInsertRowid as number;
     } catch (e: any) {
       logger.error("WATCHLIST", "logTradeRow", "Failed to write trade row", {
