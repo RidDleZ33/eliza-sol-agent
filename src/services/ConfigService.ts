@@ -18,6 +18,7 @@ import {
   getMinLiquidityUsd,
   getMaxTop10ConcentrationPct,
   getWalletMirrorInterval,
+  getExitAtrK,
   isDryRun
 } from "../utils/env.ts";
 
@@ -39,6 +40,7 @@ export type ConfigKey =
   | "DRY_RUN_MODE"
   | "TAKE_PROFIT_PCT"
   | "STOP_LOSS_PCT"
+  | "EXIT_ATR_K"
   | "TRAILING_STOP_PCT"
   | "STALE_POSITION_MINUTES"
   | "POSITION_CHECK_INTERVAL_MS"
@@ -233,9 +235,17 @@ const DEFAULT_CONFIG: ConfigEntry[] = [
     key: "STOP_LOSS_PCT",
     value: "",
     category: "EXITS",
-    description: "Auto-sell when loss reaches this percentage",
+    description: "Auto-sell when loss reaches this percentage (legacy, overridden by vol stop)",
     defaultValue: String(getStopLossPct()),
     validate: (v) => !isNaN(parseFloat(v)) && parseFloat(v) >= 1 && parseFloat(v) <= 90
+  },
+  {
+    key: "EXIT_ATR_K",
+    value: "",
+    category: "EXITS",
+    description: "ATR multiplier for volatility stop: stop_pct = clamp(k * hv, 8%, 25%)",
+    defaultValue: String(getExitAtrK()),
+    validate: (v) => !isNaN(parseFloat(v)) && parseFloat(v) > 0 && parseFloat(v) <= 5
   },
   {
     key: "TRAILING_STOP_PCT",
@@ -438,6 +448,8 @@ class ConfigService {
         return z.coerce.number().min(0);
       case "STOP_LOSS_PCT":
         return z.coerce.number().min(1).max(90);
+      case "EXIT_ATR_K":
+        return z.coerce.number().min(0.5).max(5);
       case "TRAILING_STOP_PCT":
         return z.coerce.number().min(0).max(50);
       case "STALE_POSITION_MINUTES":

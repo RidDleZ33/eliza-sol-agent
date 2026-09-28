@@ -2,6 +2,7 @@ import { fetchWithRetry } from "../utils/circuitBreaker.ts";
 import { logger } from "./LoggerService.ts";
 import { getBirdeyeApiKey } from "../utils/env.ts";
 import { PAMetrics, Candle } from "../types/priceAction.ts";
+import { configService } from "./ConfigService.ts";
 
 interface GeckoTerminalCandle {
   timestamp: number;
@@ -206,6 +207,59 @@ export class PriceActionService {
     }
 
     return ema;
+  }
+
+  /**
+   * Get 24h volatility (high-low range / mid) for a token using DexScreener.
+   * Returns null if data unavailable.
+   */
+  async get24hHV(mint: string): Promise<number | null> {
+    try {
+      const url = `https://api.dexscreener.com/latest/dex/tokens/${mint}`;
+      const response = await fetchWithRetry(url);
+      if (!response.ok) return null;
+
+      const data = await response.json();
+      const pair = data?.pairs?.[0];
+      if (!pair) return null;
+
+      // h24 has high, low, change fields
+      const high24h = parseFloat(pair.h24?.high);
+      const low24h = parseFloat(pair.h24?.low);
+      const currentPrice = parseFloat(pair.priceUsd);
+
+      if (!high24h || !low24h || !currentPrice || low24h === 0) {
+        return null;
+      }
+
+      const hv = (high24h - low24h) / currentPrice;
+      logger.debug("PA", "PriceAction", "24h HV computed", {
+        mint,
+        hv: hv.toFixed(4),
+        high24h,
+        low24h,
+        currentPrice
+      });
+
+      return hv;
+    } catch (e: any) {
+      logger.warn("PA", "PriceAction", "24h HV fetch failed", {
+        mint,
+        error: e.message
+      });
+      return null;
+    }
+  }
+
+  /**
+   * Label market regime based on 24h HV.
+   * CHOP: HV < 0.40, TREND: 0.40-0.80, SHOCK: HV > 0.80
+   * Used for commentary only, not for sizing.
+   */
+  labelRegime(hv: number): "CHOP" | "TREND" | "SHOCK" {
+    if (hv < 0.40) return "CHOP";
+    if (hv <= 0.80) return "TREND";
+    return "SHOCK";
   }
 }
 

@@ -39,6 +39,7 @@ const EnvSchema = z.object({
   DRY_RUN_MODE: z.string().optional(),
   TAKE_PROFIT_PCT: z.string().default("50"),
   STOP_LOSS_PCT: z.string().default("15"),
+  EXIT_ATR_K: z.string().default("1.5"),
   TRAILING_STOP_PCT: z.string().default("10"),
   STALE_POSITION_MINUTES: z.string().default("30"),
   POSITION_CHECK_INTERVAL_MS: z.string().default("5000"),
@@ -167,6 +168,10 @@ export function getTrailingStopPct(): number {
 
 export function getStalePositionMinutes(): number {
   return parseInt(env.STALE_POSITION_MINUTES);
+}
+
+export function getExitAtrK(): number {
+  return parseFloat(env.EXIT_ATR_K);
 }
 
 export function getPositionCheckIntervalMs(): number {

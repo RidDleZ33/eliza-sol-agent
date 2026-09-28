@@ -6,6 +6,7 @@ import { tradeExecutionService } from "./TradeExecutionService.ts";
 import { configService } from "./ConfigService.ts";
 import { logger } from "./LoggerService.ts";
 import { addSessionPnl } from "../execution/risk.ts";
+import { priceActionService } from "./PriceActionService.ts";
 
 export class PositionManagerService {
   private runtime: any;
@@ -118,8 +119,33 @@ export class PositionManagerService {
 
     // Check exit conditions
     const takeProfitPct = configService.getNumber("TAKE_PROFIT_PCT");
-    const stopLossPct = configService.getNumber("STOP_LOSS_PCT");
     const trailingStopPct = configService.getNumber("TRAILING_STOP_PCT");
+
+    // Volatility-based stop: compute HV and derive stop distance
+    const hv = await priceActionService.get24hHV(mint);
+    const atrK = configService.getNumber("EXIT_ATR_K");
+    let stopPct: number;
+    let regime: "CHOP" | "TREND" | "SHOCK" | null = null;
+
+    if (hv !== null) {
+      // stop_pct = clamp(k * hv, 0.08, 0.25)
+      stopPct = Math.min(0.25, Math.max(0.08, atrK * hv)) * 100;
+      regime = priceActionService.labelRegime(hv);
+      logger.info("POSITIONS", "PositionManager", "Volatility stop computed", {
+        symbol,
+        hv: hv.toFixed(4),
+        atrK,
+        stopPct: stopPct.toFixed(1),
+        regime,
+      });
+    } else {
+      // Fallback to legacy hard stop
+      stopPct = configService.getNumber("STOP_LOSS_PCT");
+      logger.info("POSITIONS", "PositionManager", "HV unavailable, using legacy stop", {
+        symbol,
+        stopPct,
+      });
+    }
 
     if (pnlPct >= takeProfitPct) {
       logger.info("POSITIONS", "PositionManager", "TAKE_PROFIT triggered", {
@@ -128,11 +154,11 @@ export class PositionManagerService {
         takeProfitPct,
       });
       await this.exitPosition(mint, symbol, `TAKE_PROFIT (+${pnlPct.toFixed(1)}%)`, currentPrice, pnlPct);
-    } else if (pnlPct <= -stopLossPct) {
+    } else if (pnlPct <= -stopPct) {
       logger.info("POSITIONS", "PositionManager", "STOP_LOSS triggered", {
         symbol,
         pnlPct: pnlPct.toFixed(1),
-        stopLossPct,
+        stopPct,
       });
       await this.exitPosition(mint, symbol, `STOP_LOSS (${pnlPct.toFixed(1)}%)`, currentPrice, pnlPct);
     } else if (trailingStopDistance >= trailingStopPct && peakPrice > entryPrice) {

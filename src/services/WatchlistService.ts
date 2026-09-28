@@ -214,6 +214,14 @@ class WatchlistService {
         this.db.exec("ALTER TABLE positions ADD COLUMN last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP");
         logger.info("WATCHLIST", "migrateSchema", "Added last_updated column to positions");
       }
+
+      // Phase 3C: add beta_top10_pct column to watched_tokens
+      const watchedColumns = this.db.prepare("PRAGMA table_info(watched_tokens)").all() as any[];
+      const watchedColumnNames = new Set(watchedColumns.map(c => c.name));
+      if (!watchedColumnNames.has('beta_top10_pct')) {
+        this.db.exec("ALTER TABLE watched_tokens ADD COLUMN beta_top10_pct REAL DEFAULT 0");
+        logger.info("WATCHLIST", "migrateSchema", "Added beta_top10_pct column to watched_tokens");
+      }
     } catch (e: any) {
       console.error(`[WATCHLIST][migrateSchema] Migration failed: ${e.message}`);
     }
@@ -427,7 +435,7 @@ class WatchlistService {
     const status = (verdict.decision === 'PASS' || verdict.decision === 'DISSENT') ? 'BETA_PASSED' : 'BETA_FAILED';
 
     const stmt = this.db.prepare(
-      "UPDATE watched_tokens SET status = ?, beta_decision = ?, beta_confidence = ?, beta_security_score = ?, beta_mint_disabled = ?, beta_freeze_disabled = ?, beta_reasons = ?, last_updated = CURRENT_TIMESTAMP WHERE mint_address = ?"
+      "UPDATE watched_tokens SET status = ?, beta_decision = ?, beta_confidence = ?, beta_security_score = ?, beta_mint_disabled = ?, beta_freeze_disabled = ?, beta_reasons = ?, beta_top10_pct = ?, last_updated = CURRENT_TIMESTAMP WHERE mint_address = ?"
     );
     stmt.run(
       status,
@@ -437,6 +445,7 @@ class WatchlistService {
       verdict.isMintDisabled ? 1 : 0,
       verdict.isFreezeDisabled ? 1 : 0,
       verdict.reasons.join("; "),
+      verdict.top10ConcentrationPct,
       mintAddress
     );
 
@@ -447,6 +456,7 @@ class WatchlistService {
       securityScore: verdict.securityScore,
       mintDisabled: verdict.isMintDisabled,
       freezeDisabled: verdict.isFreezeDisabled,
+      top10ConcentrationPct: verdict.top10ConcentrationPct,
       reasons: verdict.reasons.join("; ")
     });
   }
