@@ -110,22 +110,27 @@ export class TrendingTokenWatcher implements IngestionWatcher {
     const response = await fetchWithRetry(url, { headers });
 
     if (!response.ok) {
-      throw new Error(`Birdeye API returned ${response.status}`);
+      throw new Error(`Birdeye HTTP ${response.status}`);
     }
 
     const data = await response.json();
 
-    if (data.code !== 0 && data.data?.items === undefined) {
-      throw new Error(`Birdeye API error: ${data.msg}`);
+    // Handle both response formats:
+    // Legacy: { code: 0, msg: "...", data: { items: [...] } }
+    // Current live: { success: true, data: { tokens: [...] } }
+    // Error format: { success: false, message: "..." }
+    if (data.success === false) {
+      throw new Error(`Birdeye API error: ${data.message ?? data.msg ?? JSON.stringify(data).slice(0, 180)}`);
     }
 
-    const items = data.data?.items || [];
+    // Try tokens first (current format), then items (legacy format)
+    const items = data.data?.tokens || data.data?.items || [];
     logger.debug("INGESTION", "TrendingTokenWatcher", "Birdeye returned items", { count: items.length });
 
     return items.map((item: any) => ({
       address: item.address,
       symbol: item.symbol,
-      volume24h: item.volume24h || 0,
+      volume24h: item.volume24hUSD ?? item.volume24h ?? 0,
       liquidity: item.liquidity,
     }));
   }
