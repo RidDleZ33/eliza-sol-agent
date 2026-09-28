@@ -164,6 +164,9 @@ class WatchlistService {
       if (!columnNames.has('beta_reasons')) {
         this.db.exec("ALTER TABLE watched_tokens ADD COLUMN beta_reasons TEXT");
       }
+      if (!columnNames.has('alpha_used_fallback')) {
+        this.db.exec("ALTER TABLE watched_tokens ADD COLUMN alpha_used_fallback INTEGER DEFAULT 0");
+      }
 
       // Phase 2A: trades journal table (append-only tape of attempts)
       try {
@@ -345,13 +348,14 @@ class WatchlistService {
       organicityScore: number;
       narrativeCategory: string;
       reasoning: string;
+      used_fallback: boolean;
     }
   ): Promise<void> {
     // PASS and DISSENT both proceed to Beta; only FAIL blocks it
     const status = (verdict.decision === 'PASS' || verdict.decision === 'DISSENT') ? 'ALPHA_PASSED' : 'ALPHA_FAILED';
 
     const stmt = this.db.prepare(
-      "UPDATE watched_tokens SET status = ?, narrative_score = ?, alpha_decision = ?, alpha_confidence = ?, alpha_narrative_score = ?, alpha_organicity_score = ?, alpha_category = ?, alpha_reasoning = ?, last_updated = CURRENT_TIMESTAMP WHERE mint_address = ?"
+      "UPDATE watched_tokens SET status = ?, narrative_score = ?, alpha_decision = ?, alpha_confidence = ?, alpha_narrative_score = ?, alpha_organicity_score = ?, alpha_category = ?, alpha_reasoning = ?, alpha_used_fallback = ?, last_updated = CURRENT_TIMESTAMP WHERE mint_address = ?"
     );
     stmt.run(
       status,
@@ -362,6 +366,7 @@ class WatchlistService {
       verdict.organicityScore,
       verdict.narrativeCategory,
       verdict.reasoning,
+      verdict.used_fallback ? 1 : 0,
       mintAddress
     );
 

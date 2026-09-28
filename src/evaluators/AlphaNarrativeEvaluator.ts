@@ -13,6 +13,7 @@ export interface AlphaVerdict {
   organicityScore: number;
   narrativeCategory: string;
   reasoning: string;
+  used_fallback: boolean;
 }
 
 export async function evaluateAlphaNarrative(_runtime?: any) {
@@ -80,7 +81,9 @@ export async function evaluateAlphaNarrative(_runtime?: any) {
 async function alphaEvaluateNarrative(token: any, telemetry: SocialTelemetry): Promise<AlphaVerdict> {
   logger.info("ALPHA", "AlphaNarrativeEvaluator", `Calling LLM for narrative evaluation of ${token.symbol}...`);
 
-  const prompt = `You are Agent Alpha, sentiment and narrative specialist on a 3-agent Solana trading committee.
+  const prompt = `You are Agent Alpha, a narrative and organicity scorer on a 3-agent Solana trading committee.
+
+You score narrative quality and social organicity. You do not size, route, or exit positions.
 
 Analyze the sentiment, narrative virality, and organic momentum of this Solana token.
 
@@ -112,7 +115,7 @@ Respond STRICTLY in valid JSON:
   "narrativeScore": <number 0.00 to 1.00>,
   "organicityScore": <number 0.00 to 1.00>,
   "narrativeCategory": "<AI_AGENT | MEME | CULTURE | UTILITY | WEAK>",
-  "reasoning": "<1-2 sentence concise explanation>"
+  "reasoning": "<one sentence, no trade verbs like buy/sell/swap>"
 }`;
 
   const result = await llmComplete(prompt, { json: true });
@@ -120,6 +123,24 @@ Respond STRICTLY in valid JSON:
   if (result.parsed) {
     const parsed = result.parsed as any;
     const validDecisions = ["PASS", "FAIL", "DISSENT", "DEFER"];
+    
+    // Trade verb detection: if model tries to give trade instructions, treat as DEFER
+    const reasoningLower = (parsed.reasoning || "").toLowerCase();
+    const hasTradeVerbs = /(?:^|\s)(?:buy|sell|swap|exit|close|take size|scale in|scale out)(?:\s|$)/i.test(reasoningLower) ||
+      /\bsol\b/i.test(reasoningLower);
+    if (hasTradeVerbs) {
+      logger.warn("ALPHA", "AlphaNarrativeEvaluator", `Trade verbs detected in reasoning for ${token.symbol}, deferring`);
+      return {
+        decision: "DEFER",
+        confidenceRatio: 0.3,
+        narrativeScore: 0.0,
+        organicityScore: 0.0,
+        narrativeCategory: "WEAK",
+        reasoning: "Reasoning contained trade verbs (buy/sell/swap/sol).",
+        used_fallback: true
+      };
+    }
+    
     if (!validDecisions.includes(parsed.decision)) {
       logger.warn("ALPHA", "AlphaNarrativeEvaluator", `Invalid decision from LLM for ${token.symbol}: ${parsed.decision}`);
       return {
@@ -128,7 +149,8 @@ Respond STRICTLY in valid JSON:
         narrativeScore: 0.0,
         organicityScore: 0.0,
         narrativeCategory: "WEAK",
-        reasoning: "LLM response format invalid."
+        reasoning: "LLM response format invalid.",
+        used_fallback: true
       };
     }
     return {
@@ -137,7 +159,8 @@ Respond STRICTLY in valid JSON:
       narrativeScore: Math.max(0, Math.min(1, Number(parsed.narrativeScore) || 0.0)),
       organicityScore: Math.max(0, Math.min(1, Number(parsed.organicityScore) || 0.0)),
       narrativeCategory: parsed.narrativeCategory || "WEAK",
-      reasoning: parsed.reasoning || "Evaluated by Agent Alpha."
+      reasoning: parsed.reasoning || "Evaluated by Agent Alpha.",
+      used_fallback: false
     };
   }
 
@@ -149,6 +172,7 @@ Respond STRICTLY in valid JSON:
     narrativeScore: 0.0,
     organicityScore: 0.0,
     narrativeCategory: "WEAK",
-    reasoning: "LLM unavailable or response unparseable. Deferring."
+    reasoning: "LLM unavailable or response unparseable. Deferring.",
+    used_fallback: true
   };
 }

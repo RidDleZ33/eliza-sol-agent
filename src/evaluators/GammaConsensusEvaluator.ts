@@ -71,6 +71,7 @@ async function evaluateCandidatePipeline(runtime: any) {
           reason: synthesis.reasons.join("; "),
         });
 
+        // size from risk caps, not Alpha text
         const buyResult = await tradeExecutionService.executeBuy(
           candidate.mint_address,
           candidate.symbol,
