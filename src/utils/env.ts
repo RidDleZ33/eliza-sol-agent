@@ -11,6 +11,7 @@ const EnvSchema = z.object({
   RPC_URL: z.string().default("https://api.mainnet-beta.solana.com"),
   JITO_URL: z.string().default("https://mainnet.block-engine.jito.wtf/api/v1/bundles"),
   JITO_AUTH_KEYPAIR: z.string().optional(),
+  JUPITER_API_KEY: z.string().optional(),
   TWITTER_API_KEY: z.string().optional(),
   TWITTER_API_SECRET: z.string().optional(),
   TELEGRAM_BOT_TOKEN: z.string().optional(),
