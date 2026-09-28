@@ -641,6 +641,10 @@ class WatchlistService {
       .run(status, exitPriceUsd, realizedPnl, sellTxSignature, new Date().toISOString(), mintAddress);
   }
 
+  async closePosition(mintAddress: string, sellTxSignature: string) {
+    await this.updatePositionStatus(mintAddress, "CLOSED", undefined, undefined, sellTxSignature);
+  }
+
   async updatePeakPrice(mintAddress: string, peakPriceUsd: number) {
     this.db
       .prepare("UPDATE positions SET peak_price_usd = ? WHERE mint_address = ?")

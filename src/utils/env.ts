@@ -19,6 +19,9 @@ const EnvSchema = z.object({
   GAMMA_PRIVATE_KEY: z.string().optional(),
   SOLANA_PRIVATE_KEY: z.string().optional(),
   MAX_TRADE_SIZE_SOL: z.string().default("0.5"),
+  MAX_DEPLOYED_SOL: z.string().default("2.0"),
+  MAX_DAILY_LOSS_SOL: z.string().default("0.5"),
+  KILL_SWITCH: z.string().optional(),
   SLIPPAGE_BPS: z.string().default("50"),
   DRY_RUN: z.string().optional(),
   SHARED_ROOM: z.string().default("ai-committee-war-room"),
@@ -80,6 +83,18 @@ export function isDryRun(): boolean {
 
 export function getMaxTradeSizeSol(): number {
   return parseFloat(env.MAX_TRADE_SIZE_SOL);
+}
+
+export function getMaxDeployedSol(): number {
+  return parseFloat(env.MAX_DEPLOYED_SOL);
+}
+
+export function getMaxDailyLossSol(): number {
+  return parseFloat(env.MAX_DAILY_LOSS_SOL);
+}
+
+export function getKillSwitch(): boolean {
+  return env.KILL_SWITCH === "true" || env.KILL_SWITCH === "1";
 }
 
 export function getSlippageBps(): number {

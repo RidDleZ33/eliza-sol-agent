@@ -1,5 +1,5 @@
-// Phase 1B: Live fill via Jupiter HTTP API + direct Solana RPC.
-// No Jito tips. Public sendRawTransaction + confirmTransaction.
+// Phase 1C: Live fill via Jupiter HTTP API + direct Solana RPC.
+// Not wired to Jito; public sendRawTransaction + confirmTransaction.
 // Dry-run: quote only, never builds swap tx or sends.
 
 import {
@@ -8,16 +8,22 @@ import {
   PublicKey,
   VersionedTransaction,
 } from "@solana/web3.js";
-import { getAssociatedTokenAddress, TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { watchlistService } from "./WatchlistService.ts";
 import { isDryRun, getSolanaRpcUrl } from "../utils/env.ts";
 import { getHouseKeypair } from "../utils/wallet.ts";
 import { configService } from "./ConfigService.ts";
 import { logger } from "./LoggerService.ts";
 import { jupiterQuote, jupiterBuildSwap, SOL_MINT } from "../execution/jupiterApi.ts";
-
-// Token-2022 program ID
-const TOKEN_2022_PROGRAM_ID = new PublicKey("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
+import {
+  checkBuyRisk,
+  maxTradeSizeSol,
+  jupiterBreakerOpen,
+  tripJupiterBreaker,
+  resetJupiterBreaker,
+  rpcBreakerOpen,
+  tripRpcBreaker,
+  resetRpcBreaker,
+} from "../execution/risk.ts";
 
 export interface TradeExecutionResult {
   success: boolean;
@@ -69,11 +75,17 @@ export class TradeExecutionService {
         amount: tokenBalance,
       });
 
-      // 2. Quote (token -> SOL)
+      // 2. Quote (token -> SOL) with Jupiter breaker
+      if (jupiterBreakerOpen()) {
+        logger.warn("EXECUTION", "TradeExecution", "[breaker] jupiter OPEN", { symbol });
+        return { success: false, error: "Jupiter circuit breaker is open" };
+      }
       const quoteResult = await jupiterQuote(mintAddress, SOL_MINT, tokenBalance, slippageBps);
       if (!quoteResult) {
+        tripJupiterBreaker();
         return { success: false, error: "Failed to get sell quote" };
       }
+      resetJupiterBreaker();
 
       logger.info("EXECUTION", "TradeExecution", "[LIVE] SELL quoted", {
         symbol,
@@ -123,7 +135,11 @@ export class TradeExecutionService {
       // 6. Sign
       decoded.sign([keypair]);
 
-      // 7. Send with preflight
+      // 7. Send with preflight (RPC breaker)
+      if (rpcBreakerOpen()) {
+        logger.warn("EXECUTION", "TradeExecution", "[breaker] rpc OPEN", { symbol });
+        return { success: false, error: "RPC circuit breaker is open" };
+      }
       let signature: string;
       try {
         signature = await connection.sendRawTransaction(decoded.serialize(), {
@@ -131,7 +147,9 @@ export class TradeExecutionService {
           preflightCommitment: "confirmed",
           maxRetries: 3,
         });
+        resetRpcBreaker();
       } catch (e: any) {
+        tripRpcBreaker();
         return { success: false, error: `sendRawTransaction failed: ${e.message}` };
       }
 
@@ -142,7 +160,11 @@ export class TradeExecutionService {
 
       // 8. Confirm with lastValidBlockHeight
       try {
-        const status = await connection.confirmTransaction(signature, "confirmed");
+        const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed");
+        const status = await connection.confirmTransaction(
+          { signature, blockhash, lastValidBlockHeight },
+          "confirmed"
+        );
         if (status.value.err) {
           return {
             success: false,
@@ -205,8 +227,10 @@ export class TradeExecutionService {
 
       const quoteResult = await jupiterQuote(SOL_MINT, mintAddress, inAmount, slippageBps);
       if (!quoteResult) {
+        tripJupiterBreaker();
         return { success: false, error: "Failed to get buy quote" };
       }
+      resetJupiterBreaker();
 
       logger.info("EXECUTION", "TradeExecution", "[LIVE] BUY quoted", {
         symbol,
@@ -255,7 +279,11 @@ export class TradeExecutionService {
       // 5. Sign
       decoded.sign([keypair]);
 
-      // 6. Send with preflight
+      // 6. Send with preflight (RPC breaker)
+      if (rpcBreakerOpen()) {
+        logger.warn("EXECUTION", "TradeExecution", "[breaker] rpc OPEN", { symbol });
+        return { success: false, error: "RPC circuit breaker is open" };
+      }
       let signature: string;
       try {
         signature = await connection.sendRawTransaction(decoded.serialize(), {
@@ -263,7 +291,9 @@ export class TradeExecutionService {
           preflightCommitment: "confirmed",
           maxRetries: 3,
         });
+        resetRpcBreaker();
       } catch (e: any) {
+        tripRpcBreaker();
         return { success: false, error: `sendRawTransaction failed: ${e.message}` };
       }
 
@@ -274,7 +304,11 @@ export class TradeExecutionService {
 
       // 7. Confirm with lastValidBlockHeight
       try {
-        const status = await connection.confirmTransaction(signature, "confirmed");
+        const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed");
+        const status = await connection.confirmTransaction(
+          { signature, blockhash, lastValidBlockHeight },
+          "confirmed"
+        );
         if (status.value.err) {
           return {
             success: false,
@@ -290,7 +324,24 @@ export class TradeExecutionService {
         };
       }
 
-      // 8. Open position in watchlist
+      // 8. Reconcile ATA balance after confirmed buy
+      try {
+        const ataBalance = await this.getTokenBalance(connection, keypair.publicKey, mintAddress);
+        if (ataBalance === null || ataBalance === 0) {
+          logger.warn("EXECUTION", "TradeExecution", "RECONCILE_NEEDED", {
+            symbol,
+            mint: mintAddress,
+            signature,
+          });
+        }
+      } catch (e: any) {
+        logger.warn("EXECUTION", "TradeExecution", "Post-buy balance check failed", {
+          symbol,
+          error: e.message,
+        });
+      }
+
+      // 9. Open position in watchlist
       const entryPrice = await this.getTokenPrice(connection, mintAddress);
       // Derive price from quote if API returns 0
       let effectivePrice = entryPrice;
@@ -345,36 +396,17 @@ export class TradeExecutionService {
   ): Promise<number | null> {
     const mintPubkey = new PublicKey(mint);
 
-    // Try standard Token program first
+    // Use parsed accounts for both Token and Token-2022 to get raw amount (string integer)
     try {
-      const ata = await getAssociatedTokenAddress(mintPubkey, owner);
-      const info = await connection.getAccountInfo(ata);
-      if (info && info.owner.equals(TOKEN_PROGRAM_ID)) {
-        const balance = info.data.readBigUInt64LE(64);
-        return Number(balance);
+      const tokenAccounts = await connection.getParsedTokenAccountsByOwner(owner, { mint: mintPubkey });
+      if (tokenAccounts.value.length > 0) {
+        const account = tokenAccounts.value[0];
+        const tokenAmount = account.account.data.parsed.info.tokenAmount;
+        // tokenAmount.amount is the raw integer amount as a string
+        return Number(tokenAmount.amount);
       }
     } catch (e: any) {
-      logger.warn("EXECUTION", "TradeExecution", "Token program balance check failed", {
-        mint,
-        error: e.message,
-      });
-    }
-
-    // Try Token-2022
-    try {
-      const { getAssociatedTokenAddress } = require("@solana/spl-token-2022");
-      const ata = await getAssociatedTokenAddress(mintPubkey, owner, false, TOKEN_2022_PROGRAM_ID);
-      const info = await connection.getAccountInfo(ata);
-      if (info && info.owner.equals(TOKEN_2022_PROGRAM_ID)) {
-        // Token-2022 has different account layout: extension data after header
-        // Use parsed account to get balance
-        const accountInfo = await connection.getParsedAccountInfo(ata);
-        if (accountInfo.value?.data?.parsed?.info?.tokenAmount) {
-          return accountInfo.value.data.parsed.info.tokenAmount.uiAmount;
-        }
-      }
-    } catch (e: any) {
-      logger.warn("EXECUTION", "TradeExecution", "Token-2022 balance check failed", {
+      logger.warn("EXECUTION", "TradeExecution", "Token balance check failed", {
         mint,
         error: e.message,
       });
@@ -444,8 +476,20 @@ export class TradeExecutionService {
 
       // Dynamic Position Sizing based on Conviction Score
       const baseTradeSize = configService.getNumber("MAX_TRADE_SIZE_SOL");
+      const cap = maxTradeSizeSol();
       const dynamicMultiplier = Math.min(1.25, Math.max(0.5, convictionScore));
-      const tradeSize = parseFloat((baseTradeSize * dynamicMultiplier).toFixed(4));
+      let tradeSize = parseFloat((baseTradeSize * dynamicMultiplier).toFixed(4));
+      // Clamp to cap so no 1.25x overshoot
+      if (tradeSize > cap) {
+        tradeSize = cap;
+      }
+
+      // Risk cap checks
+      const riskCheck = await checkBuyRisk(tradeSize);
+      if (!riskCheck.ok) {
+        logger.warn("EXECUTION", "TradeExecution", "Risk check failed", { symbol, reason: riskCheck.reason });
+        return { success: false, error: `Risk check failed: ${riskCheck.reason}` };
+      }
 
       const slippageBps = configService.getNumber("SLIPPAGE_BPS");
       // Phase 0F: env DRY_RUN=true must prevent live even if ConfigService is toggled
@@ -462,13 +506,21 @@ export class TradeExecutionService {
           clientOrderId,
         });
 
+        // Jupiter breaker open? Refuse.
+        if (jupiterBreakerOpen()) {
+          logger.warn("EXECUTION", "TradeExecution", "[DRY_RUN] [breaker] jupiter OPEN", { symbol });
+          return { success: false, error: "Jupiter circuit breaker is open", dryRun: true };
+        }
+
         // Fetch real Jupiter quote (read-only)
         const inAmount = Math.round(tradeSize * 1e9);
         const quoteResult = await jupiterQuote(SOL_MINT, mintAddress, inAmount, slippageBps);
         if (!quoteResult) {
+          tripJupiterBreaker();
           logger.warn("EXECUTION", "TradeExecution", "[DRY_RUN] BUY quote failed, not opening position", { symbol });
           return { success: false, error: "quote failed", dryRun: true };
         }
+        resetJupiterBreaker();
 
         logger.info("EXECUTION", "TradeExecution", "[DRY_RUN] BUY quoted", {
           symbol,
@@ -503,6 +555,11 @@ export class TradeExecutionService {
         convictionScore,
         tradeSize,
       });
+
+      if (jupiterBreakerOpen()) {
+        logger.warn("EXECUTION", "TradeExecution", "[LIVE] [breaker] jupiter OPEN", { symbol });
+        return { success: false, error: "Jupiter circuit breaker is open" };
+      }
 
       return await this.executeLiveBuy(mintAddress, symbol, convictionScore, tradeSize, triggerType);
     } catch (e: any) {
