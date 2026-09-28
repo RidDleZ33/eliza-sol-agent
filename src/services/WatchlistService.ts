@@ -304,7 +304,7 @@ class WatchlistService {
    * Insert a newly discovered token into the watchlist ONLY if not already tracked.
    * This is the unbiased discovery entry point for the Ingestion Manager.
    */
-  async addDiscoveredToken(mintAddress: string, symbol: string, volume24h: number): Promise<boolean> {
+  async addDiscoveredToken(mintAddress: string, symbol: string, volume24h: number, source?: string): Promise<boolean> {
     try {
       const existing = this.db
         .prepare("SELECT mint_address FROM watched_tokens WHERE mint_address = ?")
@@ -318,13 +318,14 @@ class WatchlistService {
         return false;
       }
 
+      const addedBy = source || "ingestion_manager";
       this.db
         .prepare(
-          "INSERT INTO watched_tokens (mint_address, symbol, narrative_score, volume_24h, status, added_by_agent) VALUES (?, ?, 0.5, ?, 'PENDING_ALPHA', 'ingestion_manager')"
+          "INSERT INTO watched_tokens (mint_address, symbol, narrative_score, volume_24h, status, added_by_agent) VALUES (?, ?, 0.5, ?, 'PENDING_ALPHA', ?)"
         )
-        .run(mintAddress, symbol, volume24h);
+        .run(mintAddress, symbol, volume24h, addedBy);
 
-      logger.info("WATCHLIST", "addDiscoveredToken", "New token discovered", { mint: mintAddress, symbol, volume24h });
+      logger.info("WATCHLIST", "addDiscoveredToken", "New token discovered", { mint: mintAddress, symbol, volume24h, addedBy });
       return true;
     } catch (e) {
       logger.error("WATCHLIST", "addDiscoveredToken", "Failed to add token", { mint: mintAddress, error: e.message });

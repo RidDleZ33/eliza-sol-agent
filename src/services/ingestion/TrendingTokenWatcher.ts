@@ -48,18 +48,15 @@ export class TrendingTokenWatcher implements IngestionWatcher {
 
   private async poll() {
     try {
+      if (!this.birdeyeApiKey) {
+        logger.warn("INGESTION", "TrendingTokenWatcher", "No Birdeye API key, skipping poll");
+        this.backoffMs = 1000;
+        return;
+      }
+
       logger.debug("INGESTION", "TrendingTokenWatcher", "Polling for trending tokens...");
-      let tokens: TrendingToken[] = [];
-
-      if (this.birdeyeApiKey) {
-        logger.debug("INGESTION", "TrendingTokenWatcher", "Using Birdeye API");
-        tokens = await this.fetchFromBirdeye();
-      }
-
-      if (!tokens || tokens.length === 0) {
-        logger.debug("INGESTION", "TrendingTokenWatcher", "Birdeye empty, trying DexScreener fallback");
-        tokens = await this.fetchFromDexScreener();
-      }
+      logger.debug("INGESTION", "TrendingTokenWatcher", "Using Birdeye API");
+      const tokens = await this.fetchFromBirdeye();
 
       logger.info("INGESTION", "TrendingTokenWatcher", "Found trending tokens", { count: tokens.length });
 
@@ -133,71 +130,6 @@ export class TrendingTokenWatcher implements IngestionWatcher {
     }));
   }
 
-  private async fetchFromDexScreener(): Promise<TrendingToken[]> {
-    const url = "https://api.dexscreener.com/token-profiles/latest/v1?limit=50";
-
-    logger.debug("INGESTION", "TrendingTokenWatcher", "Fetching from DexScreener", { url });
-
-    const response = await fetchWithRetry(url);
-
-    if (!response.ok) {
-      throw new Error(`DexScreener API returned ${response.status}`);
-    }
-
-    const profiles: any[] = await response.json();
-    logger.debug("INGESTION", "TrendingTokenWatcher", "DexScreener returned profiles", { count: profiles.length });
-
-    const solProfiles = profiles.filter((p: any) => p.chainId === "solana");
-    logger.debug("INGESTION", "TrendingTokenWatcher", "Solana profiles filtered", { count: solProfiles.length });
-
-    if (solProfiles.length === 0) {
-      logger.info("INGESTION", "TrendingTokenWatcher", "No Solana tokens in trending");
-      return [];
-    }
-
-    const tokens: TrendingToken[] = [];
-    for (const profile of solProfiles.slice(0, 10)) {
-      try {
-        logger.debug("INGESTION", "TrendingTokenWatcher", "Fetching pair data", { address: profile.tokenAddress });
-        const pairData = await this.fetchSolanaPairData(profile.tokenAddress);
-        if (pairData) {
-          tokens.push(pairData);
-        }
-      } catch (e) {
-        logger.warn("INGESTION", "TrendingTokenWatcher", "Failed to fetch pair data", {
-          address: profile.tokenAddress,
-          error: (e as any).message,
-        });
-      }
-    }
-
-    logger.debug("INGESTION", "TrendingTokenWatcher", "Successfully fetched pair data", { count: tokens.length });
-    return tokens;
-  }
-
-  private async fetchSolanaPairData(tokenAddress: string): Promise<TrendingToken | null> {
-    const url = `https://api.dexscreener.com/latest/dex/tokens/${tokenAddress}`;
-
-    const response = await fetchWithRetry(url);
-
-    if (!response.ok) {
-      throw new Error(`DexScreener pair API returned ${response.status}`);
-    }
-
-    const data = await response.json();
-
-    const solPairs = (data.pairs || []).filter((pair: any) => pair.chainId === "solana");
-    if (solPairs.length === 0) {
-      return null;
-    }
-
-    const bestPair = solPairs[0];
-
-    return {
-      address: bestPair.baseToken.address,
-      symbol: bestPair.baseToken.symbol,
-      volume24h: bestPair.volume?.h24?.usd || 0,
-      liquidity: bestPair.liquidity?.usd || 0,
-    };
-  }
+  // DexScreener token-profiles fallback retired in phase 6B.
+  // Pair boards are handled by dedicated watchers.
 }
