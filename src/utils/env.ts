@@ -29,6 +29,14 @@ const EnvSchema = z.object({
   MAX_TOP_TRADERS: z.string().default("15"),
   BIRDEYE_API_KEY: z.string().optional(),
   INGESTION_INTERVAL_MS: z.string().default("60000"),
+  INGEST_DEXSCREENER_LATEST: z.string().default("true"),
+  INGEST_DEXSCREENER_TRENDING: z.string().default("false"),
+  INGEST_DEXSCREENER_TRENDING_PERIOD: z.string().default("1h"),
+  INGEST_DEXSCREENER_TRENDING_BULLISH: z.string().default("false"),
+  INGEST_BIRDEYE_TRENDING: z.string().default("true"),
+  INGEST_BIRDEYE_TOP_TRADERS: z.string().default("false"),
+  INGEST_PHANTOM: z.string().default("false"),
+  INGEST_DEXSCREENER_CHAIN: z.string().default("solana"),
   TWITTER_BEARER_TOKEN: z.string().optional(),
   WALLET_MIRROR_INTERVAL_MS: z.string().default("20000"),
   RUGCHECK_API_URL: z.string().default("https://api.rugcheck.xyz/v1/tokens"),
@@ -176,4 +184,32 @@ export function getExitAtrK(): number {
 
 export function getPositionCheckIntervalMs(): number {
   return parseInt(env.POSITION_CHECK_INTERVAL_MS);
+}
+
+// --- Ingestion source flags (phase 6A) ---
+
+function isTruthy(val: string | undefined): boolean {
+  return val === "true" || val === "1";
+}
+
+export function ingestFlag(name: string): boolean {
+  const map: Record<string, string | undefined> = {
+    INGEST_DEXSCREENER_LATEST: env.INGEST_DEXSCREENER_LATEST,
+    INGEST_DEXSCREENER_TRENDING: env.INGEST_DEXSCREENER_TRENDING,
+    INGEST_DEXSCREENER_TRENDING_BULLISH: env.INGEST_DEXSCREENER_TRENDING_BULLISH,
+    INGEST_BIRDEYE_TRENDING: env.INGEST_BIRDEYE_TRENDING,
+    INGEST_BIRDEYE_TOP_TRADERS: env.INGEST_BIRDEYE_TOP_TRADERS,
+    INGEST_PHANTOM: env.INGEST_PHANTOM,
+  };
+  return isTruthy(map[name]);
+}
+
+export function getDexscreenerTrendingPeriod(): "5m" | "1h" | "6h" | "24h" {
+  const p = env.INGEST_DEXSCREENER_TRENDING_PERIOD;
+  if (p === "5m" || p === "1h" || p === "6h" || p === "24h") return p;
+  return "1h";
+}
+
+export function getDexscreenerChain(): string {
+  return env.INGEST_DEXSCREENER_CHAIN;
 }

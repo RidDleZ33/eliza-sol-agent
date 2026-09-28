@@ -2,7 +2,7 @@ import { TrendingTokenWatcher } from "./TrendingTokenWatcher.ts";
 import { TopTraderWatcher } from "./TopTraderWatcher.ts";
 import { PhantomTrendingWatcher } from "./PhantomTrendingWatcher.ts";
 import { IngestionWatcher } from "./IngestionWatcher.ts";
-import { getIngestionInterval } from "../../utils/env.ts";
+import { getIngestionInterval, ingestFlag } from "../../utils/env.ts";
 import { logger } from "../LoggerService.ts";
 
 export class IngestionManager {
@@ -12,10 +12,16 @@ export class IngestionManager {
   constructor() {
     this.intervalMs = getIngestionInterval();
 
-    // Register built-in default watchers
-    this.registerWatcher(new TrendingTokenWatcher());
-    this.registerWatcher(new TopTraderWatcher());
-    this.registerWatcher(new PhantomTrendingWatcher());
+    // Gate each watcher on its ingestion flag (phase 6A)
+    if (ingestFlag("INGEST_BIRDEYE_TRENDING")) {
+      this.registerWatcher(new TrendingTokenWatcher());
+    }
+    if (ingestFlag("INGEST_BIRDEYE_TOP_TRADERS")) {
+      this.registerWatcher(new TopTraderWatcher());
+    }
+    if (ingestFlag("INGEST_PHANTOM")) {
+      this.registerWatcher(new PhantomTrendingWatcher());
+    }
   }
 
   public registerWatcher(watcher: IngestionWatcher): void {
@@ -27,7 +33,12 @@ export class IngestionManager {
   }
 
   start() {
-    logger.info("INGESTION", "IngestionManager", "Starting all ingestion services...");
+    const enabledWatchers = Array.from(this.watchers.keys());
+    if (enabledWatchers.length === 0) {
+      logger.warn("INGESTION", "IngestionManager", "No ingestion sources enabled. Set INGEST_BIRDEYE_TRENDING=true or INGEST_BIRDEYE_TOP_TRADERS=true to enable.");
+    } else {
+      logger.info("INGESTION", "IngestionManager", "Starting ingestion services", { enabledWatchers });
+    }
     logger.info("INGESTION", "IngestionManager", "Polling base interval", { intervalMs: this.intervalMs });
 
     for (const watcher of this.watchers.values()) {

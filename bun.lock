@@ -12,10 +12,12 @@
         "@elizaos/plugin-sql": "^1.7.2",
         "@elizaos/plugin-telegram": "^1.6.4",
         "@elizaos/plugin-twitter": "^1.2.22",
+        "@solana/spl-token": "^0.4.12",
         "@solana/web3.js": "^1.99.0",
         "better-sqlite3": "^13.0.3",
         "dotenv": "^17.4.2",
         "jito-ts": "^4.2.1",
+        "telegraf": "^4.16.0",
         "zod": "^4.6.2",
       },
       "devDependencies": {

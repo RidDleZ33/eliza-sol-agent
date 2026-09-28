@@ -55,7 +55,13 @@ export type ConfigKey =
   | "LOG_LEVEL_CIRCUIT_BREAKER"
   | "LOG_LEVEL_CONFIG"
   | "LOG_LEVEL_CRASH_RECOVERY"
-  | "LOG_LEVEL_DEX";
+  | "LOG_LEVEL_DEX"
+  | "INGEST_DEXSCREENER_LATEST"
+  | "INGEST_DEXSCREENER_TRENDING"
+  | "INGEST_DEXSCREENER_TRENDING_BULLISH"
+  | "INGEST_BIRDEYE_TRENDING"
+  | "INGEST_BIRDEYE_TOP_TRADERS"
+  | "INGEST_PHANTOM";
 
 interface ConfigEntry {
   key: ConfigKey;
@@ -270,6 +276,56 @@ const DEFAULT_CONFIG: ConfigEntry[] = [
     description: "How often to check position prices for exits (ms)",
     defaultValue: String(getPositionCheckIntervalMs()),
     validate: (v) => !isNaN(parseInt(v)) && parseInt(v) > 1000
+  },
+
+  // Ingestion source flags (phase 6A)
+  {
+    key: "INGEST_DEXSCREENER_LATEST",
+    value: "",
+    category: "INGESTION",
+    description: "Enable DexScreener latest launches board",
+    defaultValue: "true",
+    validate: (v) => v === "true" || v === "false"
+  },
+  {
+    key: "INGEST_DEXSCREENER_TRENDING",
+    value: "",
+    category: "INGESTION",
+    description: "Enable DexScreener trending (undocumented endpoint)",
+    defaultValue: "false",
+    validate: (v) => v === "true" || v === "false"
+  },
+  {
+    key: "INGEST_DEXSCREENER_TRENDING_BULLISH",
+    value: "",
+    category: "INGESTION",
+    description: "Use DexScreener /tokens/trending-bullish/v1",
+    defaultValue: "false",
+    validate: (v) => v === "true" || v === "false"
+  },
+  {
+    key: "INGEST_BIRDEYE_TRENDING",
+    value: "",
+    category: "INGESTION",
+    description: "Enable Birdeye trending token ingestion",
+    defaultValue: "true",
+    validate: (v) => v === "true" || v === "false"
+  },
+  {
+    key: "INGEST_BIRDEYE_TOP_TRADERS",
+    value: "",
+    category: "INGESTION",
+    description: "Enable Birdeye top traders ingestion",
+    defaultValue: "false",
+    validate: (v) => v === "true" || v === "false"
+  },
+  {
+    key: "INGEST_PHANTOM",
+    value: "",
+    category: "INGESTION",
+    description: "Enable Phantom explore trending (parked in 6A)",
+    defaultValue: "false",
+    validate: (v) => v === "true" || v === "false"
   }
 ];
 
