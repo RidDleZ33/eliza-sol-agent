@@ -11,6 +11,7 @@ import { watchlistService } from "./services/WatchlistService.ts";
 import { logger } from "./services/LoggerService.ts";
 import { runInterlock } from "./boot/interlock.ts";
 import { isDryRun } from "./utils/env.ts";
+import { tier, can } from "./entitlements/tier.ts";
 
 let shuttingDown = false;
 
@@ -73,6 +74,12 @@ async function main() {
 
   // Phase 0F: boot interlock — compute and log mode, fail closed on LIVE if checks fail
   const interlock = runInterlock();
+
+  // Phase 5A: entitlement gate — operator runs executor; lower tiers exit here
+  if (!can("run_executor")) {
+    logger.info("CONFIG", "Index", `entitlement tier ${tier()} cannot run executor; exiting`);
+    process.exit(0);
+  }
 
   // Run crash recovery before starting watchers
   try {

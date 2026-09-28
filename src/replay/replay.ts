@@ -5,6 +5,7 @@
 
 import { openDb, closeDb, getDb } from "../tape/db";
 import { volStopPct } from "../execution/volStop.ts";
+import { tier, can } from "../entitlements/tier.ts";
 
 const fs = require("fs");
 
@@ -108,6 +109,10 @@ export function replayTape(ticks: Tick[], opts?: { k?: number }) {
 }
 
 function main() {
+  if (!can("run_replay")) {
+    console.log(`tier ${tier()} too low for replay`);
+    process.exit(0);
+  }
   let ticks: Tick[] = [];
   const dbPath = process.env.TAPE_DB_PATH || "data/tape/tape.sqlite";
 

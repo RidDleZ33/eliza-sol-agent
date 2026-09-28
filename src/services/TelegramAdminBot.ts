@@ -3,6 +3,7 @@ import { configService, ConfigKey } from "./ConfigService.ts";
 import { logger, LogLevel } from "./LoggerService.ts";
 import { watchlistService } from "./WatchlistService.ts";
 import { TelegramDashboardFormatter } from "../utils/TelegramDashboardFormatter.ts";
+import { tier, can } from "../entitlements/tier.ts";
 
 const ADMIN_BOT_VERSION = "2.4.0";
 
@@ -149,6 +150,10 @@ export class TelegramAdminBot {
         await ctx.reply("⚠️ Admin access only.");
         return;
       }
+      if (!can("view_trades")) {
+        await ctx.reply(`⚠️ tier ${tier()} too low for trade journal`);
+        return;
+      }
       this.pauseLogStream();
       this.pauseWarRoom();
       await this.showTradeJournal(ctx);
@@ -157,6 +162,10 @@ export class TelegramAdminBot {
     this.bot.command("pnl", async (ctx) => {
       if (!this.isAdmin(ctx.from!.id)) {
         await ctx.reply("⚠️ Admin access only.");
+        return;
+      }
+      if (!can("view_trades")) {
+        await ctx.reply(`⚠️ tier ${tier()} too low for pnl`);
         return;
       }
       this.pauseLogStream();

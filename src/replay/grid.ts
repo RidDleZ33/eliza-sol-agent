@@ -3,6 +3,7 @@
 
 import { replayTape } from "./replay.ts";
 import { openDb, closeDb, getDb } from "../tape/db";
+import { tier, can } from "../entitlements/tier.ts";
 
 const fs = require("fs");
 
@@ -51,6 +52,11 @@ function loadTicksFromJsonl(filePath: string): Tick[] {
 }
 
 const kValues = [1.0, 1.5, 2.0];
+
+if (!can("run_replay")) {
+  console.log(`tier ${tier()} too low for grid`);
+  process.exit(0);
+}
 
 let ticks: Tick[] = [];
 const dbPath = process.env.TAPE_DB_PATH || "data/tape/tape.sqlite";
