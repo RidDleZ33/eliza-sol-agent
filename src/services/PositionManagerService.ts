@@ -5,6 +5,7 @@ import { watchlistService } from "./WatchlistService.ts";
 import { tradeExecutionService } from "./TradeExecutionService.ts";
 import { configService } from "./ConfigService.ts";
 import { logger } from "./LoggerService.ts";
+import { addSessionPnl } from "../execution/risk.ts";
 
 export class PositionManagerService {
   private runtime: any;
@@ -180,12 +181,19 @@ export class PositionManagerService {
     const result = await tradeExecutionService.executeSell(mint, symbol, reason);
 
     if (result.success) {
-      // Calculate realized PnL in USD
-      const openPositions = await watchlistService.getOpenPositions();
-      const pos = openPositions.find((p) => p.mint_address === mint);
+      // Calculate realized PnL in SOL (entryPrice is SOL per token)
+      const pos = await watchlistService.getOpenPositions().then(ps => ps.find(p => p.mint_address === mint));
       const amountSol = pos ? pos.amount_sol : 0;
       const entryPrice = pos ? (pos.entry_price_usd || exitPrice) : exitPrice;
       const realizedPnl = amountSol * (exitPrice - entryPrice);
+
+      // Phase 2A: feed session realized PnL into risk circuit breaker
+      if (result.dryRun) {
+        // Paper PnL: no real SOL moved, skip addSessionPnl
+        logger.debug("POSITIONS", "PositionManager", "[DRY_RUN] skipping session PnL update", { symbol, realizedPnl: realizedPnl.toFixed(4) });
+      } else {
+        addSessionPnl(realizedPnl);
+      }
 
       // Update position status
       await watchlistService.updatePositionStatus(

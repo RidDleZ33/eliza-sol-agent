@@ -135,6 +135,9 @@ export class TradeExecutionService {
       // 6. Sign
       decoded.sign([keypair]);
 
+      // 6b. Capture blockhash BEFORE send (phase 2A: reuse in confirm, no second fetch)
+      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed");
+
       // 7. Send with preflight (RPC breaker)
       if (rpcBreakerOpen()) {
         logger.warn("EXECUTION", "TradeExecution", "[breaker] rpc OPEN", { symbol });
@@ -158,25 +161,36 @@ export class TradeExecutionService {
         signature,
       });
 
-      // 8. Confirm with lastValidBlockHeight
+      // 8. Confirm using the SAME blockhash captured before send
+      let sellConfirmError: string | null = null;
       try {
-        const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed");
         const status = await connection.confirmTransaction(
           { signature, blockhash, lastValidBlockHeight },
           "confirmed"
         );
         if (status.value.err) {
-          return {
-            success: false,
-            txSignature: signature,
-            error: `Transaction failed: ${status.value.err.toString()}`,
-          };
+          sellConfirmError = `Transaction failed: ${status.value.err.toString()}`;
         }
       } catch (e: any) {
+        sellConfirmError = `confirmTransaction failed: ${e.message}`;
+      }
+
+      if (sellConfirmError) {
+        // Phase 2A: FAILED journal row
+        await watchlistService.logTradeRow({
+          clientOrderId: `sell-live:${mintAddress}:${signature}`,
+          mint: mintAddress,
+          symbol,
+          side: "SELL",
+          mode: "LIVE",
+          txSig: signature,
+          status: "FAILED",
+          reason: sellConfirmError,
+        });
         return {
           success: false,
           txSignature: signature,
-          error: `confirmTransaction failed: ${e.message}`,
+          error: sellConfirmError,
         };
       }
 
@@ -187,6 +201,19 @@ export class TradeExecutionService {
         symbol,
         signature,
         reason,
+      });
+
+      // Phase 2A: FILLED journal row
+      await watchlistService.logTradeRow({
+        clientOrderId: `sell-live:${mintAddress}:${signature}`,
+        mint: mintAddress,
+        symbol,
+        side: "SELL",
+        mode: "LIVE",
+        solOut: Number(quoteResult.slim.outAmount) / 1e9,
+        txSig: signature,
+        status: "FILLED",
+        reason: reason,
       });
 
       return { success: true, txSignature: signature };
@@ -279,7 +306,10 @@ export class TradeExecutionService {
       // 5. Sign
       decoded.sign([keypair]);
 
-      // 6. Send with preflight (RPC breaker)
+      // 6. Capture blockhash BEFORE send (phase 2A: reuse in confirm, no second fetch)
+      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed");
+
+      // 7. Send with preflight (RPC breaker)
       if (rpcBreakerOpen()) {
         logger.warn("EXECUTION", "TradeExecution", "[breaker] rpc OPEN", { symbol });
         return { success: false, error: "RPC circuit breaker is open" };
@@ -302,29 +332,54 @@ export class TradeExecutionService {
         signature,
       });
 
-      // 7. Confirm with lastValidBlockHeight
+      // 8. Confirm using the SAME blockhash captured before send
+      let confirmError: string | null = null;
       try {
-        const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed");
         const status = await connection.confirmTransaction(
           { signature, blockhash, lastValidBlockHeight },
           "confirmed"
         );
         if (status.value.err) {
-          return {
-            success: false,
-            txSignature: signature,
-            error: `Transaction failed: ${status.value.err.toString()}`,
-          };
+          confirmError = `Transaction failed: ${status.value.err.toString()}`;
         }
       } catch (e: any) {
+        confirmError = `confirmTransaction failed: ${e.message}`;
+      }
+
+      if (confirmError) {
+        // Phase 2A: FAILED journal row
+        await watchlistService.logTradeRow({
+          clientOrderId: `buy-live:${mintAddress}:${signature}`,
+          mint: mintAddress,
+          symbol,
+          side: "BUY",
+          mode: "LIVE",
+          solIn: tradeSize,
+          txSig: signature,
+          status: "FAILED",
+          reason: confirmError,
+        });
         return {
           success: false,
           txSignature: signature,
-          error: `confirmTransaction failed: ${e.message}`,
+          error: confirmError,
         };
       }
 
-      // 8. Reconcile ATA balance after confirmed buy
+      // Phase 2A: FILLED journal row
+      await watchlistService.logTradeRow({
+        clientOrderId: `buy-live:${mintAddress}:${signature}`,
+        mint: mintAddress,
+        symbol,
+        side: "BUY",
+        mode: "LIVE",
+        solIn: tradeSize,
+        solOut: 0,
+        txSig: signature,
+        status: "FILLED",
+      });
+
+      // 9. Reconcile ATA balance after confirmed buy
       try {
         const ataBalance = await this.getTokenBalance(connection, keypair.publicKey, mintAddress);
         if (ataBalance === null || ataBalance === 0) {
@@ -546,6 +601,22 @@ export class TradeExecutionService {
           symbol,
           signature: txSignature,
         });
+
+        // Phase 2A: PAPER BUY journal row (sol_in = tradeSize; sol_out = 0)
+        await watchlistService.logTradeRow({
+          clientOrderId: clientOrderId,
+          mint: mintAddress,
+          symbol,
+          side: "BUY",
+          mode: "DRY_RUN",
+          solIn: tradeSize,
+          solOut: 0,
+          pxQuote: effectivePrice,
+          txSig: txSignature,
+          status: "PAPER",
+          reason: "dry-run buy",
+        });
+
         return { success: true, txSignature, dryRun: true };
       }
 
@@ -588,8 +659,38 @@ export class TradeExecutionService {
           logger.warn("EXECUTION", "TradeExecution", "[DRY_RUN] SELL mark price missing", { symbol });
         }
 
+        // Phase 2A: look up position amount to compute sol_out for the PAPER row
+        let solOut = 0;
+        try {
+          const openPositions = await watchlistService.getOpenPositions(true);
+          const pos = openPositions.find(p => p.mint_address === mintAddress);
+          if (pos && sellMarkPrice > 0) {
+            solOut = pos.amount_sol * sellMarkPrice;
+          }
+        } catch (e: any) {
+          logger.warn("EXECUTION", "TradeExecution", "[DRY_RUN] SELL sol_out calc failed", {
+            symbol, error: e.message,
+          });
+        }
+
         logger.info("EXECUTION", "TradeExecution", "[DRY_RUN] SELL completed (no tx sent)", { symbol, reason, sellMarkPrice });
-        return { success: true, txSignature: "DRY_RUN_SELL_" + Date.now(), dryRun: true };
+        const txSignature = "DRY_RUN_SELL_" + Date.now();
+
+        // Phase 2A: PAPER SELL journal row
+        await watchlistService.logTradeRow({
+          clientOrderId: `sell:${mintAddress}:${txSignature}`,
+          mint: mintAddress,
+          symbol,
+          side: "SELL",
+          mode: "DRY_RUN",
+          solOut,
+          pxQuote: sellMarkPrice,
+          txSig: txSignature,
+          status: "PAPER",
+          reason: "dry-run sell",
+        });
+
+        return { success: true, txSignature, dryRun: true };
       }
 
       // LIVE path

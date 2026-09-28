@@ -164,6 +164,32 @@ class WatchlistService {
         this.db.exec("ALTER TABLE watched_tokens ADD COLUMN beta_reasons TEXT");
       }
 
+      // Phase 2A: trades journal table (append-only tape of attempts)
+      try {
+        this.db.exec(`
+          CREATE TABLE IF NOT EXISTS trades (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            client_order_id TEXT UNIQUE,
+            mint TEXT NOT NULL,
+            symbol TEXT,
+            side TEXT NOT NULL,
+            mode TEXT NOT NULL,
+            qty_raw TEXT,
+            sol_in REAL,
+            sol_out REAL,
+            px_quote REAL,
+            px_mark REAL,
+            tx_sig TEXT,
+            status TEXT NOT NULL,
+            reason TEXT,
+            created_at INTEGER NOT NULL
+          )
+        `);
+        logger.info("WATCHLIST", "migrateSchema", "trades journal table ready");
+      } catch (e: any) {
+        logger.warn("WATCHLIST", "migrateSchema", "trades table creation failed", { error: e.message });
+      }
+
       // Position price tracking columns
       const positionColumns = this.db.prepare("PRAGMA table_info(positions)").all() as any[];
       const positionColumnNames = new Set(positionColumns.map(c => c.name));
@@ -443,6 +469,68 @@ class WatchlistService {
   }
 
   /**
+   * Phase 2A: append-only trades journal row. Used for dry-run PAPER entries and
+   * live FILLED/FAILED entries with tx sigs.
+   */
+  async logTradeRow(trade: {
+    clientOrderId: string;
+    mint: string;
+    symbol: string;
+    side: "BUY" | "SELL";
+    mode: "DRY_RUN" | "LIVE";
+    qtyRaw?: string;
+    solIn?: number;
+    solOut?: number;
+    pxQuote?: number;
+    pxMark?: number;
+    txSig?: string;
+    status: "QUOTED" | "FILLED" | "FAILED" | "PAPER";
+    reason?: string;
+  }): Promise<number> {
+    try {
+      const stmt = this.db.prepare(`
+        INSERT INTO trades
+          (client_order_id, mint, symbol, side, mode, qty_raw, sol_in, sol_out,
+           px_quote, px_mark, tx_sig, status, reason, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      const result = stmt.run(
+        trade.clientOrderId,
+        trade.mint,
+        trade.symbol,
+        trade.side,
+        trade.mode,
+        trade.qtyRaw ?? null,
+        trade.solIn ?? null,
+        trade.solOut ?? null,
+        trade.pxQuote ?? null,
+        trade.pxMark ?? null,
+        trade.txSig ?? null,
+        trade.status,
+        trade.reason ?? null,
+        Date.now()
+      );
+      return result.lastInsertRowid as number;
+    } catch (e: any) {
+      logger.error("WATCHLIST", "logTradeRow", "Failed to write trade row", {
+        clientOrderId: trade.clientOrderId,
+        status: trade.status,
+        error: e.message,
+      });
+      return -1;
+    }
+  }
+
+  /**
+   * Phase 2A: helper for later Telegram admin use.
+   */
+  listRecentTrades(limit = 20): any[] {
+    return this.db
+      .prepare("SELECT * FROM trades ORDER BY created_at DESC LIMIT ?")
+      .all(limit);
+  }
+
+  /**
    * Log an audit event to the trade journal
    */
   async logTradeJournal(entry: JournalEntry): Promise<void> {
@@ -600,6 +688,11 @@ class WatchlistService {
   }
 
   // Position Methods
+  // Phase 2A: risk.ts calls getActivePositions(); provide as alias for getOpenPositions().
+  async getActivePositions(isDryRun?: boolean): Promise<any[]> {
+    return this.getOpenPositions(isDryRun);
+  }
+
   getActivePositionsCount(): number {
     return this.db
       .prepare("SELECT COUNT(*) as count FROM positions WHERE status = 'OPEN'")
