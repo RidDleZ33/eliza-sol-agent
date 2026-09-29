@@ -63,14 +63,10 @@ export class BirdeyeNewListingWatcher implements IngestionWatcher {
       logger.debug("INGESTION", this.name, "Polling Birdeye new_listing...");
       const tokens = await this.fetchNewListing();
 
-      const addedCount = tokens.filter(t => t !== null).length;
       logger.info("INGESTION", this.name, "New listing poll complete", {
         found: tokens.length,
-        added: addedCount,
+        inserted: tokens.filter(t => t !== null).length,
       });
-      if (addedCount > 0) {
-        requestAlphaTick();
-      }
       this.backoffMs = 1000;
     } catch (e: any) {
       logger.error("INGESTION", this.name, "Error polling new_listing", { error: e.message });
@@ -111,6 +107,7 @@ export class BirdeyeNewListingWatcher implements IngestionWatcher {
     logger.debug("INGESTION", this.name, "Birdeye new_listing returned items", { count: items.length });
 
     const results: (NewListingToken | null)[] = [];
+    let insertCount = 0;
     for (const item of items) {
       if (results.length >= this.maxTokens) break;
       const address = item.address;
@@ -130,6 +127,7 @@ export class BirdeyeNewListingWatcher implements IngestionWatcher {
       );
 
       if (inserted) {
+        insertCount++;
         logger.info("INGESTION", this.name, "Discovered new token", {
           address,
           symbol,
@@ -139,6 +137,11 @@ export class BirdeyeNewListingWatcher implements IngestionWatcher {
       }
 
       results.push({ address, symbol, volumeUSD });
+    }
+
+    // Phase 8F: wake Alpha only on real inserts, not re-mapped rows
+    if (insertCount > 0) {
+      requestAlphaTick();
     }
 
     return results;

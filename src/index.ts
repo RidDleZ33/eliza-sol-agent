@@ -1,4 +1,4 @@
-import { evaluateAlphaNarrative, requestAlphaTick } from "./evaluators/AlphaNarrativeEvaluator.ts";
+import { requestAlphaTick } from "./evaluators/AlphaNarrativeEvaluator.ts";
 import { evaluateBetaContract } from "./evaluators/BetaContractEvaluator.ts";
 import { tradeExecutionService } from "./services/TradeExecutionService.ts";
 import { evaluateGammaConsensus } from "./evaluators/GammaConsensusEvaluator.ts";
@@ -126,16 +126,18 @@ async function main() {
 
   tradeExecutionService.runtime = stubRuntime;
 
-  // Phase 8D: align Alpha+Beta tick with ingestion interval
+  // Phase 8D/8F: Beta first, then Alpha via requestAlphaTick (single-flight)
   const evalInterval = getIngestionInterval();
-  logger.info("ALPHA", "Index", `ALPHA schedule intervalMs=${evalInterval}`);
+  logger.info("ALPHA", "Index", `eval intervalMs=${evalInterval}`);
   setInterval(async () => {
     try {
-      await evaluateAlphaNarrative(stubRuntime);
+      // Phase 8F: Beta must run every interval regardless of Alpha backlog
       await evaluateBetaContract(stubRuntime);
     } catch (e) {
-      logger.error("CONFIG", "Index", "Evaluator loop error", { error: e.message });
+      logger.error("BETA", "Index", "Beta evaluator error", { error: e.message });
     }
+    // Alpha via requestAlphaTick: coalesces overlapping interval fires
+    requestAlphaTick();
   }, evalInterval);
 
   logger.info("CONFIG", "Index", "Scheduling Gamma evaluator (every 30s)");
@@ -150,11 +152,11 @@ async function main() {
   // Start ingestion services
   ingestionManager.start();
 
-  // Phase 8D: fire initial ticks after ingest is live
+  // Phase 8D/8F: fire initial ticks after ingest is live — Beta first, then Alpha via requestAlphaTick
   logger.info("CONFIG", "Index", "Firing initial evaluator ticks (post-ingest)");
-  try { await evaluateAlphaNarrative(stubRuntime); } catch (e) { logger.error("CONFIG", "Index", "Initial Alpha error", { error: e.message }); }
-  try { await evaluateBetaContract(stubRuntime); } catch (e) { logger.error("CONFIG", "Index", "Initial Beta error", { error: e.message }); }
-  try { await evaluateGammaConsensus(stubRuntime); } catch (e) { logger.error("CONFIG", "Index", "Initial Gamma error", { error: e.message }); }
+  try { await evaluateBetaContract(stubRuntime); } catch (e) { logger.error("BETA", "Index", "Initial Beta error", { error: e.message }); }
+  requestAlphaTick();
+  try { await evaluateGammaConsensus(stubRuntime); } catch (e) { logger.error("GAMMA", "Index", "Initial Gamma error", { error: e.message }); }
 
   // Phase 6D/7B: boot visibility — log exactly which sources are enabled
   const dsLatest = ingestFlag("INGEST_DEXSCREENER_LATEST") ? "ON" : "OFF";

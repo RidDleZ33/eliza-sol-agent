@@ -29,7 +29,7 @@ const EnvSchema = z.object({
   MAX_TOP_TRADERS: z.string().default("15"),
   BIRDEYE_API_KEY: z.string().optional(),
   INGESTION_INTERVAL_MS: z.string().default("60000"),
-  INGEST_DEXSCREENER_LATEST: z.string().default("true"),
+  INGEST_DEXSCREENER_LATEST: z.string().default("false"),
   INGEST_DEXSCREENER_TRENDING: z.string().default("false"),
   INGEST_DEXSCREENER_TRENDING_PERIOD: z.string().default("1h"),
   INGEST_DEXSCREENER_TRENDING_BULLISH: z.string().default("false"),

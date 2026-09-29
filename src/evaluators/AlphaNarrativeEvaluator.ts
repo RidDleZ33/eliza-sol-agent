@@ -45,7 +45,7 @@ export function requestAlphaTick() {
     alphaTickRunning = false;
     if (alphaTickPending) {
       alphaTickPending = false;
-      setTimeout(requestAlphaTick, 100);
+      setTimeout(requestAlphaTick, getIngestionInterval());
     }
   }).catch((e) => {
     logger.error("ALPHA", "AlphaNarrativeEvaluator", "requestAlphaTick error", { error: e });
@@ -68,13 +68,16 @@ export interface AlphaVerdict {
 export async function evaluateAlphaNarrative(runtime?: any) {
   try {
     logger.info("ALPHA", "AlphaNarrativeEvaluator", "Evaluating narrative for pending tokens...");
-    const tokensToEvaluate = await watchlistService.getTokensForAlphaEvaluation();
+    const allPending = await watchlistService.getTokensForAlphaEvaluation();
 
-    if (tokensToEvaluate.length === 0) {
+    if (allPending.length === 0) {
       logger.info("ALPHA", "AlphaNarrativeEvaluator", "No tokens ready for evaluation (all DEFERRED or already evaluated)");
       return;
     }
-    logger.info("ALPHA", "AlphaNarrativeEvaluator", `Found ${tokensToEvaluate.length} tokens to evaluate`);
+    const BATCH_SIZE = 5;
+    const tokensToEvaluate = allPending.slice(0, BATCH_SIZE);
+    const remainingAfterBatch = tokensToEvaluate.length > BATCH_SIZE ? tokensToEvaluate.length - BATCH_SIZE : 0;
+    logger.info("ALPHA", "AlphaNarrativeEvaluator", `alpha batch n=${tokensToEvaluate.length} remaining=${remainingAfterBatch}`);
 
     for (const token of tokensToEvaluate) {
       try {
@@ -85,13 +88,13 @@ export async function evaluateAlphaNarrative(runtime?: any) {
         logger.info("ALPHA", "AlphaNarrativeEvaluator", `Social telemetry for ${token.symbol}: tweets=${telemetry.tweetVolume1h} queried=${telemetry.twitterQueried ? "yes" : "no"} bot=${telemetry.botLikelihoodScore < 0 ? "unknown" : (telemetry.botLikelihoodScore * 100).toFixed(0) + "%"} platforms=${telemetry.socialPlatforms.join(",") || "none"} dex=${telemetry.dexMiss ? "miss" : "hit"}`);
 
         // Phase 8C: social-unknown fallback → DISSENT so Beta can run forensics
-        // Conditions: no social links + Twitter not queried + mint looks new
+        // Conditions: no social links + Twitter genuinely unknown (not queried or 429 cooldown) + mint looks new
+        // If Twitter was queried and returned 0 tweets, go the LLM path instead
         const hasSocialPlatforms = telemetry.socialPlatforms.length > 0;
         const twitterWasQueried = telemetry.twitterQueried === true;
-        const tweetVolumeIsZero = telemetry.tweetVolume1h === 0;
         const mintEndsWithPump = token.mint_address.toLowerCase().endsWith("pump") || token.symbol.toLowerCase().endsWith("pump");
         const noPriorAlphaDecision = !token.alpha_decision;
-        const isSocialUnknown = !hasSocialPlatforms && (!twitterWasQueried || tweetVolumeIsZero) && (mintEndsWithPump || noPriorAlphaDecision);
+        const isSocialUnknown = !hasSocialPlatforms && !twitterWasQueried && (mintEndsWithPump || noPriorAlphaDecision);
 
         let verdict: AlphaVerdict;
         if (isSocialUnknown) {
@@ -116,21 +119,16 @@ export async function evaluateAlphaNarrative(runtime?: any) {
         logger.info("ALPHA", "AlphaNarrativeEvaluator", `  Reasoning: ${verdict.reasoning}`);
 
         // War room: broadcast evaluation decision
-        if (verdict.decision === "DEFER") {
-          await postWarRoomMessage("ALPHA", "VOTE_CAST", {
-            symbol: token.symbol,
-            decision: "HOLD",
-            confidence: verdict.confidenceRatio,
-            reasoning: `Deferred - insufficient data`
-          });
-        } else {
-          await postWarRoomMessage("ALPHA", "VOTE_CAST", {
-            symbol: token.symbol,
-            decision: verdict.decision === "PASS" ? "BUY" : "SELL",
-            confidence: verdict.confidenceRatio,
-            reasoning: verdict.reasoning
-          });
-        }
+        let warRoomDecision = "HOLD";
+        if (verdict.decision === "PASS") warRoomDecision = "BUY";
+        else if (verdict.decision === "FAIL") warRoomDecision = "SELL";
+        else if (verdict.decision === "DISSENT") warRoomDecision = "DISSENT";
+        await postWarRoomMessage("ALPHA", "VOTE_CAST", {
+          symbol: token.symbol,
+          decision: warRoomDecision,
+          confidence: verdict.confidenceRatio,
+          reasoning: verdict.decision === "DEFER" ? "Deferred - insufficient data" : verdict.reasoning
+        });
 
         // Handle DEFER by setting future evaluation time instead of storing verdict
         if (verdict.decision === "DEFER") {

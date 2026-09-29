@@ -40,8 +40,8 @@ describe("ingest source flag helpers", () => {
   });
 
   test("default flags match expected matrix", () => {
-    // Phase 7B: ds_latest default off (404 dead); new_listing on by default
-    expect(ingestFlag("INGEST_DEXSCREENER_LATEST")).toBe(true);
+    // Phase 7B/8F: ds_latest default off (404 dead); new_listing on by default
+    expect(ingestFlag("INGEST_DEXSCREENER_LATEST")).toBe(false);
     expect(ingestFlag("INGEST_DEXSCREENER_TRENDING")).toBe(false);
     expect(ingestFlag("INGEST_DEXSCREENER_TRENDING_BULLISH")).toBe(false);
     expect(ingestFlag("INGEST_BIRDEYE_TRENDING")).toBe(true);

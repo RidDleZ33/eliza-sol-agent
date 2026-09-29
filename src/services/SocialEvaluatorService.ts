@@ -19,12 +19,12 @@ export interface SocialTelemetry {
   botLikelihoodScore: number;
   cashtagSpamRatio: number;
   rawTextSamples: string[];
-  dexMiss: boolean;
+  dexMiss: boolean | undefined;
   pumpFunCommentCount?: number;
 }
 
 interface LinkCacheEntry {
-  links: { platforms: string[]; twitterUrl?: string; telegramUrl?: string; websiteUrl?: string; discordUrl?: string };
+  links: { platforms: string[]; twitterUrl?: string; telegramUrl?: string; websiteUrl?: string; discordUrl?: string; pair?: any };
   ts: number;
 }
 
@@ -35,6 +35,9 @@ export class SocialEvaluatorService {
   private birdeyeApiKey: string | undefined;
   private noBearerLogged = false;
   private linkCache = new Map<string, LinkCacheEntry>();
+  // Phase 8F: Twitter 429 cooldown — stop hammering X after rate limit
+  private twitterCooldownUntil = 0;
+  private twitterCooldownLogged = false;
 
   constructor() {
     this.twitterBearerToken = getTwitterBearerToken();
@@ -92,7 +95,7 @@ export class SocialEvaluatorService {
       botLikelihoodScore: 0.0,
       cashtagSpamRatio: 0.0,
       rawTextSamples: [],
-      dexMiss: false,
+      dexMiss: undefined as boolean | undefined,
     };
 
     // First try cache for links
@@ -105,6 +108,11 @@ export class SocialEvaluatorService {
       telemetry.telegramUrl = cachedLinks.telegramUrl;
       telemetry.websiteUrl = cachedLinks.websiteUrl;
       telemetry.discordUrl = cachedLinks.discordUrl;
+      // Phase 8F: if we cached the pair, extract metrics from it
+      if (cachedLinks.pair) {
+        const metrics = this.extractDexMetrics(cachedLinks.pair);
+        if (metrics) Object.assign(telemetry, metrics);
+      }
     } else {
       // Fetch fresh links from Dex pair + Birdeye overview
       const [dexLinks, birdeyeLinks] = await Promise.allSettled([
@@ -125,6 +133,9 @@ export class SocialEvaluatorService {
         if (l.telegramUrl && !telegramUrl) telegramUrl = l.telegramUrl;
         if (l.websiteUrl && !websiteUrl) websiteUrl = l.websiteUrl;
         if (l.discordUrl && !discordUrl) discordUrl = l.discordUrl;
+        // Phase 8F: reuse Dex body for metrics
+        const metrics = this.extractDexMetrics(l.pair);
+        if (metrics) Object.assign(telemetry, metrics);
       }
 
       if (birdeyeLinks.status === "fulfilled" && birdeyeLinks.value) {
@@ -137,9 +148,15 @@ export class SocialEvaluatorService {
       }
 
       const platforms = Array.from(allPlatforms);
-      sourceTag = platforms.length > 0 ? "dex|birdeye" : "none";
-      if (dexLinks.status !== "fulfilled" && dexLinks.value) sourceTag = "birdeye";
-      if (birdeyeLinks.status !== "fulfilled" && birdeyeLinks.value) sourceTag = "dex";
+      if (dexLinks.status === "fulfilled" && dexLinks.value && birdeyeLinks.status === "fulfilled" && birdeyeLinks.value) {
+        sourceTag = "dex|birdeye";
+      } else if (dexLinks.status === "fulfilled" && dexLinks.value) {
+        sourceTag = "dex";
+      } else if (birdeyeLinks.status === "fulfilled" && birdeyeLinks.value) {
+        sourceTag = "birdeye";
+      } else {
+        sourceTag = "none";
+      }
 
       telemetry.hasSocialLinks = platforms.length > 0;
       telemetry.socialPlatforms = platforms;
@@ -148,15 +165,9 @@ export class SocialEvaluatorService {
       telemetry.websiteUrl = websiteUrl;
       telemetry.discordUrl = discordUrl;
 
-      this.setCachedLinks(mintAddress, { platforms, twitterUrl, telegramUrl, websiteUrl, discordUrl });
-    }
-
-    // Now get DEX pair metrics (txns, B/S ratio, etc.)
-    const dexMetrics = await this.fetchDexScreenerMetrics(mintAddress);
-    if (dexMetrics) {
-      Object.assign(telemetry, dexMetrics);
-    } else {
-      telemetry.dexMiss = true;
+      // Phase 8F: cache the pair so metrics can be re-extracted without a new HTTP call
+      const cachedPair = (dexLinks.status === "fulfilled" && dexLinks.value) ? dexLinks.value.pair : null;
+      this.setCachedLinks(mintAddress, { platforms, twitterUrl, telegramUrl, websiteUrl, discordUrl, pair: cachedPair });
     }
 
     // Twitter is optional, only if bearer exists
@@ -221,7 +232,21 @@ export class SocialEvaluatorService {
       return null;
     }
 
-    return { platforms, twitterUrl, telegramUrl, websiteUrl, discordUrl };
+    return { platforms, twitterUrl, telegramUrl, websiteUrl, discordUrl, pair };
+  }
+
+  private extractDexMetrics(pair: any) {
+    if (!pair) return null;
+    const txs = pair.txns || pair.txs || {};
+    const buys5m = txs.m5?.buys || 0;
+    const sells5m = txs.m5?.sells || 0;
+    const total1hAvg5m = ((txs.h1?.buys || 0) + (txs.h1?.sells || 0)) / 12;
+    return {
+      isDexBoosted: (pair.boosts?.active || 0) > 0,
+      buySellRatio5m: sells5m > 0 ? buys5m / sells5m : buys5m > 0 ? 2.0 : 1.0,
+      txAcceleration5mVs1h: total1hAvg5m > 0 ? (buys5m + sells5m) / total1hAvg5m : 1.0,
+      dexMiss: false
+    };
   }
 
   private async fetchBirdeyeOverviewLinks(mintAddress: string) {
@@ -341,12 +366,30 @@ export class SocialEvaluatorService {
       return { tweetVolume: 0, recentTweets: [], queried: false };
     }
 
+    // Phase 8F: check 429 cooldown
+    if (Date.now() < this.twitterCooldownUntil) {
+      if (!this.twitterCooldownLogged) {
+        logger.warn("SOCIAL", "SocialEvaluator", "twitter 429 cooldown active, skipping query");
+        this.twitterCooldownLogged = true;
+      }
+      // queried=false so 8C social-unknown path is not fooled into thinking X was queried
+      return { tweetVolume: 0, recentTweets: [], queried: false };
+    }
+
     const query = encodeURIComponent(`($${symbol} OR ${mintAddress}) -is:retweet`);
     const url = `https://api.twitter.com/2/tweets/search/recent?query=${query}&max_results=30&tweet.fields=created_at,author_id,public_metrics`;
 
     const response = await fetch(url, {
       headers: { Authorization: `Bearer ${this.twitterBearerToken}` }
     });
+
+    if (response.status === 429) {
+      // Phase 8F: 15-minute cooldown, log once
+      this.twitterCooldownUntil = Date.now() + 15 * 60 * 1000;
+      this.twitterCooldownLogged = false;
+      logger.warn("SOCIAL", "SocialEvaluator", "twitter 429 rate limited, cooling down 15min");
+      return { tweetVolume: 0, recentTweets: [], queried: false };
+    }
 
     if (!response.ok) {
       logger.warn("SOCIAL", "SocialEvaluator", `twitter search HTTP ${response.status} for ${symbol}`);
