@@ -18,6 +18,7 @@ export class DexScreenerLatestWatcher implements IngestionWatcher {
   private backoffMs = 1000;
   private maxBackoffMs = 60000;
   private chainId: string;
+  private endpointDead = false;
 
   constructor() {
     this.chainId = getDexscreenerChain();
@@ -49,6 +50,10 @@ export class DexScreenerLatestWatcher implements IngestionWatcher {
   }
 
   private async poll() {
+    if (this.endpointDead) {
+      return;
+    }
+
     try {
       logger.debug("INGESTION", this.name, "Polling");
       const url = this.buildUrl();
@@ -59,8 +64,17 @@ export class DexScreenerLatestWatcher implements IngestionWatcher {
         // If 404, try without query string
         if (e.message.includes("404")) {
           logger.warn("INGESTION", this.name, "404 with chainId query, trying without", { url });
-          const fallbackUrl = "https://api.dexscreener.com/tokens/latest/v1";
-          raw = await fetchDexJson(fallbackUrl);
+          try {
+            const fallbackUrl = "https://api.dexscreener.com/tokens/latest/v1";
+            raw = await fetchDexJson(fallbackUrl);
+          } catch (e2: any) {
+            if (e2.message.includes("404")) {
+              logger.warn("INGESTION", this.name, "Dex /tokens/latest/v1 is dead; launch board is Birdeye new_listing");
+              this.endpointDead = true;
+              return;
+            }
+            throw e2;
+          }
         } else {
           throw e;
         }

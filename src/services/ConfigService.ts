@@ -60,6 +60,7 @@ export type ConfigKey =
   | "INGEST_DEXSCREENER_TRENDING"
   | "INGEST_DEXSCREENER_TRENDING_BULLISH"
   | "INGEST_BIRDEYE_TRENDING"
+  | "INGEST_BIRDEYE_NEW_LISTING"
   | "INGEST_BIRDEYE_TOP_TRADERS"
   | "INGEST_PHANTOM";
 
@@ -308,6 +309,14 @@ const DEFAULT_CONFIG: ConfigEntry[] = [
     value: "",
     category: "INGESTION",
     description: "Enable Birdeye trending token ingestion",
+    defaultValue: "true",
+    validate: (v) => v === "true" || v === "false"
+  },
+  {
+    key: "INGEST_BIRDEYE_NEW_LISTING",
+    value: "",
+    category: "INGESTION",
+    description: "Enable Birdeye new listing ingestion (replaces dead Dex latest)",
     defaultValue: "true",
     validate: (v) => v === "true" || v === "false"
   },

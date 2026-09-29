@@ -34,6 +34,7 @@ const EnvSchema = z.object({
   INGEST_DEXSCREENER_TRENDING_PERIOD: z.string().default("1h"),
   INGEST_DEXSCREENER_TRENDING_BULLISH: z.string().default("false"),
   INGEST_BIRDEYE_TRENDING: z.string().default("true"),
+  INGEST_BIRDEYE_NEW_LISTING: z.string().default("true"),
   INGEST_BIRDEYE_TOP_TRADERS: z.string().default("false"),
   INGEST_PHANTOM: z.string().default("false"),
   INGEST_DEXSCREENER_CHAIN: z.string().default("solana"),
@@ -198,6 +199,7 @@ export function ingestFlag(name: string): boolean {
     INGEST_DEXSCREENER_TRENDING: env.INGEST_DEXSCREENER_TRENDING,
     INGEST_DEXSCREENER_TRENDING_BULLISH: env.INGEST_DEXSCREENER_TRENDING_BULLISH,
     INGEST_BIRDEYE_TRENDING: env.INGEST_BIRDEYE_TRENDING,
+    INGEST_BIRDEYE_NEW_LISTING: env.INGEST_BIRDEYE_NEW_LISTING,
     INGEST_BIRDEYE_TOP_TRADERS: env.INGEST_BIRDEYE_TOP_TRADERS,
     INGEST_PHANTOM: env.INGEST_PHANTOM,
   };

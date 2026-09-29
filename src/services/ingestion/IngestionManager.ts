@@ -3,6 +3,7 @@ import { TopTraderWatcher } from "./TopTraderWatcher.ts";
 import { PhantomTrendingWatcher } from "./PhantomTrendingWatcher.ts";
 import { DexScreenerLatestWatcher } from "./DexScreenerLatestWatcher.ts";
 import { DexScreenerTrendingWatcher } from "./DexScreenerTrendingWatcher.ts";
+import { BirdeyeNewListingWatcher } from "./BirdeyeNewListingWatcher.ts";
 import { IngestionWatcher } from "./IngestionWatcher.ts";
 import { getIngestionInterval, ingestFlag, getDexscreenerTrendingPeriod } from "../../utils/env.ts";
 import { logger } from "../LoggerService.ts";
@@ -14,7 +15,12 @@ export class IngestionManager {
   constructor() {
     this.intervalMs = getIngestionInterval();
 
-    // Gate each watcher on its ingestion flag (phase 6A + 6B)
+    // Gate each watcher on its ingestion flag (phase 6A + 6B + 7B)
+    // Dex latest launches is dead (404); Birdeye new_listing is the new launch board.
+    if (ingestFlag("INGEST_BIRDEYE_NEW_LISTING")) {
+      this.registerWatcher(new BirdeyeNewListingWatcher());
+    }
+    // DexScreenerLatestWatcher still registered for legacy compat; will detect 404 and self-disable.
     if (ingestFlag("INGEST_DEXSCREENER_LATEST")) {
       this.registerWatcher(new DexScreenerLatestWatcher());
     }

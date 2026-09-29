@@ -162,7 +162,7 @@ async function main() {
   // Start ingestion services
   ingestionManager.start();
 
-  // Phase 6D: boot visibility — log exactly which sources are enabled
+  // Phase 6D/7B: boot visibility — log exactly which sources are enabled
   const dsLatest = ingestFlag("INGEST_DEXSCREENER_LATEST") ? "ON" : "OFF";
   const dsTrending = ingestFlag("INGEST_DEXSCREENER_TRENDING") ? "ON" : "OFF";
   const period = getDexscreenerTrendingPeriod();
@@ -171,8 +171,13 @@ async function main() {
   if (ingestFlag("INGEST_BIRDEYE_TRENDING")) {
     birdeyeLabel = getBirdeyeApiKey() ? "ON" : "NO_KEY";
   }
+  // Phase 7B: new_listing replaces dead DexScreener /tokens/latest/v1 (404)
+  let newListingLabel = "OFF";
+  if (ingestFlag("INGEST_BIRDEYE_NEW_LISTING")) {
+    newListingLabel = getBirdeyeApiKey() ? "ON" : "NO_KEY";
+  }
   const phantom = ingestFlag("INGEST_PHANTOM") ? "ON" : "OFF";
-  logger.info("INGESTION", "Index", `ingest sources: ds_latest=${dsLatest} ds_trending=${dsTrending} period=${period} bullish=${bullish} birdeye=${birdeyeLabel} phantom=${phantom}`);
+  logger.info("INGESTION", "Index", `ingest sources: ds_latest=${dsLatest} ds_trending=${dsTrending} period=${period} bullish=${bullish} birdeye=${birdeyeLabel} new_listing=${newListingLabel} phantom=${phantom}`);
 
   logger.info("CONFIG", "Index", "AI Committee services initialized.");
 

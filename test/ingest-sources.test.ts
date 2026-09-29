@@ -34,16 +34,18 @@ describe("ingest source flag helpers", () => {
     expect(typeof ingestFlag("INGEST_DEXSCREENER_TRENDING")).toBe("boolean");
     expect(typeof ingestFlag("INGEST_DEXSCREENER_TRENDING_BULLISH")).toBe("boolean");
     expect(typeof ingestFlag("INGEST_BIRDEYE_TRENDING")).toBe("boolean");
+    expect(typeof ingestFlag("INGEST_BIRDEYE_NEW_LISTING")).toBe("boolean");
     expect(typeof ingestFlag("INGEST_BIRDEYE_TOP_TRADERS")).toBe("boolean");
     expect(typeof ingestFlag("INGEST_PHANTOM")).toBe("boolean");
   });
 
   test("default flags match expected matrix", () => {
-    // Defaults: ds_latest on, ds_trending off, birdeye trending on, phantom off
+    // Phase 7B: ds_latest default off (404 dead); new_listing on by default
     expect(ingestFlag("INGEST_DEXSCREENER_LATEST")).toBe(true);
     expect(ingestFlag("INGEST_DEXSCREENER_TRENDING")).toBe(false);
     expect(ingestFlag("INGEST_DEXSCREENER_TRENDING_BULLISH")).toBe(false);
     expect(ingestFlag("INGEST_BIRDEYE_TRENDING")).toBe(true);
+    expect(ingestFlag("INGEST_BIRDEYE_NEW_LISTING")).toBe(true);
     expect(ingestFlag("INGEST_BIRDEYE_TOP_TRADERS")).toBe(false);
     expect(ingestFlag("INGEST_PHANTOM")).toBe(false);
   });
