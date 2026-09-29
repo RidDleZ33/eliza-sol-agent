@@ -39,8 +39,12 @@ export class TelegramAdminBot {
     // Token is checked in start(); don't build Telegraf with empty token here.
   }
 
-  private isAdmin(userId: number): boolean {
-    return String(userId) === this.adminChatId;
+  private isAdmin(ctx: any): boolean {
+    const adminIds = [process.env.TELEGRAM_ADMIN_CHAT_ID, process.env.TELEGRAM_TELEMETRY_CHAT_ID]
+      .filter((id) => id && id.length > 0);
+    const fromId = String(ctx.from?.id ?? "");
+    const chatId = String(ctx.chat?.id ?? "");
+    return adminIds.includes(fromId) || adminIds.includes(chatId);
   }
 
   private pauseLogStream() {
@@ -63,7 +67,7 @@ export class TelegramAdminBot {
 
   private registerCommands() {
     this.bot.command(["settings", "config"], async (ctx) => {
-      if (!this.isAdmin(ctx.from!.id)) {
+      if (!this.isAdmin(ctx)) {
         await ctx.reply("⚠️ Admin access only.");
         return;
       }
@@ -79,7 +83,7 @@ export class TelegramAdminBot {
     });
 
     this.bot.command("set", async (ctx) => {
-      if (!this.isAdmin(ctx.from!.id)) {
+      if (!this.isAdmin(ctx)) {
         await ctx.reply("⚠️ Admin access only.");
         return;
       }
@@ -110,7 +114,7 @@ export class TelegramAdminBot {
     });
 
     this.bot.command("toggle", async (ctx) => {
-      if (!this.isAdmin(ctx.from!.id)) {
+      if (!this.isAdmin(ctx)) {
         await ctx.reply("⚠️ Admin access only.");
         return;
       }
@@ -134,7 +138,7 @@ export class TelegramAdminBot {
     });
 
     this.bot.command("trades", async (ctx) => {
-      if (!this.isAdmin(ctx.from!.id)) {
+      if (!this.isAdmin(ctx)) {
         await ctx.reply("⚠️ Admin access only.");
         return;
       }
@@ -148,7 +152,7 @@ export class TelegramAdminBot {
     });
 
     this.bot.command("pnl", async (ctx) => {
-      if (!this.isAdmin(ctx.from!.id)) {
+      if (!this.isAdmin(ctx)) {
         await ctx.reply("⚠️ Admin access only.");
         return;
       }
@@ -162,7 +166,7 @@ export class TelegramAdminBot {
     });
 
     this.bot.command("dashboard", async (ctx) => {
-      if (!this.isAdmin(ctx.from!.id)) {
+      if (!this.isAdmin(ctx)) {
         await ctx.reply("⚠️ Admin access only.");
         return;
       }
@@ -172,7 +176,7 @@ export class TelegramAdminBot {
     });
 
     this.bot.command("positions", async (ctx) => {
-      if (!this.isAdmin(ctx.from!.id)) {
+      if (!this.isAdmin(ctx)) {
         await ctx.reply("⚠️ Admin access only.");
         return;
       }
@@ -182,7 +186,7 @@ export class TelegramAdminBot {
     });
 
     this.bot.command("status", async (ctx) => {
-      if (!this.isAdmin(ctx.from!.id)) {
+      if (!this.isAdmin(ctx)) {
         await ctx.reply("⚠️ Admin access only.");
         return;
       }
@@ -192,7 +196,7 @@ export class TelegramAdminBot {
     });
 
     this.bot.command("logs", async (ctx) => {
-      if (!this.isAdmin(ctx.from!.id)) {
+      if (!this.isAdmin(ctx)) {
         await ctx.reply("⚠️ Admin access only.");
         return;
       }
@@ -202,7 +206,7 @@ export class TelegramAdminBot {
     });
 
     this.bot.command("logstream", async (ctx) => {
-      if (!this.isAdmin(ctx.from!.id)) {
+      if (!this.isAdmin(ctx)) {
         await ctx.reply("⚠️ Admin access only.");
         return;
       }
@@ -228,7 +232,7 @@ export class TelegramAdminBot {
     });
 
     this.bot.command("cleardb", async (ctx) => {
-      if (!this.isAdmin(ctx.from!.id)) {
+      if (!this.isAdmin(ctx)) {
         await ctx.reply("⚠️ Admin access only.");
         return;
       }
@@ -255,7 +259,7 @@ export class TelegramAdminBot {
     });
 
     this.bot.command("warroom", async (ctx) => {
-      if (!this.isAdmin(ctx.from!.id)) {
+      if (!this.isAdmin(ctx)) {
         await ctx.reply("⚠️ Admin access only.");
         return;
       }
@@ -281,7 +285,7 @@ export class TelegramAdminBot {
     });
 
     this.bot.command("loglevel", async (ctx) => {
-      if (!this.isAdmin(ctx.from!.id)) {
+      if (!this.isAdmin(ctx)) {
         await ctx.reply("⚠️ Admin access only.");
         return;
       }
@@ -303,7 +307,7 @@ export class TelegramAdminBot {
     });
 
     this.bot.command("logcategory", async (ctx) => {
-      if (!this.isAdmin(ctx.from!.id)) {
+      if (!this.isAdmin(ctx)) {
         await ctx.reply("⚠️ Admin access only.");
         return;
       }
@@ -327,6 +331,23 @@ export class TelegramAdminBot {
       } catch (e) {
         await ctx.reply(`❌ Failed: ${e.message}`);
       }
+    });
+
+    // Phase 9C: /start handler (Telegram Start button sends /start)
+    this.bot.start(async (ctx) => {
+      await ctx.reply(
+        "🤖 Swarm Admin Bot\n\n" +
+        "Type /help for commands.\n" +
+        "Type /settings to configure."
+      );
+    });
+
+    this.bot.command("start", async (ctx) => {
+      await ctx.reply(
+        "🤖 Swarm Admin Bot\n\n" +
+        "Type /help for commands.\n" +
+        "Type /settings to configure."
+      );
     });
 
     this.bot.command("help", async (ctx) => {
@@ -773,6 +794,18 @@ export class TelegramAdminBot {
     this.registerCommands();
     this.registerCallbacks();
 
+    // Phase 9C: log all inbound text commands
+    this.bot.use(async (ctx, next) => {
+      if (ctx.message?.text) {
+        logger.info("TELEGRAM", "TelegramAdminBot", "tg in", {
+          chat: ctx.chat?.id,
+          from: ctx.from?.id,
+          text: ctx.message.text
+        });
+      }
+      await next();
+    });
+
     this.bot.catch((err: any, ctx: any) => {
       logger.error("TELEGRAM", "TelegramAdminBot", "Unhandled Telegram bot error", { error: err.message });
     });
@@ -780,7 +813,12 @@ export class TelegramAdminBot {
     try {
       // Phase 9A: validate token fast
       await this.bot.telegram.deleteWebhook({ drop_pending_updates: true }).catch(() => {});
-      await this.bot.telegram.getMe(); // fails fast on 401
+      const me = await this.bot.telegram.getMe(); // fails fast on 401
+      // Phase 9C: log bot identity
+      logger.info("TELEGRAM", "TelegramAdminBot", "tg identity", {
+        username: me.username,
+        id: me.id
+      });
 
       // Phase 9A2: do not await launch(); it blocks forever (poll loop)
       void this.bot.launch({ dropPendingUpdates: true }).catch((e: any) => {
@@ -824,8 +862,11 @@ export class TelegramAdminBot {
     try {
       logger.info("TELEGRAM", "TelegramAdminBot", "Sending notification", { text: text.slice(0, 100) });
       await this.bot.telegram.sendMessage(this.adminChatId, text);
-    } catch (e) {
-      logger.error("TELEGRAM", "TelegramAdminBot", "Failed to send notification", { error: e.message });
+    } catch (e: any) {
+      logger.error("TELEGRAM", "TelegramAdminBot", "Failed to send notification", {
+        error: e.description || e.message,
+        status: e.status
+      });
     }
   }
 
@@ -870,8 +911,12 @@ export class TelegramAdminBot {
       // DEBUG only to avoid infinite loop when streaming is enabled
       logger.debug("TELEGRAM", "TelegramAdminBot", "Sending message to chat", { chatId, source });
       await this.bot.telegram.sendMessage(chatId, text);
-    } catch (e) {
-      logger.error("TELEGRAM", "TelegramAdminBot", "Failed to send message", { error: e.message });
+    } catch (e: any) {
+      logger.error("TELEGRAM", "TelegramAdminBot", "Failed to send message", {
+        error: e.description || e.message,
+        status: e.status,
+        chatId: chatId
+      });
     }
   }
 

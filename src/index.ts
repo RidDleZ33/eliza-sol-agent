@@ -126,6 +126,33 @@ async function main() {
 
   tradeExecutionService.runtime = stubRuntime;
 
+  // Phase 9C: Start Telegram Admin Bot BEFORE ingestion so /start works immediately
+  // and boot message has a working destination. Don't block on launch() (poll loop).
+  const hasToken = !!process.env.TELEGRAM_BOT_TOKEN;
+  const hasChat = !!(process.env.TELEGRAM_TELEMETRY_CHAT_ID || process.env.TELEGRAM_ADMIN_CHAT_ID);
+  if (hasToken && hasChat) {
+    try {
+      telegramAdminBot.start().then(async () => {
+        const timestamp = new Date().toISOString();
+        const modeLabel = isDryRun() ? "DRY_RUN" : "LIVE";
+        const message = `AI Committee War Room Started\nTime: ${timestamp}\n\nAgents: Alpha, Beta, Gamma\nMonitoring Solana ecosystem\nConsensus room active\nMode: ${modeLabel}`;
+        try {
+          await telegramAdminBot.sendToChat(message);
+          logger.info("TELEGRAM", "Index", "Startup notification sent to Telegram");
+        } catch (e) {
+          logger.warn("TELEGRAM", "Index", "Startup notification failed", { error: e.message });
+        }
+      }).catch((e) => {
+        logger.warn("TELEGRAM", "Index", "Telegram admin bot failed", { error: e.message });
+      });
+      logger.info("TELEGRAM", "Index", `telegram started (async) token=${hasToken} chat=${hasChat}`);
+    } catch (e) {
+      logger.warn("TELEGRAM", "Index", "Telegram admin bot failed", { error: e.message });
+    }
+  } else {
+    logger.info("TELEGRAM", "Index", `telegram skipped token=${hasToken} chat=${hasChat}`);
+  }
+
   // Phase 8D/8F: Beta first, then Alpha via requestAlphaTick (single-flight)
   const evalInterval = getIngestionInterval();
   logger.info("ALPHA", "Index", `eval intervalMs=${evalInterval}`);
@@ -152,11 +179,16 @@ async function main() {
   // Start ingestion services
   ingestionManager.start();
 
-  // Phase 8D/8F: fire initial ticks after ingest is live — Beta first, then Alpha via requestAlphaTick
+  // Phase 9C: fire initial ticks after ingest is live — Beta first, then Alpha via requestAlphaTick
+  // Don't await the 810-row drain; let it run on next interval tick.
   logger.info("CONFIG", "Index", "Firing initial evaluator ticks (post-ingest)");
-  try { await evaluateBetaContract(stubRuntime); } catch (e) { logger.error("BETA", "Index", "Initial Beta error", { error: e.message }); }
+  void evaluateBetaContract(stubRuntime).catch((e) => {
+    logger.error("BETA", "Index", "Initial Beta error", { error: e.message });
+  });
   requestAlphaTick();
-  try { await evaluateGammaConsensus(stubRuntime); } catch (e) { logger.error("GAMMA", "Index", "Initial Gamma error", { error: e.message }); }
+  void evaluateGammaConsensus(stubRuntime).catch((e) => {
+    logger.error("GAMMA", "Index", "Initial Gamma error", { error: e.message });
+  });
 
   // Phase 6D/7B: boot visibility — log exactly which sources are enabled
   const dsLatest = ingestFlag("INGEST_DEXSCREENER_LATEST") ? "ON" : "OFF";
@@ -176,34 +208,6 @@ async function main() {
   logger.info("INGESTION", "Index", `ingest sources: ds_latest=${dsLatest} ds_trending=${dsTrending} period=${period} bullish=${bullish} birdeye=${birdeyeLabel} new_listing=${newListingLabel} phantom=${phantom}`);
 
   logger.info("CONFIG", "Index", "AI Committee services initialized.");
-
-  // Start Telegram Admin Bot LAST so startup notification is sent after it's ready
-  const hasToken = !!process.env.TELEGRAM_BOT_TOKEN;
-  const hasChat = !!(process.env.TELEGRAM_TELEMETRY_CHAT_ID || process.env.TELEGRAM_ADMIN_CHAT_ID);
-  logger.info("TELEGRAM", "Index", "Starting Telegram Admin Bot...");
-  let tgStarted = false;
-  try {
-    await telegramAdminBot.start();
-    tgStarted = true;
-
-    // Send startup notification via the admin bot
-    const timestamp = new Date().toISOString();
-    const modeLabel = isDryRun() ? "DRY_RUN" : "LIVE";
-    const tradesCount = watchlistService.listRecentTrades(1).length;
-    const message = `AI Committee War Room Started
-Time: ${timestamp}
-
-Agents: Alpha, Beta, Gamma
-Monitoring Solana ecosystem
-Consensus room active
-Mode: ${modeLabel}
-trades_db: watchlist (${tradesCount} trades)`;
-    await telegramAdminBot.sendToChat(message);
-    logger.info("TELEGRAM", "Index", "Startup notification sent to Telegram");
-  } catch (e) {
-    logger.warn("TELEGRAM", "Index", "Telegram admin bot failed", { error: e.message });
-  }
-  logger.info("TELEGRAM", "Index", `telegram started=${tgStarted} token=${hasToken} chat=${hasChat}`);
 
   // Register shutdown handlers
   process.on("SIGINT", () => shutdown("SIGINT"));

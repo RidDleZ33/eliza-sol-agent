@@ -20,7 +20,14 @@ export async function evaluateBetaContract(runtime: any) {
     runtime.logger.info(`[BETA] BetaContractEvaluator: queue ALPHA_PASSED=${tokensNeedingEval.length}`);
     if (tokensNeedingEval.length === 0) return;
 
-    for (const token of tokensNeedingEval) {
+    // Phase 9C: batch limit — process at most 5 tokens per tick, leave rest for next interval
+    const batch = tokensNeedingEval.slice(0, 5);
+    const remaining = tokensNeedingEval.length - 5;
+    if (batch.length > 0 && remaining > 0) {
+      runtime.logger.info(`[BETA] batch n=${batch.length} remaining=${remaining}`);
+    }
+
+    for (const token of batch) {
       try {
         const report = await contractForensicsService.analyzeToken(token.mint_address);
 
