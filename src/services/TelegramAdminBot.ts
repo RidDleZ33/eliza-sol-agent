@@ -778,16 +778,23 @@ export class TelegramAdminBot {
     });
 
     try {
-      // Phase 9A: await launch so 409/bad-token errors surface before "started"
+      // Phase 9A: validate token fast
       await this.bot.telegram.deleteWebhook({ drop_pending_updates: true }).catch(() => {});
-      await this.bot.launch({ dropPendingUpdates: true });
+      await this.bot.telegram.getMe(); // fails fast on 401
+
+      // Phase 9A2: do not await launch(); it blocks forever (poll loop)
+      void this.bot.launch({ dropPendingUpdates: true }).catch((e: any) => {
+        logger.error("TELEGRAM", "TelegramAdminBot", "Poll loop error", { error: e?.message, status: e?.status });
+        if (e?.message?.includes("409") || e?.message?.includes("Conflict")) {
+          logger.error("TELEGRAM", "TelegramAdminBot", "another process is polling this bot token; kill it");
+        }
+        this.started = false;
+      });
+
       this.started = true;
       logger.info("TELEGRAM", "TelegramAdminBot", "Admin bot started and polling");
     } catch (e: any) {
       logger.error("TELEGRAM", "TelegramAdminBot", "Failed to start admin bot", { error: e.message, status: e?.status });
-      if (e?.message?.includes("409") || e?.message?.includes("Conflict")) {
-        logger.error("TELEGRAM", "TelegramAdminBot", "another process is polling this bot token; kill it");
-      }
       throw e;
     }
   }
@@ -805,6 +812,10 @@ export class TelegramAdminBot {
   }
 
   async notifyAdmin(text: string) {
+    if (!this.bot) {
+      logger.debug("TELEGRAM", "TelegramAdminBot", "notifyAdmin: bot not started");
+      return;
+    }
     if (!this.adminChatId) {
       logger.debug("TELEGRAM", "TelegramAdminBot", "No admin chat ID configured");
       return;
@@ -842,6 +853,10 @@ export class TelegramAdminBot {
   }
 
   async sendToChat(text: string): Promise<void> {
+    if (!this.bot) {
+      logger.debug("TELEGRAM", "TelegramAdminBot", "sendToChat: bot not started");
+      return;
+    }
     // Phase 9A: telemetry chat ID takes priority, fallback to admin chat ID
     const chatId = process.env.TELEGRAM_TELEMETRY_CHAT_ID || process.env.TELEGRAM_ADMIN_CHAT_ID;
     if (!chatId) {
