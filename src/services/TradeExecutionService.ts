@@ -24,6 +24,7 @@ import {
   rpcBreakerOpen,
   tripRpcBreaker,
   resetRpcBreaker,
+  addSessionPnl,
 } from "../execution/risk.ts";
 
 export interface TradeExecutionResult {
@@ -659,43 +660,102 @@ export class TradeExecutionService {
       if (dryRun) {
         logger.info("EXECUTION", "TradeExecution", "[DRY_RUN] SELL starting", { symbol, reason });
 
-        // Try to get a reverse quote for sell value (best-effort)
-        const sellMarkPrice = await this.getTokenPrice(this.getConnection(), mintAddress);
-        if (sellMarkPrice <= 0) {
-          logger.warn("EXECUTION", "TradeExecution", "[DRY_RUN] SELL mark price missing", { symbol });
-        }
-
-        // Phase 2A: look up position amount to compute sol_out for the PAPER row
+        // Look up open position to compute paper sol_out and session PnL
+        let solIn = 0;
         let solOut = 0;
+        let entry = 0;
+        let exit = 0;
+        let found = false;
         try {
           const openPositions = await watchlistService.getOpenPositions(true);
           const pos = openPositions.find(p => p.mint_address === mintAddress);
-          if (pos && sellMarkPrice > 0) {
-            solOut = pos.amount_sol * sellMarkPrice;
+          if (pos) {
+            found = true;
+            solIn = pos.amount_sol;
+            entry = pos.entry_price_usd || 0;
           }
         } catch (e: any) {
-          logger.warn("EXECUTION", "TradeExecution", "[DRY_RUN] SELL sol_out calc failed", {
+          logger.warn("EXECUTION", "TradeExecution", "[DRY_RUN] SELL position lookup failed", {
             symbol, error: e.message,
           });
         }
 
-        logger.info("EXECUTION", "TradeExecution", "[DRY_RUN] SELL completed (no tx sent)", { symbol, reason, sellMarkPrice });
-        const txSignature = "DRY_RUN_SELL_" + Date.now();
+        // Best-effort exit price: token mark or Jupiter quote SOL back
+        try {
+          exit = await this.getTokenPrice(this.getConnection(), mintAddress);
+          if (exit <= 0) {
+            const quote = await jupiterQuote(mintAddress, "0", SOL_MINT);
+            if (quote && quote.outAmount) {
+              exit = Number(quote.outAmount) / 1e9;
+            }
+          }
+        } catch (e: any) {
+          logger.warn("EXECUTION", "TradeExecution", "[DRY_RUN] SELL exit price failed", {
+            symbol, error: e.message,
+          });
+        }
 
-        // Phase 2A: PAPER SELL journal row
+        if (!found) {
+          logger.info("EXECUTION", "TradeExecution", "paper sell no open position", { symbol });
+          const txSignature = "DRY_RUN_SELL_" + Date.now();
+          await watchlistService.logTradeRow({
+            clientOrderId: `sell:${mintAddress}:${txSignature}`,
+            mint: mintAddress,
+            symbol,
+            side: "SELL",
+            mode: "DRY_RUN",
+            txSig: txSignature,
+            status: "FAILED",
+            reason: "dry-run sell no open position",
+          });
+          return { success: false, txSignature, dryRun: true };
+        }
+
+        // Phase 10A: compute paper sol_out via price ratio, then session PnL
+        if (entry > 0 && exit > 0) {
+          solOut = solIn * (exit / entry);
+        } else if (solIn > 0) {
+          solOut = solIn;
+        }
+        const pnlSol = solOut - solIn;
+
+        addSessionPnl(pnlSol);
+
+        const txSignature = "DRY_RUN_SELL_" + Date.now();
+        await watchlistService.updatePositionStatus(
+          mintAddress,
+          "CLOSED",
+          exit,
+          pnlSol,
+          txSignature
+        );
+
+        logger.info("EXECUTION", "TradeExecution", "paper sell",
+          { symbol, sol_in: solIn.toFixed(4), sol_out: solOut.toFixed(4), pnl_sol: pnlSol.toFixed(4) });
+
         await watchlistService.logTradeRow({
           clientOrderId: `sell:${mintAddress}:${txSignature}`,
           mint: mintAddress,
           symbol,
           side: "SELL",
           mode: "DRY_RUN",
+          solIn,
           solOut,
-          pxQuote: sellMarkPrice,
+          pxQuote: exit,
           txSig: txSignature,
           status: "PAPER",
-          reason: "dry-run sell",
+          reason: `dry-run sell paper pnl_sol=${pnlSol.toFixed(4)}`,
         });
-        telegramAdminBot.notifyTrade({ side: "SELL", symbol, status: "PAPER", mode: "DRY_RUN", solOut, mint: mintAddress, txSig: txSignature, reason: "dry-run sell" }).catch(() => {});
+        telegramAdminBot.notifyTrade({
+          side: "SELL",
+          symbol,
+          status: "PAPER",
+          mode: "DRY_RUN",
+          solOut: Number(solOut.toFixed(4)),
+          mint: mintAddress,
+          txSig: txSignature,
+          reason: `dry-run sell paper pnl_sol=${pnlSol.toFixed(4)}`,
+        }).catch(() => {});
 
         return { success: true, txSignature, dryRun: true };
       }

@@ -215,21 +215,17 @@ export class PositionManagerService {
       const realizedPnl = amountSol * (exitPrice - entryPrice);
 
       // Phase 2A: feed session realized PnL into risk circuit breaker
-      if (result.dryRun) {
-        // Paper PnL: no real SOL moved, skip addSessionPnl
-        logger.debug("POSITIONS", "PositionManager", "[DRY_RUN] skipping session PnL update", { symbol, realizedPnl: realizedPnl.toFixed(4) });
-      } else {
+      // Phase 10A: dry-run PnL and status handled inside executeSell, skip here
+      if (!result.dryRun) {
         addSessionPnl(realizedPnl);
+        await watchlistService.updatePositionStatus(
+          mint,
+          "CLOSED",
+          exitPrice,
+          realizedPnl,
+          result.txSignature
+        );
       }
-
-      // Update position status
-      await watchlistService.updatePositionStatus(
-        mint,
-        "CLOSED",
-        exitPrice,
-        realizedPnl,
-        result.txSignature
-      );
 
       logger.info("POSITIONS", "PositionManager", "Position closed", {
         symbol,
