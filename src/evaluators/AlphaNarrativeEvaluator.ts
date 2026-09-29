@@ -91,6 +91,10 @@ TOKEN DETAILS:
 - Symbol: $${token.symbol}
 - Mint Address: ${token.mint_address}
 - DexScreener Platforms: ${telemetry.socialPlatforms.join(", ") || "None"}
+- Twitter URL: ${telemetry.twitterUrl || "None"}
+- Telegram URL: ${telemetry.telegramUrl || "None"}
+- Website URL: ${telemetry.websiteUrl || "None"}
+- Discord URL: ${telemetry.discordUrl || "None"}
 - Dex Boosted: ${telemetry.isDexBoosted ? "YES" : "NO"}
 - 5m Buy/Sell Ratio: ${telemetry.buySellRatio5m.toFixed(2)}
 - 5m Volume Acceleration vs 1h: ${telemetry.txAcceleration5mVs1h.toFixed(2)}x

@@ -1,4 +1,5 @@
 import { getTwitterBearerToken } from "../utils/env.ts";
+import { getBirdeyeApiKey } from "../utils/env.ts";
 import { logger } from "./LoggerService.ts";
 
 export interface SocialTelemetry {
@@ -6,6 +7,10 @@ export interface SocialTelemetry {
   symbol: string;
   hasSocialLinks: boolean;
   socialPlatforms: string[];
+  twitterUrl?: string;
+  telegramUrl?: string;
+  websiteUrl?: string;
+  discordUrl?: string;
   isDexBoosted: boolean;
   buySellRatio5m: number;
   txAcceleration5mVs1h: number;
@@ -18,12 +23,57 @@ export interface SocialTelemetry {
   pumpFunCommentCount?: number;
 }
 
+interface LinkCacheEntry {
+  links: { platforms: string[]; twitterUrl?: string; telegramUrl?: string; websiteUrl?: string; discordUrl?: string };
+  ts: number;
+}
+
+const LINK_CACHE_TTL_MS = 30 * 60 * 1000;
+
 export class SocialEvaluatorService {
   private twitterBearerToken: string | undefined;
+  private birdeyeApiKey: string | undefined;
   private noBearerLogged = false;
+  private linkCache = new Map<string, LinkCacheEntry>();
 
   constructor() {
     this.twitterBearerToken = getTwitterBearerToken();
+    this.birdeyeApiKey = getBirdeyeApiKey();
+  }
+
+  private pruneCache() {
+    const now = Date.now();
+    for (const [mint, entry] of this.linkCache) {
+      if (now - entry.ts > LINK_CACHE_TTL_MS) {
+        this.linkCache.delete(mint);
+      }
+    }
+  }
+
+  private getCachedLinks(mintAddress: string) {
+    this.pruneCache();
+    const entry = this.linkCache.get(mintAddress);
+    if (entry) {
+      return entry.links;
+    }
+    return null;
+  }
+
+  private setCachedLinks(mintAddress: string, links: LinkCacheEntry["links"]) {
+    this.linkCache.set(mintAddress, { links, ts: Date.now() });
+  }
+
+  private normalizeUrl(url: string | undefined): string | undefined {
+    if (!url) return undefined;
+    return url.replace(/\/$/, "");
+  }
+
+  private classifyUrl(url: string): string | null {
+    const lower = url.toLowerCase();
+    if (lower.includes("twitter.com") || lower.includes("x.com")) return "twitter";
+    if (lower.includes("t.me")) return "telegram";
+    if (lower.includes("discord.gg") || lower.includes("discord.com")) return "discord";
+    return "website";
   }
 
   async evaluateToken(mintAddress: string, symbol: string): Promise<SocialTelemetry> {
@@ -45,73 +95,249 @@ export class SocialEvaluatorService {
       dexMiss: false,
     };
 
-    const [dexData, twitterData] = await Promise.allSettled([
-      this.fetchDexScreenerData(mintAddress),
-      this.fetchTwitterData(symbol, mintAddress)
-    ]);
+    // First try cache for links
+    const cachedLinks = this.getCachedLinks(mintAddress);
+    let sourceTag = "cache";
+    if (cachedLinks) {
+      telemetry.hasSocialLinks = cachedLinks.platforms.length > 0;
+      telemetry.socialPlatforms = cachedLinks.platforms;
+      telemetry.twitterUrl = cachedLinks.twitterUrl;
+      telemetry.telegramUrl = cachedLinks.telegramUrl;
+      telemetry.websiteUrl = cachedLinks.websiteUrl;
+      telemetry.discordUrl = cachedLinks.discordUrl;
+    } else {
+      // Fetch fresh links from Dex pair + Birdeye overview
+      const [dexLinks, birdeyeLinks] = await Promise.allSettled([
+        this.fetchDexPairLinks(mintAddress),
+        this.fetchBirdeyeOverviewLinks(mintAddress)
+      ]);
 
-    if (dexData.status === "fulfilled") {
-      Object.assign(telemetry, dexData.value);
+      const allPlatforms = new Set<string>();
+      let twitterUrl: string | undefined;
+      let telegramUrl: string | undefined;
+      let websiteUrl: string | undefined;
+      let discordUrl: string | undefined;
+
+      if (dexLinks.status === "fulfilled" && dexLinks.value) {
+        const l = dexLinks.value;
+        l.platforms.forEach(p => allPlatforms.add(p));
+        if (l.twitterUrl && !twitterUrl) twitterUrl = l.twitterUrl;
+        if (l.telegramUrl && !telegramUrl) telegramUrl = l.telegramUrl;
+        if (l.websiteUrl && !websiteUrl) websiteUrl = l.websiteUrl;
+        if (l.discordUrl && !discordUrl) discordUrl = l.discordUrl;
+      }
+
+      if (birdeyeLinks.status === "fulfilled" && birdeyeLinks.value) {
+        const l = birdeyeLinks.value;
+        l.platforms.forEach(p => allPlatforms.add(p));
+        if (l.twitterUrl && !twitterUrl) twitterUrl = l.twitterUrl;
+        if (l.telegramUrl && !telegramUrl) telegramUrl = l.telegramUrl;
+        if (l.websiteUrl && !websiteUrl) websiteUrl = l.websiteUrl;
+        if (l.discordUrl && !discordUrl) discordUrl = l.discordUrl;
+      }
+
+      const platforms = Array.from(allPlatforms);
+      sourceTag = platforms.length > 0 ? "dex|birdeye" : "none";
+      if (dexLinks.status !== "fulfilled" && dexLinks.value) sourceTag = "birdeye";
+      if (birdeyeLinks.status !== "fulfilled" && birdeyeLinks.value) sourceTag = "dex";
+
+      telemetry.hasSocialLinks = platforms.length > 0;
+      telemetry.socialPlatforms = platforms;
+      telemetry.twitterUrl = twitterUrl;
+      telemetry.telegramUrl = telegramUrl;
+      telemetry.websiteUrl = websiteUrl;
+      telemetry.discordUrl = discordUrl;
+
+      this.setCachedLinks(mintAddress, { platforms, twitterUrl, telegramUrl, websiteUrl, discordUrl });
+    }
+
+    // Now get DEX pair metrics (txns, B/S ratio, etc.)
+    const dexMetrics = await this.fetchDexScreenerMetrics(mintAddress);
+    if (dexMetrics) {
+      Object.assign(telemetry, dexMetrics);
     } else {
       telemetry.dexMiss = true;
     }
-    if (twitterData.status === "fulfilled") {
-      telemetry.tweetVolume1h = twitterData.value.tweetVolume;
-      telemetry.twitterQueried = twitterData.value.queried;
-      telemetry.rawTextSamples = twitterData.value.recentTweets;
-      
-      const metrics = this.analyzeTweetQuality(twitterData.value.recentTweets, twitterData.value.queried);
+
+    // Twitter is optional, only if bearer exists
+    if (this.twitterBearerToken) {
+      const twitterData = await this.fetchTwitterData(symbol, mintAddress);
+      telemetry.tweetVolume1h = twitterData.tweetVolume;
+      telemetry.twitterQueried = twitterData.queried;
+      telemetry.rawTextSamples = twitterData.recentTweets;
+
+      const metrics = this.analyzeTweetQuality(twitterData.recentTweets, twitterData.queried);
       telemetry.botLikelihoodScore = metrics.botScore;
       telemetry.cashtagSpamRatio = metrics.cashtagSpamRatio;
+    } else {
+      if (!this.noBearerLogged) {
+        logger.info("SOCIAL", "SocialEvaluator", "twitter skip: NO_BEARER");
+        this.noBearerLogged = true;
+      }
     }
+
+    logger.info("SOCIAL", "SocialEvaluator", `social links source=${sourceTag} platforms=${telemetry.socialPlatforms.join(",") || "none"}`);
 
     return telemetry;
   }
 
-  private async fetchDexScreenerData(mintAddress: string) {
+  private async fetchDexPairLinks(mintAddress: string) {
     const response = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${mintAddress}`);
     if (!response.ok) {
-      logger.info("SOCIAL", "SocialEvaluator", `dex pair not found chain=solana mint=${mintAddress} status=${response.status}`);
-      return { dexMiss: true };
+      return null;
     }
 
     const data = await response.json();
     const pair = data?.pairs?.[0];
     if (!pair) {
-      logger.info("SOCIAL", "SocialEvaluator", `dex pair not found chain=solana mint=${mintAddress} reason=no pairs`);
-      return { dexMiss: true };
+      return null;
     }
 
-    const socials = pair.info?.socials || [];
-    const websites = pair.info?.websites || [];
-    const socialPlatforms = Array.from(new Set([
-      ...socials.map((s: any) => s.type?.toLowerCase()),
-      ...(websites.length > 0 ? ["website"] : [])
-    ]));
+    const platforms: string[] = [];
+    let twitterUrl: string | undefined;
+    let telegramUrl: string | undefined;
+    let websiteUrl: string | undefined;
+    let discordUrl: string | undefined;
 
-    const txs = pair.txns || pair.txs || {};
-    const buys5m = txs.m5?.buys || 0;
-    const sells5m = txs.m5?.sells || 0;
-    const total1hAvg5m = ((txs.h1?.buys || 0) + (txs.h1?.sells || 0)) / 12;
+    for (const s of pair.info?.socials || []) {
+      const type = this.classifyUrl(s.url);
+      if (type) {
+        platforms.push(type);
+        if (type === "twitter" && !twitterUrl) twitterUrl = this.normalizeUrl(s.url);
+        if (type === "telegram" && !telegramUrl) telegramUrl = this.normalizeUrl(s.url);
+        if (type === "discord" && !discordUrl) discordUrl = this.normalizeUrl(s.url);
+      }
+    }
 
-    logger.info("SOCIAL", "SocialEvaluator", `dex pair found chain=${pair.chainId} dexId=${pair.dexId} hasInfo=${pair.info !== null && pair.info !== undefined} platforms=${socialPlatforms.join(",") || "none"} buys5m=${buys5m} sells5m=${sells5m}`);
+    for (const w of pair.info?.websites || []) {
+      const type = this.classifyUrl(w.url);
+      if (type && type === "website" && !websiteUrl) {
+        platforms.push("website");
+        websiteUrl = this.normalizeUrl(w.url);
+      }
+    }
 
-    return {
-      hasSocialLinks: socialPlatforms.length > 0,
-      socialPlatforms,
-      isDexBoosted: (pair.boosts?.active || 0) > 0,
-      buySellRatio5m: sells5m > 0 ? buys5m / sells5m : buys5m > 0 ? 2.0 : 1.0,
-      txAcceleration5mVs1h: total1hAvg5m > 0 ? (buys5m + sells5m) / total1hAvg5m : 1.0,
-      dexMiss: false
+    if (platforms.length === 0) {
+      return null;
+    }
+
+    return { platforms, twitterUrl, telegramUrl, websiteUrl, discordUrl };
+  }
+
+  private async fetchBirdeyeOverviewLinks(mintAddress: string) {
+    if (!this.birdeyeApiKey) {
+      return null;
+    }
+
+    const url = `https://public-api.birdeye.so/defi/token_overview?address=${mintAddress}`;
+    const headers = {
+      "x-chain": "solana",
+      "X-API-KEY": this.birdeyeApiKey,
+      "accept": "application/json",
     };
+
+    const response = await fetch(url, { headers });
+    if (!response.ok) {
+      return null;
+    }
+
+    const data = await response.json();
+    if (data.success === false) {
+      return null;
+    }
+
+    const platforms: string[] = [];
+    let twitterUrl: string | undefined;
+    let telegramUrl: string | undefined;
+    let websiteUrl: string | undefined;
+    let discordUrl: string | undefined;
+
+    const tokenInfo = data.data;
+    if (!tokenInfo) return null;
+
+    // Birdeye puts social in various places depending on version
+    // Check extensions first
+    const extensions = tokenInfo.extensions || {};
+    if (extensions.twitter) {
+      const type = this.classifyUrl(extensions.twitter);
+      if (type === "twitter") {
+        platforms.push(type);
+        twitterUrl = this.normalizeUrl(extensions.twitter);
+      }
+    }
+    if (extensions.telegram) {
+      const type = this.classifyUrl(extensions.telegram);
+      if (type === "telegram") {
+        platforms.push(type);
+        telegramUrl = this.normalizeUrl(extensions.telegram);
+      }
+    }
+    if (extensions.website) {
+      const type = this.classifyUrl(extensions.website);
+      if (type === "website") {
+        platforms.push(type);
+        websiteUrl = this.normalizeUrl(extensions.website);
+      }
+    }
+    if (extensions.discord) {
+      const type = this.classifyUrl(extensions.discord);
+      if (type === "discord") {
+        platforms.push(type);
+        discordUrl = this.normalizeUrl(extensions.discord);
+      }
+    }
+
+    // Check token socials array
+    for (const s of tokenInfo.socials || []) {
+      const type = this.classifyUrl(s.url);
+      if (type) {
+        platforms.push(type);
+        if (type === "twitter" && !twitterUrl) twitterUrl = this.normalizeUrl(s.url);
+        if (type === "telegram" && !telegramUrl) telegramUrl = this.normalizeUrl(s.url);
+        if (type === "website" && !websiteUrl) websiteUrl = this.normalizeUrl(s.url);
+        if (type === "discord" && !discordUrl) discordUrl = this.normalizeUrl(s.url);
+      }
+    }
+
+    if (platforms.length === 0) {
+      return null;
+    }
+
+    return { platforms, twitterUrl, telegramUrl, websiteUrl, discordUrl };
+  }
+
+  private async fetchDexScreenerMetrics(mintAddress: string) {
+    try {
+      const response = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${mintAddress}`);
+      if (!response.ok) {
+        return null;
+      }
+
+      const data = await response.json();
+      const pair = data?.pairs?.[0];
+      if (!pair) {
+        return null;
+      }
+
+      const txs = pair.txns || pair.txs || {};
+      const buys5m = txs.m5?.buys || 0;
+      const sells5m = txs.m5?.sells || 0;
+      const total1hAvg5m = ((txs.h1?.buys || 0) + (txs.h1?.sells || 0)) / 12;
+
+      return {
+        isDexBoosted: (pair.boosts?.active || 0) > 0,
+        buySellRatio5m: sells5m > 0 ? buys5m / sells5m : buys5m > 0 ? 2.0 : 1.0,
+        txAcceleration5mVs1h: total1hAvg5m > 0 ? (buys5m + sells5m) / total1hAvg5m : 1.0,
+        dexMiss: false
+      };
+    } catch (e) {
+      logger.warn("SOCIAL", "SocialEvaluator", "dex metrics fetch failed", { error: e });
+      return null;
+    }
   }
 
   private async fetchTwitterData(symbol: string, mintAddress: string) {
     if (!this.twitterBearerToken) {
-      if (!this.noBearerLogged) {
-        logger.info("SOCIAL", "SocialEvaluator", "twitter skip: NO_BEARER");
-        this.noBearerLogged = true;
-      }
       return { tweetVolume: 0, recentTweets: [], queried: false };
     }
 
