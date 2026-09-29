@@ -4,6 +4,7 @@ import { PhantomTrendingWatcher } from "./PhantomTrendingWatcher.ts";
 import { DexScreenerLatestWatcher } from "./DexScreenerLatestWatcher.ts";
 import { DexScreenerTrendingWatcher } from "./DexScreenerTrendingWatcher.ts";
 import { BirdeyeNewListingWatcher } from "./BirdeyeNewListingWatcher.ts";
+import { DexScreenerBoostsWatcher } from "./DexScreenerBoostsWatcher.ts";
 import { IngestionWatcher } from "./IngestionWatcher.ts";
 import { getIngestionInterval, ingestFlag, getDexscreenerTrendingPeriod } from "../../utils/env.ts";
 import { logger } from "../LoggerService.ts";
@@ -35,6 +36,9 @@ export class IngestionManager {
     }
     if (ingestFlag("INGEST_PHANTOM")) {
       this.registerWatcher(new PhantomTrendingWatcher());
+    }
+    if (ingestFlag("INGEST_DEXSCREENER_BOOSTS")) {
+      this.registerWatcher(new DexScreenerBoostsWatcher());
     }
   }
 

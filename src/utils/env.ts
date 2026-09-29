@@ -38,6 +38,8 @@ const EnvSchema = z.object({
   INGEST_BIRDEYE_TOP_TRADERS: z.string().default("false"),
   INGEST_PHANTOM: z.string().default("false"),
   INGEST_DEXSCREENER_CHAIN: z.string().default("solana"),
+  INGEST_DEXSCREENER_BOOSTS: z.string().default("false"),
+  INGEST_DEXSCREENER_PROFILES: z.string().default("false"),
   SOCIAL_BIRDEYE_LINKS: z.string().default("false"),
   TWITTER_BEARER_TOKEN: z.string().optional(),
   WALLET_MIRROR_INTERVAL_MS: z.string().default("20000"),
@@ -203,6 +205,8 @@ export function ingestFlag(name: string): boolean {
     INGEST_BIRDEYE_NEW_LISTING: env.INGEST_BIRDEYE_NEW_LISTING,
     INGEST_BIRDEYE_TOP_TRADERS: env.INGEST_BIRDEYE_TOP_TRADERS,
     INGEST_PHANTOM: env.INGEST_PHANTOM,
+    INGEST_DEXSCREENER_BOOSTS: env.INGEST_DEXSCREENER_BOOSTS,
+    INGEST_DEXSCREENER_PROFILES: env.INGEST_DEXSCREENER_PROFILES,
   };
   return isTruthy(map[name]);
 }
