@@ -33,7 +33,7 @@ export async function evaluateAlphaNarrative(_runtime?: any) {
 
         // Collect social telemetry
         const telemetry = await socialEvaluatorService.evaluateToken(token.mint_address, token.symbol);
-        logger.info("ALPHA", "AlphaNarrativeEvaluator", `Social telemetry for ${token.symbol}: ${telemetry.tweetVolume1h} tweets, bot likelihood ${(telemetry.botLikelihoodScore * 100).toFixed(0)}%, platforms: ${telemetry.socialPlatforms.join(",") || "none"}`);
+        logger.info("ALPHA", "AlphaNarrativeEvaluator", `Social telemetry for ${token.symbol}: tweets=${telemetry.tweetVolume1h} queried=${telemetry.twitterQueried ? "yes" : "no"} bot=${telemetry.botLikelihoodScore < 0 ? "unknown" : (telemetry.botLikelihoodScore * 100).toFixed(0) + "%"} platforms=${telemetry.socialPlatforms.join(",") || "none"} dex=${telemetry.dexMiss ? "miss" : "hit"}`);
 
         // Evaluate via LLM
         const verdict = await alphaEvaluateNarrative(token, telemetry);
@@ -94,11 +94,13 @@ TOKEN DETAILS:
 - Dex Boosted: ${telemetry.isDexBoosted ? "YES" : "NO"}
 - 5m Buy/Sell Ratio: ${telemetry.buySellRatio5m.toFixed(2)}
 - 5m Volume Acceleration vs 1h: ${telemetry.txAcceleration5mVs1h.toFixed(2)}x
-- Bot Spam Likelihood: ${(telemetry.botLikelihoodScore * 100).toFixed(0)}%
+- Twitter Queried: ${telemetry.twitterQueried ? "YES" : "NO"}
+- Tweet Volume (1h): ${telemetry.tweetVolume1h}
+${telemetry.botLikelihoodScore < 0 ? "- Bot Spam Likelihood: unknown (not queried)" : `- Bot Spam Likelihood: ${(telemetry.botLikelihoodScore * 100).toFixed(0)}%`}
 - Cashtag Spam Ratio: ${(telemetry.cashtagSpamRatio * 100).toFixed(0)}%
 
 RECENT TWEETS SAMPLE:
-${telemetry.rawTextSamples.length > 0 ? telemetry.rawTextSamples.slice(0, 8).map(t => `- "${t}"`).join("\n") : "No recent tweets fetched"}
+${telemetry.twitterQueried === false ? "Twitter not queried (no bearer). 0 tweets is not evidence of no chatter." : (telemetry.rawTextSamples.length > 0 ? telemetry.rawTextSamples.slice(0, 8).map(t => `- "${t}"`).join("\n") : "No recent tweets fetched")}
 
 COMMITTEE DECISION GUIDELINES:
 1. PASS: Organic chatter, clear meme/narrative theme, reasonable bot score (< 40%). High confidence ratio (0.7 - 1.0).
