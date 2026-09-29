@@ -689,7 +689,7 @@ export class TelegramAdminBot {
         msg += `  • <b>Entry $ :</b> <code>$${pos.entry_price_usd.toFixed(6)}</code>\n`;
         msg += `  • <b>Current $:</b> <code>$${pos.current_price_usd.toFixed(6)}</code>\n`;
         msg += `  • <b>Peak High $:</b> <code>$${pos.peak_price_usd.toFixed(6)}</code>\n`;
-        msg += `  • <b>PnL:</b> ${posPnlEmoji} <b>${pos.unrealized_pnl_pct.toFixed(2)}%</b> (<code>$${pos.unrealized_pnl_usd.toFixed(2)}</code>)\n`;
+        msg += `  • <b>PnL:</b> ${posPnlEmoji} <b>${pos.unrealized_pnl_pct >= 0 ? '+' : ''}${pos.unrealized_pnl_pct.toFixed(2)}%</b> (<code>${pos.unrealized_pnl_usd >= 0 ? '+' : ''}${pos.unrealized_pnl_usd.toFixed(4)} SOL</code>)\n`;
         msg += `  • <b>Trailing SL:</b> <code>$${pos.trailing_stop_level_usd.toFixed(6)}</code>\n`;
         msg += `  • <b>Tier:</b> <code>${pos.trailing_tier}</code>\n\n`;
       });
@@ -761,7 +761,7 @@ export class TelegramAdminBot {
 
       const pnlEmoji = pnl >= 0 ? "📈" : "📉";
       let text = `${pnlEmoji} SESSION PnL\n`;
-      text += `PnL: ${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)}\n`;
+      text += `Session PnL: ${pnl >= 0 ? "+" : ""}${pnl.toFixed(4)} SOL\n`;
       text += `Open positions: ${positions}\n`;
       text += `Mode: ${mode}`;
 

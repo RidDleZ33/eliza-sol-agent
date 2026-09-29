@@ -871,8 +871,8 @@ class WatchlistService {
       const peakPrice = Math.max(pos.peak_price_usd || entryPrice, currentPrice);
 
       const pnlPct = entryPrice > 0 ? ((currentPrice - entryPrice) / entryPrice) * 100 : 0;
-      const pnlUsd = (pnlPct / 100) * (pos.amount_sol * entryPrice);
-      totalUnrealizedPnlUsd += pnlUsd;
+      const pnlSol = entryPrice > 0 ? pos.amount_sol * ((currentPrice - entryPrice) / entryPrice) : 0;
+      totalUnrealizedPnlUsd += pnlSol;
 
       const dropFromPeakPct = peakPrice > 0 ? ((peakPrice - currentPrice) / peakPrice) * 100 : 0;
 
@@ -899,7 +899,7 @@ class WatchlistService {
         entry_price_usd: entryPrice,
         peak_price_usd: peakPrice,
         current_price_usd: currentPrice,
-        unrealized_pnl_usd: pnlUsd,
+        unrealized_pnl_usd: pnlSol,
         unrealized_pnl_pct: pnlPct,
         drop_from_peak_pct: dropFromPeakPct,
         trailing_stop_level_usd: stopPriceUsd,
@@ -916,8 +916,8 @@ class WatchlistService {
         active_positions_count: openPositions.length,
         max_positions: maxPositions,
         total_sol_deployed: parseFloat(totalSolDeployed.toFixed(3)),
-        unrealized_pnl_usd: parseFloat(totalUnrealizedPnlUsd.toFixed(2)),
-        realized_pnl_usd: parseFloat(totalRealizedPnlUsd.toFixed(2)),
+        unrealized_pnl_usd: parseFloat(totalUnrealizedPnlUsd.toFixed(4)),
+        realized_pnl_usd: parseFloat(totalRealizedPnlUsd.toFixed(4)),
         win_rate_pct: parseFloat(winRatePct.toFixed(1)),
         total_trades_closed: totalClosed,
       },

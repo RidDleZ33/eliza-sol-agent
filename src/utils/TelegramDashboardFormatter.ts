@@ -17,8 +17,8 @@ export class TelegramDashboardFormatter {
     html += `<b>💼 PORTFOLIO OVERVIEW</b>\n`;
     html += `• <b>Active Positions:</b> ${portfolio.active_positions_count} / ${portfolio.max_positions}\n`;
     html += `• <b>Capital Deployed:</b> <code>${portfolio.total_sol_deployed} SOL</code>\n`;
-    html += `• <b>Unrealized PnL:</b> ${pnlEmoji} <code>$${portfolio.unrealized_pnl_usd.toFixed(2)}</code>\n`;
-    html += `• <b>Realized PnL:</b> ${realizedEmoji} <code>$${portfolio.realized_pnl_usd.toFixed(2)}</code>\n`;
+    html += `• <b>Unrealized PnL:</b> ${pnlEmoji} <code>${portfolio.unrealized_pnl_usd >= 0 ? '+' : ''}${portfolio.unrealized_pnl_usd.toFixed(4)} SOL</code>\n`;
+    html += `• <b>Realized PnL:</b> ${realizedEmoji} <code>${portfolio.realized_pnl_usd >= 0 ? '+' : ''}${portfolio.realized_pnl_usd.toFixed(4)} SOL</code>\n`;
     html += `• <b>Win Rate:</b> <code>${portfolio.win_rate_pct}%</code> (${portfolio.total_trades_closed} closed)\n\n`;
 
     // 2. Active Positions Detail
@@ -35,7 +35,7 @@ export class TelegramDashboardFormatter {
         html += `  • <b>Entry $ :</b> <code>$${pos.entry_price_usd.toFixed(6)}</code>\n`;
         html += `  • <b>Current $:</b> <code>$${pos.current_price_usd.toFixed(6)}</code>\n`;
         html += `  • <b>Peak High $:</b> <code>$${pos.peak_price_usd.toFixed(6)}</code>\n`;
-        html += `  • <b>PnL:</b> ${posPnlEmoji} <b>${pos.unrealized_pnl_pct.toFixed(2)}%</b> (<code>$${pos.unrealized_pnl_usd.toFixed(2)}</code>)\n`;
+        html += `  • <b>PnL:</b> ${posPnlEmoji} <b>${pos.unrealized_pnl_pct >= 0 ? '+' : ''}${pos.unrealized_pnl_pct.toFixed(2)}%</b> (<code>${pos.unrealized_pnl_usd >= 0 ? '+' : ''}${pos.unrealized_pnl_usd.toFixed(4)} SOL</code>)\n`;
         html += `  • <b>Trailing SL:</b> <code>$${pos.trailing_stop_level_usd.toFixed(6)}</code>\n`;
         html += `  • <b>Tier:</b> <code>${pos.trailing_tier}</code>\n\n`;
       });
