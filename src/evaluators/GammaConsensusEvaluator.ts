@@ -52,8 +52,39 @@ async function evaluateCandidatePipeline(runtime: any) {
         runtime.logger.warn(`[Gamma] Failed to fetch PA metrics for ${candidate.symbol}:`, e.message);
       }
 
+      // Phase 11A: fetch 24h HV for snapshot + regime commentary
+      let hv: number | null = null;
+      let regime: string | null = null;
+      try {
+        hv = await priceActionService.get24hHV(candidate.mint_address);
+        if (hv !== null) {
+          regime = priceActionService.labelRegime(hv);
+        }
+      } catch (e) {
+        runtime.logger.warn(`[Gamma] Failed to fetch 24h HV for ${candidate.symbol}:`, e.message);
+      }
+
       const synthesis = synthesizeCommitteeSignals(candidate, paMetrics);
       runtime.logger.info(`[Gamma] ${candidate.symbol} Conviction: ${synthesis.convictionScore.toFixed(2)} -> Decision: ${synthesis.decision}`);
+
+      // Phase 11A: save gamma snapshot on every synthesis (BUY, DEFER, PRUNE)
+      const paForSnapshot = paMetrics ? {
+        vwapRatio: paMetrics.vwapRatio,
+        buySellRatio5m: paMetrics.buySellRatio5m,
+        distanceFromPeakPct: paMetrics.distanceFromPeakPct,
+        emaTrend: paMetrics.emaTrend,
+        isOverextended: paMetrics.isOverextended,
+        currentPriceUsd: paMetrics.currentPriceUsd,
+      } : null;
+      await watchlistService.saveGammaSnapshot(
+        candidate.mint_address,
+        synthesis.decision,
+        synthesis.convictionScore,
+        synthesis.reasons,
+        paForSnapshot,
+        hv,
+        regime
+      );
 
       // War room: broadcast consensus decision
       await postWarRoomMessage("GAMMA", "CONSENSUS_REACHED", {

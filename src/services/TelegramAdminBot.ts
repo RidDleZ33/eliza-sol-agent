@@ -1,4 +1,5 @@
 import { Telegraf, Markup } from "telegraf";
+import { PublicKey } from "@solana/web3.js";
 import { configService, ConfigKey } from "./ConfigService.ts";
 import { logger, LogLevel } from "./LoggerService.ts";
 import { watchlistService } from "./WatchlistService.ts";
@@ -149,6 +150,16 @@ export class TelegramAdminBot {
       this.pauseLogStream();
       this.pauseWarRoom();
       await this.showTradeJournal(ctx);
+    });
+
+    this.bot.command("gamma", async (ctx) => {
+      if (!this.isAdmin(ctx)) {
+        await ctx.reply("⚠️ Admin access only.");
+        return;
+      }
+      this.pauseLogStream();
+      this.pauseWarRoom();
+      await this.showGamma(ctx);
     });
 
     this.bot.command("pnl", async (ctx) => {
@@ -361,6 +372,7 @@ export class TelegramAdminBot {
         "/positions - Detailed active position list\n" +
         "/trades - Trade journal and state\n" +
         "/pnl - Session PnL and position count\n" +
+        "/gamma [SYMBOL] - Gamma consensus snapshots (last 8 or specific token)\n" +
         "/logs - Logging configuration\n" +
         "\n" +
         "📡 Streaming:\n" +
@@ -742,7 +754,7 @@ export class TelegramAdminBot {
         const solOut = t.sol_out != null ? t.sol_out.toFixed(2) : "—";
         const age = this.relativeAge(t.created_at);
         const reasonPart = t.reason
-          ? ` ${t.reason.slice(0, 48)}`
+          ? ` ${t.reason.slice(0, 72)}`
           : "";
         text += `${mode} ${t.side} ${symbol} ${solIn}/${solOut} ${t.status} ${age}${reasonPart}\n`;
       }
@@ -752,6 +764,95 @@ export class TelegramAdminBot {
       logger.error("TELEGRAM", "TelegramAdminBot", "Failed to show trade journal", { error: e.message });
       await ctx.reply(`❌ Failed: ${e.message}`);
     }
+  }
+
+  private async showGamma(ctx: any) {
+    try {
+      const arg = ctx.args?.[0];
+
+      if (arg) {
+        // Specific token: resolve mint from symbol or exact mint
+        const mint = await this.resolveMint(arg);
+        if (!mint) {
+          return ctx.reply(`no gamma snapshot for ${arg}`);
+        }
+        const snap = watchlistService.getGammaSnapshot(mint);
+        if (!snap) {
+          return ctx.reply(`no gamma snapshot for ${arg}`);
+        }
+        const symbol = snap.symbol || arg;
+        const pa = snap.pa;
+        const vwapStr = pa?.vwapRatio != null ? ` ${pa.vwapRatio.toFixed(2)}` : "";
+        const bsStr = pa?.buySellRatio5m != null ? ` ${pa.buySellRatio5m.toFixed(2)}` : "";
+        const peakStr = pa?.distanceFromPeakPct != null ? ` ${pa.distanceFromPeakPct.toFixed(1)}%` : "";
+        const emaStr = pa?.emaTrend || "";
+        const overStr = pa?.isOverextended ? " yes" : " no";
+        const hvStr = snap.hv != null ? ` ${snap.hv.toFixed(2)}` : "";
+        const regimeStr = snap.regime || "";
+        const age = this.relativeAge(snap.at);
+        const reasons = (snap.reasons || "").slice(0, 240);
+
+        let msg = `GAMMA $${symbol}\n`;
+        msg += `dec ${snap.decision} conv=${snap.conviction?.toFixed(2) ?? "n/a"}\n`;
+        msg += `vwap${vwapStr}  bs5m${bsStr}  peak${peakStr}  ema ${emaStr}  overext${overStr}\n`;
+        msg += `hv${hvStr}  regime ${regimeStr}\n`;
+        msg += `reasons: ${reasons}\n`;
+        msg += `age ${age}`;
+        return ctx.reply(msg);
+      }
+
+      // No arg: last 8 snapshots
+      const snaps = watchlistService.listGammaSnapshots(8);
+      if (snaps.length === 0) {
+        return ctx.reply("no gamma snapshots");
+      }
+
+      let msg = "GAMMA RECENT SNAPSHOTS\n";
+      for (const s of snaps) {
+        const symbol = s.symbol || s.mint_address.slice(0, 6) + "...";
+        const pa = s.pa_json ? JSON.parse(s.pa_json) : null;
+        const vwapStr = pa?.vwapRatio != null ? `vwap=${pa.vwapRatio.toFixed(2)}` : "";
+        const bsStr = pa?.buySellRatio5m != null ? `bs=${pa.buySellRatio5m.toFixed(1)}` : "";
+        const peakStr = pa?.distanceFromPeakPct != null ? `peak=${pa.distanceFromPeakPct.toFixed(0)}%` : "";
+        const emaStr = pa?.emaTrend ? `ema=${pa.emaTrend}` : "";
+        const hvStr = s.hv != null ? `hv=${s.hv.toFixed(2)}` : "";
+        const regimeStr = s.regime || "";
+        const age = this.relativeAge(s.at);
+
+        msg += `${s.decision} ${symbol} conv=${s.conviction?.toFixed(2) ?? "n/a"} ${vwapStr} ${bsStr} ${peakStr} ${emaStr} ${hvStr} ${regimeStr} ${age}\n`;
+      }
+      return ctx.reply(msg);
+    } catch (e) {
+      logger.error("TELEGRAM", "TelegramAdminBot", "Failed to show gamma", { error: e.message });
+      return ctx.reply(`❌ Failed: ${e.message}`);
+    }
+  }
+
+  private resolveMint(query: string): string | null {
+    // Try exact mint first
+    try {
+      new PublicKey(query);
+      return query;
+    } catch (_) {}
+
+    // Try case-insensitive symbol match on watched_tokens
+    const db = watchlistService.getDb();
+    try {
+      const row = db
+        .prepare("SELECT mint_address FROM watched_tokens WHERE UPPER(symbol) = UPPER(?) LIMIT 1")
+        .get(query);
+      if (row) return row.mint_address;
+    } catch (_) {}
+
+    // Try case-insensitive symbol match on positions
+    try {
+      const row = db
+        .prepare("SELECT mint_address FROM positions WHERE UPPER(symbol) = UPPER(?) LIMIT 1")
+        .get(query);
+      if (row) return row.mint_address;
+    } catch (_) {}
+
+    return null;
   }
 
   private async showPnl(ctx: any) {

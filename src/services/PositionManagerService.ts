@@ -8,15 +8,18 @@ import { logger } from "./LoggerService.ts";
 import { addSessionPnl } from "../execution/risk.ts";
 import { priceActionService } from "./PriceActionService.ts";
 import { volStopPct } from "../execution/volStop.ts";
+import { excursionSnippet } from "../execution/excursion.ts";
 
 export class PositionManagerService {
   private runtime: any;
   private checkInterval: any;
   private positionPeaks: Map<string, number>; // mint -> peak price
+  private positionTroughs: Map<string, number>; // mint -> trough price
 
   constructor(runtime) {
     this.runtime = runtime;
     this.positionPeaks = new Map();
+    this.positionTroughs = new Map();
   }
 
   start() {
@@ -109,6 +112,15 @@ export class PositionManagerService {
       });
     }
 
+    // Seed and update trough (lowest price seen this process)
+    if (!this.positionTroughs.has(mint) || currentPrice < this.positionTroughs.get(mint)) {
+      this.positionTroughs.set(mint, currentPrice);
+      logger.debug("POSITIONS", "PositionManager", "Trough price updated", {
+        symbol,
+        troughPrice: currentPrice,
+      });
+    }
+
     const entryPrice = position.entry_price_usd || currentPrice;
     const pnlPct = ((currentPrice - entryPrice) / entryPrice) * 100;
     const unrealizedPnlUsd = position.amount_sol * (currentPrice - entryPrice);
@@ -148,20 +160,25 @@ export class PositionManagerService {
       });
     }
 
+    const entryForExcursion = position.entry_price_usd || currentPrice;
+    const peakForExcursion = this.positionPeaks.get(mint) || currentPrice;
+    const troughForExcursion = this.positionTroughs.get(mint) || currentPrice;
+    const exc = excursionSnippet(entryForExcursion, peakForExcursion, troughForExcursion, hv, regime);
+
     if (pnlPct >= takeProfitPct) {
       logger.info("POSITIONS", "PositionManager", "TAKE_PROFIT triggered", {
         symbol,
         pnlPct: pnlPct.toFixed(1),
         takeProfitPct,
       });
-      await this.exitPosition(mint, symbol, `TAKE_PROFIT (+${pnlPct.toFixed(1)}%)`, currentPrice, pnlPct);
+      await this.exitPosition(mint, symbol, `TAKE_PROFIT (+${pnlPct.toFixed(1)}%) | ${exc}`, currentPrice, pnlPct);
     } else if (pnlPct <= -stopPct) {
       logger.info("POSITIONS", "PositionManager", "STOP_LOSS triggered", {
         symbol,
         pnlPct: pnlPct.toFixed(1),
         stopPct,
       });
-      await this.exitPosition(mint, symbol, `STOP_LOSS (${pnlPct.toFixed(1)}%)`, currentPrice, pnlPct);
+      await this.exitPosition(mint, symbol, `STOP_LOSS (${pnlPct.toFixed(1)}%) | ${exc}`, currentPrice, pnlPct);
     } else if (trailingStopDistance >= trailingStopPct && peakPrice > entryPrice) {
       logger.info("POSITIONS", "PositionManager", "TRAILING_STOP triggered", {
         symbol,
@@ -171,7 +188,7 @@ export class PositionManagerService {
       await this.exitPosition(
         mint,
         symbol,
-        `TRAILING_STOP (${trailingStopDistance.toFixed(1)}% below peak)`,
+        `TRAILING_STOP (${trailingStopDistance.toFixed(1)}% below peak) | ${exc}`,
         currentPrice,
         pnlPct
       );
@@ -181,7 +198,7 @@ export class PositionManagerService {
         ageMinutes: ageMinutes.toFixed(0),
         staleMinutes,
       });
-      await this.exitPosition(mint, symbol, `STALE_POSITION (${ageMinutes.toFixed(0)} min)`, currentPrice, pnlPct);
+      await this.exitPosition(mint, symbol, `STALE_POSITION (${ageMinutes.toFixed(0)} min) | ${exc}`, currentPrice, pnlPct);
     } else {
       logger.debug("POSITIONS", "PositionManager", "Position held", {
         symbol,
@@ -259,6 +276,7 @@ export class PositionManagerService {
 
       // Clear peak price
       this.positionPeaks.delete(mint);
+      this.positionTroughs.delete(mint);
     } else {
       logger.error("POSITIONS", "PositionManager", "Failed to exit position", {
         symbol,

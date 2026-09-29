@@ -222,6 +222,34 @@ class WatchlistService {
         this.db.exec("ALTER TABLE watched_tokens ADD COLUMN beta_top10_pct REAL DEFAULT 0");
         logger.info("WATCHLIST", "migrateSchema", "Added beta_top10_pct column to watched_tokens");
       }
+      if (!watchedColumnNames.has('gamma_last_decision')) {
+        this.db.exec("ALTER TABLE watched_tokens ADD COLUMN gamma_last_decision TEXT");
+        logger.info("WATCHLIST", "migrateSchema", "Added gamma_last_decision column");
+      }
+      if (!watchedColumnNames.has('gamma_last_conviction')) {
+        this.db.exec("ALTER TABLE watched_tokens ADD COLUMN gamma_last_conviction REAL");
+        logger.info("WATCHLIST", "migrateSchema", "Added gamma_last_conviction column");
+      }
+      if (!watchedColumnNames.has('gamma_last_reasons')) {
+        this.db.exec("ALTER TABLE watched_tokens ADD COLUMN gamma_last_reasons TEXT");
+        logger.info("WATCHLIST", "migrateSchema", "Added gamma_last_reasons column");
+      }
+      if (!watchedColumnNames.has('gamma_last_pa_json')) {
+        this.db.exec("ALTER TABLE watched_tokens ADD COLUMN gamma_last_pa_json TEXT");
+        logger.info("WATCHLIST", "migrateSchema", "Added gamma_last_pa_json column");
+      }
+      if (!watchedColumnNames.has('gamma_last_hv')) {
+        this.db.exec("ALTER TABLE watched_tokens ADD COLUMN gamma_last_hv REAL");
+        logger.info("WATCHLIST", "migrateSchema", "Added gamma_last_hv column");
+      }
+      if (!watchedColumnNames.has('gamma_last_regime')) {
+        this.db.exec("ALTER TABLE watched_tokens ADD COLUMN gamma_last_regime TEXT");
+        logger.info("WATCHLIST", "migrateSchema", "Added gamma_last_regime column");
+      }
+      if (!watchedColumnNames.has('gamma_last_at')) {
+        this.db.exec("ALTER TABLE watched_tokens ADD COLUMN gamma_last_at INTEGER");
+        logger.info("WATCHLIST", "migrateSchema", "Added gamma_last_at column");
+      }
     } catch (e: any) {
       console.error(`[WATCHLIST][migrateSchema] Migration failed: ${e.message}`);
     }
@@ -554,6 +582,115 @@ class WatchlistService {
   /**
    * Phase 2C: filtered blotter query.
    */
+  /**
+   * Phase 11A: Save last Gamma consensus snapshot for a token.
+   */
+  async saveGammaSnapshot(
+    mint: string,
+    decision: string,
+    conviction: number,
+    reasons: string[],
+    pa: object | null,
+    hv: number | null,
+    regime: string | null
+  ): Promise<void> {
+    try {
+      const stmt = this.db.prepare(`
+        UPDATE watched_tokens SET
+          gamma_last_decision = ?,
+          gamma_last_conviction = ?,
+          gamma_last_reasons = ?,
+          gamma_last_pa_json = ?,
+          gamma_last_hv = ?,
+          gamma_last_regime = ?,
+          gamma_last_at = ?
+        WHERE mint_address = ?
+      `);
+      stmt.run(
+        decision,
+        conviction,
+        reasons.join("; "),
+        pa ? JSON.stringify(pa) : null,
+        hv,
+        regime,
+        Date.now(),
+        mint
+      );
+    } catch (e: any) {
+      logger.error("WATCHLIST", "saveGammaSnapshot", "Failed to save gamma snapshot", {
+        mint,
+        error: e.message,
+      });
+    }
+  }
+
+  /**
+   * Phase 11A: Get last Gamma consensus snapshot for a token.
+   */
+  getGammaSnapshot(mint: string): any | null {
+    try {
+      const row = this.db
+        .prepare(`
+          SELECT symbol,
+            gamma_last_decision AS decision,
+            gamma_last_conviction AS conviction,
+            gamma_last_reasons AS reasons,
+            gamma_last_pa_json AS pa_json,
+            gamma_last_hv AS hv,
+            gamma_last_regime AS regime,
+            gamma_last_at AS at
+          FROM watched_tokens
+          WHERE mint_address = ?
+        `)
+        .get(mint);
+      if (!row) return null;
+      return {
+        symbol: row.symbol,
+        decision: row.decision,
+        conviction: row.conviction,
+        reasons: row.reasons,
+        pa: row.pa_json ? JSON.parse(row.pa_json) : null,
+        hv: row.hv,
+        regime: row.regime,
+        at: row.at,
+      };
+    } catch (e: any) {
+      logger.error("WATCHLIST", "getGammaSnapshot", "Failed to get gamma snapshot", {
+        mint,
+        error: e.message,
+      });
+      return null;
+    }
+  }
+
+  /**
+   * Phase 11A: List recent gamma snapshots for /gamma command.
+   */
+  listGammaSnapshots(limit = 8): any[] {
+    try {
+      return this.db
+        .prepare(`
+          SELECT symbol, mint_address,
+            gamma_last_decision AS decision,
+            gamma_last_conviction AS conviction,
+            gamma_last_pa_json AS pa_json,
+            gamma_last_hv AS hv,
+            gamma_last_regime AS regime,
+            gamma_last_at AS at
+          FROM watched_tokens
+          WHERE gamma_last_at IS NOT NULL
+          ORDER BY gamma_last_at DESC
+          LIMIT ?
+        `)
+        .all(limit);
+    } catch (e: any) {
+      logger.error("WATCHLIST", "listGammaSnapshots", "Failed to list gamma snapshots", {
+        error: e.message,
+      });
+      return [];
+    }
+  }
+
   listTrades(opts?: { mint?: string; side?: string; mode?: string; status?: string; limit?: number }): any[] {
     let sql = "SELECT * FROM trades WHERE 1=1";
     const params: any[] = [];
