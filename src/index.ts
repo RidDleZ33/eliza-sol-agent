@@ -178,10 +178,13 @@ async function main() {
   logger.info("CONFIG", "Index", "AI Committee services initialized.");
 
   // Start Telegram Admin Bot LAST so startup notification is sent after it's ready
+  const hasToken = !!process.env.TELEGRAM_BOT_TOKEN;
+  const hasChat = !!(process.env.TELEGRAM_TELEMETRY_CHAT_ID || process.env.TELEGRAM_ADMIN_CHAT_ID);
   logger.info("TELEGRAM", "Index", "Starting Telegram Admin Bot...");
+  let tgStarted = false;
   try {
     await telegramAdminBot.start();
-    logger.info("TELEGRAM", "Index", "Telegram Admin Bot started successfully");
+    tgStarted = true;
 
     // Send startup notification via the admin bot
     const timestamp = new Date().toISOString();
@@ -200,6 +203,7 @@ trades_db: watchlist (${tradesCount} trades)`;
   } catch (e) {
     logger.warn("TELEGRAM", "Index", "Telegram admin bot failed", { error: e.message });
   }
+  logger.info("TELEGRAM", "Index", `telegram started=${tgStarted} token=${hasToken} chat=${hasChat}`);
 
   // Register shutdown handlers
   process.on("SIGINT", () => shutdown("SIGINT"));

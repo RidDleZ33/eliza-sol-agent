@@ -1,5 +1,6 @@
 import { getTwitterBearerToken } from "../utils/env.ts";
 import { getBirdeyeApiKey } from "../utils/env.ts";
+import { getSocialBirdeyeLinks } from "../utils/env.ts";
 import { logger } from "./LoggerService.ts";
 
 export interface SocialTelemetry {
@@ -114,11 +115,17 @@ export class SocialEvaluatorService {
         if (metrics) Object.assign(telemetry, metrics);
       }
     } else {
-      // Fetch fresh links from Dex pair + Birdeye overview
-      const [dexLinks, birdeyeLinks] = await Promise.allSettled([
-        this.fetchDexPairLinks(mintAddress),
-        this.fetchBirdeyeOverviewLinks(mintAddress)
-      ]);
+      // Fetch fresh links from Dex pair + optionally Birdeye overview
+      const tasks = [this.fetchDexPairLinks(mintAddress)];
+      if (getSocialBirdeyeLinks() && this.birdeyeApiKey) {
+        tasks.push(this.fetchBirdeyeOverviewLinks(mintAddress));
+      } else {
+        logger.debug("SOCIAL", "SocialEvaluator", "birdeye social links skip: flag off");
+      }
+
+      const results = await Promise.allSettled(tasks);
+      const dexLinks = results[0];
+      const birdeyeLinks = tasks.length > 1 ? results[1] : null;
 
       const allPlatforms = new Set<string>();
       let twitterUrl: string | undefined;
@@ -138,7 +145,7 @@ export class SocialEvaluatorService {
         if (metrics) Object.assign(telemetry, metrics);
       }
 
-      if (birdeyeLinks.status === "fulfilled" && birdeyeLinks.value) {
+      if (birdeyeLinks && birdeyeLinks.status === "fulfilled" && birdeyeLinks.value) {
         const l = birdeyeLinks.value;
         l.platforms.forEach(p => allPlatforms.add(p));
         if (l.twitterUrl && !twitterUrl) twitterUrl = l.twitterUrl;
@@ -148,11 +155,11 @@ export class SocialEvaluatorService {
       }
 
       const platforms = Array.from(allPlatforms);
-      if (dexLinks.status === "fulfilled" && dexLinks.value && birdeyeLinks.status === "fulfilled" && birdeyeLinks.value) {
+      if (dexLinks.status === "fulfilled" && dexLinks.value && birdeyeLinks && birdeyeLinks.status === "fulfilled" && birdeyeLinks.value) {
         sourceTag = "dex|birdeye";
       } else if (dexLinks.status === "fulfilled" && dexLinks.value) {
         sourceTag = "dex";
-      } else if (birdeyeLinks.status === "fulfilled" && birdeyeLinks.value) {
+      } else if (birdeyeLinks && birdeyeLinks.status === "fulfilled" && birdeyeLinks.value) {
         sourceTag = "birdeye";
       } else {
         sourceTag = "none";

@@ -38,6 +38,7 @@ const EnvSchema = z.object({
   INGEST_BIRDEYE_TOP_TRADERS: z.string().default("false"),
   INGEST_PHANTOM: z.string().default("false"),
   INGEST_DEXSCREENER_CHAIN: z.string().default("solana"),
+  SOCIAL_BIRDEYE_LINKS: z.string().default("false"),
   TWITTER_BEARER_TOKEN: z.string().optional(),
   WALLET_MIRROR_INTERVAL_MS: z.string().default("20000"),
   RUGCHECK_API_URL: z.string().default("https://api.rugcheck.xyz/v1/tokens"),
@@ -214,4 +215,9 @@ export function getDexscreenerTrendingPeriod(): "5m" | "1h" | "6h" | "24h" {
 
 export function getDexscreenerChain(): string {
   return env.INGEST_DEXSCREENER_CHAIN;
+}
+
+// Phase 9A: Birdeye overview for social links is expensive, opt-in
+export function getSocialBirdeyeLinks(): boolean {
+  return env.SOCIAL_BIRDEYE_LINKS === "true" || env.SOCIAL_BIRDEYE_LINKS === "1";
 }

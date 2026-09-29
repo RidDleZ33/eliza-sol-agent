@@ -18,7 +18,7 @@ function escapeMd(text: string): string {
 }
 
 export class TelegramAdminBot {
-  private bot: Telegraf<any>;
+  private bot: Telegraf<any> | null = null;
   private adminChatId: string;
   private started = false;
 
@@ -35,20 +35,8 @@ export class TelegramAdminBot {
   private readonly WAR_ROOM_PAUSE_DURATION = 30000; // 30 seconds
 
   constructor() {
-    const token = process.env.TELEGRAM_BOT_TOKEN;
     this.adminChatId = process.env.TELEGRAM_ADMIN_CHAT_ID || "";
-
-    if (!token) {
-      logger.warn("TELEGRAM", "TelegramAdminBot", "TELEGRAM_BOT_TOKEN not set, admin bot disabled");
-    }
-
-    this.bot = new Telegraf(token || "");
-    this.registerCommands();
-    this.registerCallbacks();
-
-    this.bot.catch((err: any, ctx: any) => {
-      logger.error("TELEGRAM", "TelegramAdminBot", "Unhandled Telegram bot error", { error: err.message });
-    });
+    // Token is checked in start(); don't build Telegraf with empty token here.
   }
 
   private isAdmin(userId: number): boolean {
@@ -775,17 +763,37 @@ export class TelegramAdminBot {
   async start() {
     if (this.started) return;
 
+    const token = process.env.TELEGRAM_BOT_TOKEN;
+    if (!token) {
+      logger.info("TELEGRAM", "TelegramAdminBot", "TELEGRAM skip: NO_TOKEN");
+      return;
+    }
+
+    this.bot = new Telegraf(token);
+    this.registerCommands();
+    this.registerCallbacks();
+
+    this.bot.catch((err: any, ctx: any) => {
+      logger.error("TELEGRAM", "TelegramAdminBot", "Unhandled Telegram bot error", { error: err.message });
+    });
+
     try {
-      this.bot.launch();
-      logger.info("TELEGRAM", "TelegramAdminBot", "Admin bot started and polling");
+      // Phase 9A: await launch so 409/bad-token errors surface before "started"
+      await this.bot.telegram.deleteWebhook({ drop_pending_updates: true }).catch(() => {});
+      await this.bot.launch({ dropPendingUpdates: true });
       this.started = true;
-    } catch (e) {
-      logger.error("TELEGRAM", "TelegramAdminBot", "Failed to start admin bot", { error: e.message });
+      logger.info("TELEGRAM", "TelegramAdminBot", "Admin bot started and polling");
+    } catch (e: any) {
+      logger.error("TELEGRAM", "TelegramAdminBot", "Failed to start admin bot", { error: e.message, status: e?.status });
+      if (e?.message?.includes("409") || e?.message?.includes("Conflict")) {
+        logger.error("TELEGRAM", "TelegramAdminBot", "another process is polling this bot token; kill it");
+      }
+      throw e;
     }
   }
 
   async stop() {
-    if (!this.started) return;
+    if (!this.started || !this.bot) return;
 
     try {
       await this.bot.stop();
@@ -834,15 +842,18 @@ export class TelegramAdminBot {
   }
 
   async sendToChat(text: string): Promise<void> {
-    const chatId = process.env.TELEGRAM_TELEMETRY_CHAT_ID;
+    // Phase 9A: telemetry chat ID takes priority, fallback to admin chat ID
+    const chatId = process.env.TELEGRAM_TELEMETRY_CHAT_ID || process.env.TELEGRAM_ADMIN_CHAT_ID;
     if (!chatId) {
-      logger.debug("TELEGRAM", "TelegramAdminBot", "TELEGRAM_TELEMETRY_CHAT_ID not set");
+      logger.info("TELEGRAM", "TelegramAdminBot", "NO_CHAT_ID (no TELEGRAM_TELEMETRY_CHAT_ID and no TELEGRAM_ADMIN_CHAT_ID)");
       return;
     }
 
+    const source = process.env.TELEGRAM_TELEMETRY_CHAT_ID ? "TELEGRAM_TELEMETRY_CHAT_ID" : "TELEGRAM_ADMIN_CHAT_ID";
+
     try {
       // DEBUG only to avoid infinite loop when streaming is enabled
-      logger.debug("TELEGRAM", "TelegramAdminBot", "Sending message to chat", { chatId });
+      logger.debug("TELEGRAM", "TelegramAdminBot", "Sending message to chat", { chatId, source });
       await this.bot.telegram.sendMessage(chatId, text);
     } catch (e) {
       logger.error("TELEGRAM", "TelegramAdminBot", "Failed to send message", { error: e.message });
