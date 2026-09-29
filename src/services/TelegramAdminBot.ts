@@ -689,7 +689,7 @@ export class TelegramAdminBot {
         msg += `  • <b>Entry $ :</b> <code>$${pos.entry_price_usd.toFixed(6)}</code>\n`;
         msg += `  • <b>Current $:</b> <code>$${pos.current_price_usd.toFixed(6)}</code>\n`;
         msg += `  • <b>Peak High $:</b> <code>$${pos.peak_price_usd.toFixed(6)}</code>\n`;
-        msg += `  • <b>PnL:</b> ${posPnlEmoji} <b>${pos.unrealized_pnl_pct >= 0 ? '+' : ''}${pos.unrealized_pnl_pct.toFixed(2)}%</b> (<code>${pos.unrealized_pnl_usd >= 0 ? '+' : ''}${pos.unrealized_pnl_usd.toFixed(4)} SOL</code>)\n`;
+        msg += `  • <b>PnL:</b> ${posPnlEmoji} <b>${pos.unrealized_pnl_pct >= 0 ? '+' : ''}${pos.unrealized_pnl_pct.toFixed(2)}%</b> (<code>${pos.unrealized_pnl_sol >= 0 ? '+' : ''}${pos.unrealized_pnl_sol.toFixed(4)} SOL</code>)\n`;
         msg += `  • <b>Trailing SL:</b> <code>$${pos.trailing_stop_level_usd.toFixed(6)}</code>\n`;
         msg += `  • <b>Tier:</b> <code>${pos.trailing_tier}</code>\n\n`;
       });
@@ -741,7 +741,10 @@ export class TelegramAdminBot {
         const solIn = t.sol_in != null ? t.sol_in.toFixed(2) : "—";
         const solOut = t.sol_out != null ? t.sol_out.toFixed(2) : "—";
         const age = this.relativeAge(t.created_at);
-        text += `${mode} ${t.side} ${symbol} ${solIn}/${solOut} ${t.status} ${age}\n`;
+        const reasonPart = t.reason
+          ? ` ${t.reason.slice(0, 48)}`
+          : "";
+        text += `${mode} ${t.side} ${symbol} ${solIn}/${solOut} ${t.status} ${age}${reasonPart}\n`;
       }
 
       await ctx.reply(text);

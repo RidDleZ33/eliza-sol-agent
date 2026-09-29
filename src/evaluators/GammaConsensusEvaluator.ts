@@ -77,7 +77,8 @@ async function evaluateCandidatePipeline(runtime: any) {
           candidate.mint_address,
           candidate.symbol,
           synthesis.convictionScore,
-          "Committee Consensus"
+          "Committee Consensus",
+          synthesis.reasons.join("; ")
         );
 
         if (buyResult.success) {

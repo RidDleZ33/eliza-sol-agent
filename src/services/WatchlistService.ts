@@ -66,7 +66,7 @@ export interface PositionMetric {
   entry_price_usd: number;
   peak_price_usd: number;
   current_price_usd: number;
-  unrealized_pnl_usd: number;
+  unrealized_pnl_sol: number;
   unrealized_pnl_pct: number;
   drop_from_peak_pct: number;
   trailing_stop_level_usd: number;
@@ -80,7 +80,7 @@ export interface DashboardMetrics {
     active_positions_count: number;
     max_positions: number;
     total_sol_deployed: number;
-    unrealized_pnl_usd: number;
+    unrealized_pnl_sol: number;
     realized_pnl_usd: number;
     win_rate_pct: number;
     total_trades_closed: number;
@@ -899,7 +899,7 @@ class WatchlistService {
         entry_price_usd: entryPrice,
         peak_price_usd: peakPrice,
         current_price_usd: currentPrice,
-        unrealized_pnl_usd: pnlSol,
+        unrealized_pnl_sol: pnlSol,
         unrealized_pnl_pct: pnlPct,
         drop_from_peak_pct: dropFromPeakPct,
         trailing_stop_level_usd: stopPriceUsd,
@@ -916,7 +916,7 @@ class WatchlistService {
         active_positions_count: openPositions.length,
         max_positions: maxPositions,
         total_sol_deployed: parseFloat(totalSolDeployed.toFixed(3)),
-        unrealized_pnl_usd: parseFloat(totalUnrealizedPnlUsd.toFixed(4)),
+        unrealized_pnl_sol: parseFloat(totalUnrealizedPnlUsd.toFixed(4)),
         realized_pnl_usd: parseFloat(totalRealizedPnlUsd.toFixed(4)),
         win_rate_pct: parseFloat(winRatePct.toFixed(1)),
         total_trades_closed: totalClosed,

@@ -515,7 +515,8 @@ export class TradeExecutionService {
     mintAddress: string,
     symbol: string,
     convictionScore: number = 0.75,
-    triggerType: string = "Committee Consensus"
+    triggerType: string = "Committee Consensus",
+    deskReason?: string
   ): Promise<TradeExecutionResult> {
     logger.info("EXECUTION", "TradeExecution", "Starting conviction-backed buy execution", {
       symbol,
@@ -608,6 +609,11 @@ export class TradeExecutionService {
           signature: txSignature,
         });
 
+        // Phase 10C: include conviction and Gamma committee reasons on the desk tape
+        const buyReason = deskReason
+          ? `BUY conv=${convictionScore.toFixed(2)} | ${deskReason.slice(0, 160)}`
+          : `BUY conv=${convictionScore.toFixed(2)}`;
+
         // Phase 2A: PAPER BUY journal row (sol_in = tradeSize; sol_out = 0)
         await watchlistService.logTradeRow({
           clientOrderId: clientOrderId,
@@ -620,9 +626,9 @@ export class TradeExecutionService {
           pxQuote: effectivePrice,
           txSig: txSignature,
           status: "PAPER",
-          reason: "dry-run buy",
+          reason: buyReason,
         });
-        telegramAdminBot.notifyTrade({ side: "BUY", symbol, status: "PAPER", mode: "DRY_RUN", solIn: tradeSize, mint: mintAddress, txSig: txSignature, reason: "dry-run buy" }).catch(() => {});
+        telegramAdminBot.notifyTrade({ side: "BUY", symbol, status: "PAPER", mode: "DRY_RUN", solIn: tradeSize, mint: mintAddress, txSig: txSignature, reason: buyReason }).catch(() => {});
 
         return { success: true, txSignature, dryRun: true };
       }
@@ -733,6 +739,7 @@ export class TradeExecutionService {
         logger.info("EXECUTION", "TradeExecution", "paper sell",
           { symbol, sol_in: solIn.toFixed(4), sol_out: solOut.toFixed(4), pnl_sol: pnlSol.toFixed(4) });
 
+        const sellReason = `pnl_sol=${pnlSol.toFixed(4)} (${reason})`;
         await watchlistService.logTradeRow({
           clientOrderId: `sell:${mintAddress}:${txSignature}`,
           mint: mintAddress,
@@ -744,7 +751,7 @@ export class TradeExecutionService {
           pxQuote: exit,
           txSig: txSignature,
           status: "PAPER",
-          reason: `dry-run sell paper pnl_sol=${pnlSol.toFixed(4)}`,
+          reason: sellReason,
         });
         telegramAdminBot.notifyTrade({
           side: "SELL",
@@ -754,7 +761,7 @@ export class TradeExecutionService {
           solOut: Number(solOut.toFixed(4)),
           mint: mintAddress,
           txSig: txSignature,
-          reason: `dry-run sell paper pnl_sol=${pnlSol.toFixed(4)}`,
+          reason: sellReason,
         }).catch(() => {});
 
         return { success: true, txSignature, dryRun: true };
