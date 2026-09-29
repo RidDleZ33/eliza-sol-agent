@@ -35,8 +35,30 @@ export async function evaluateAlphaNarrative(_runtime?: any) {
         const telemetry = await socialEvaluatorService.evaluateToken(token.mint_address, token.symbol);
         logger.info("ALPHA", "AlphaNarrativeEvaluator", `Social telemetry for ${token.symbol}: tweets=${telemetry.tweetVolume1h} queried=${telemetry.twitterQueried ? "yes" : "no"} bot=${telemetry.botLikelihoodScore < 0 ? "unknown" : (telemetry.botLikelihoodScore * 100).toFixed(0) + "%"} platforms=${telemetry.socialPlatforms.join(",") || "none"} dex=${telemetry.dexMiss ? "miss" : "hit"}`);
 
-        // Evaluate via LLM
-        const verdict = await alphaEvaluateNarrative(token, telemetry);
+        // Phase 8C: social-unknown fallback → DISSENT so Beta can run forensics
+        // Conditions: no social links + Twitter not queried + mint looks new
+        const hasSocialPlatforms = telemetry.socialPlatforms.length > 0;
+        const twitterWasQueried = telemetry.twitterQueried === true;
+        const tweetVolumeIsZero = telemetry.tweetVolume1h === 0;
+        const mintEndsWithPump = token.mint_address.toLowerCase().endsWith("pump") || token.symbol.toLowerCase().endsWith("pump");
+        const noPriorAlphaDecision = !token.alpha_decision;
+        const isSocialUnknown = !hasSocialPlatforms && (!twitterWasQueried || tweetVolumeIsZero) && (mintEndsWithPump || noPriorAlphaDecision);
+
+        let verdict: AlphaVerdict;
+        if (isSocialUnknown) {
+          verdict = {
+            decision: "DISSENT",
+            confidenceRatio: 0.35,
+            narrativeScore: 0.25,
+            organicityScore: 0.20,
+            narrativeCategory: "WEAK",
+            reasoning: "Social unknown on a new mint; Beta forensics first.",
+            used_fallback: true
+          };
+          logger.info("ALPHA", "AlphaNarrativeEvaluator", `ALPHA social-unknown fallback DISSENT → Beta ${token.symbol}`);
+        } else {
+          verdict = await alphaEvaluateNarrative(token, telemetry);
+        }
 
         // Log detailed verdict
         logger.info("ALPHA", "AlphaNarrativeEvaluator", `${token.symbol} Verdict: ${verdict.decision}`);
@@ -113,6 +135,8 @@ COMMITTEE DECISION GUIDELINES:
    - Bullish Dissent: High viral momentum/organic vibe despite low DEX metrics.
    - Bearish Dissent: Massive volume/price pump on DEX, but social chatter is strictly 90%+ bot farms or non-existent.
 4. DEFER: Insufficient data for confident assessment. Token is new or activity is too low to judge. Recommend re-evaluating later.
+
+NOTE: If Twitter was not queried, 0 tweets is not a FAIL. Prefer DISSENT so contract forensics can run. Do not DEFER only because Twitter is dark.
 
 Respond STRICTLY in valid JSON:
 {
