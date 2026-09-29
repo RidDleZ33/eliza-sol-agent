@@ -1,10 +1,10 @@
-import { evaluateAlphaNarrative } from "./evaluators/AlphaNarrativeEvaluator.ts";
+import { evaluateAlphaNarrative, requestAlphaTick } from "./evaluators/AlphaNarrativeEvaluator.ts";
 import { evaluateBetaContract } from "./evaluators/BetaContractEvaluator.ts";
 import { tradeExecutionService } from "./services/TradeExecutionService.ts";
 import { evaluateGammaConsensus } from "./evaluators/GammaConsensusEvaluator.ts";
 import { crashRecoveryService } from "./services/CrashRecoveryService.ts";
 import { positionManagerService } from "./services/PositionManagerService.ts";
-import { env, ingestFlag, getDexscreenerTrendingPeriod, getBirdeyeApiKey } from "./utils/env.ts";
+import { env, ingestFlag, getDexscreenerTrendingPeriod, getBirdeyeApiKey, getIngestionInterval } from "./utils/env.ts";
 import { ingestionManager } from "./services/ingestion/IngestionManager.ts";
 import { telegramAdminBot } from "./services/TelegramAdminBot.ts";
 import { watchlistService } from "./services/WatchlistService.ts";
@@ -124,26 +124,20 @@ async function main() {
   // Start position manager for auto-exit rules
   positionManagerService.start();
 
-  // Schedule evaluator loops using stub runtime
-  logger.info("CONFIG", "Index", "Scheduling Alpha evaluator (every 3m)");
+  tradeExecutionService.runtime = stubRuntime;
+
+  // Phase 8D: align Alpha+Beta tick with ingestion interval
+  const evalInterval = getIngestionInterval();
+  logger.info("ALPHA", "Index", `ALPHA schedule intervalMs=${evalInterval}`);
   setInterval(async () => {
     try {
       await evaluateAlphaNarrative(stubRuntime);
-    } catch (e) {
-      logger.error("CONFIG", "Index", "Alpha evaluator error", { error: e.message });
-    }
-  }, 180000);
-
-  logger.info("CONFIG", "Index", "Scheduling Beta evaluator (every 2m)");
-  setInterval(async () => {
-    try {
       await evaluateBetaContract(stubRuntime);
     } catch (e) {
-      logger.error("CONFIG", "Index", "Beta evaluator error", { error: e.message });
+      logger.error("CONFIG", "Index", "Evaluator loop error", { error: e.message });
     }
-  }, 120000);
+  }, evalInterval);
 
-  tradeExecutionService.runtime = stubRuntime;
   logger.info("CONFIG", "Index", "Scheduling Gamma evaluator (every 30s)");
   setInterval(async () => {
     try {
@@ -153,14 +147,14 @@ async function main() {
     }
   }, 30000);
 
-  // Phase 0F: fire each evaluator once immediately, then interval
-  logger.info("CONFIG", "Index", "Firing initial evaluator ticks");
+  // Start ingestion services
+  ingestionManager.start();
+
+  // Phase 8D: fire initial ticks after ingest is live
+  logger.info("CONFIG", "Index", "Firing initial evaluator ticks (post-ingest)");
   try { await evaluateAlphaNarrative(stubRuntime); } catch (e) { logger.error("CONFIG", "Index", "Initial Alpha error", { error: e.message }); }
   try { await evaluateBetaContract(stubRuntime); } catch (e) { logger.error("CONFIG", "Index", "Initial Beta error", { error: e.message }); }
   try { await evaluateGammaConsensus(stubRuntime); } catch (e) { logger.error("CONFIG", "Index", "Initial Gamma error", { error: e.message }); }
-
-  // Start ingestion services
-  ingestionManager.start();
 
   // Phase 6D/7B: boot visibility — log exactly which sources are enabled
   const dsLatest = ingestFlag("INGEST_DEXSCREENER_LATEST") ? "ON" : "OFF";

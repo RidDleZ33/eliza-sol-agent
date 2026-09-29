@@ -4,6 +4,7 @@ import { configService } from "../ConfigService.ts";
 import { logger } from "../LoggerService.ts";
 import { fetchWithRetry } from "../../utils/circuitBreaker.ts";
 import { IngestionWatcher } from "./IngestionWatcher.ts";
+import { requestAlphaTick } from "../../evaluators/AlphaNarrativeEvaluator.ts";
 
 interface NewListingToken {
   address: string;
@@ -62,10 +63,14 @@ export class BirdeyeNewListingWatcher implements IngestionWatcher {
       logger.debug("INGESTION", this.name, "Polling Birdeye new_listing...");
       const tokens = await this.fetchNewListing();
 
+      const addedCount = tokens.filter(t => t !== null).length;
       logger.info("INGESTION", this.name, "New listing poll complete", {
         found: tokens.length,
-        added: tokens.filter(t => t !== null).length,
+        added: addedCount,
       });
+      if (addedCount > 0) {
+        requestAlphaTick();
+      }
       this.backoffMs = 1000;
     } catch (e: any) {
       logger.error("INGESTION", this.name, "Error polling new_listing", { error: e.message });

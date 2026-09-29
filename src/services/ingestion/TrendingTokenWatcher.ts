@@ -4,6 +4,7 @@ import { configService } from "../ConfigService.ts";
 import { logger } from "../LoggerService.ts";
 import { fetchWithRetry } from "../../utils/circuitBreaker.ts";
 import { IngestionWatcher } from "./IngestionWatcher.ts";
+import { requestAlphaTick } from "../../evaluators/AlphaNarrativeEvaluator.ts";
 
 interface TrendingToken {
   address: string;
@@ -87,6 +88,10 @@ export class TrendingTokenWatcher implements IngestionWatcher {
           newDiscoveries,
           alreadyTracked,
         });
+      }
+
+      if (newDiscoveries > 0) {
+        requestAlphaTick();
       }
 
       this.backoffMs = 1000;

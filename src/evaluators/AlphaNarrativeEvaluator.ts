@@ -3,6 +3,55 @@ import { socialEvaluatorService, SocialTelemetry } from "../services/SocialEvalu
 import { postWarRoomMessage } from "../services/WarRoomService.ts";
 import { llmComplete } from "../llm/LlmClient.ts";
 import { logger } from "../services/LoggerService.ts";
+import { getIngestionInterval } from "../utils/env.ts";
+
+// Phase 8D: requestAlphaTick coalesces multiple wake requests into a single tick.
+let alphaTickRunning = false;
+let alphaTickPending = false;
+const stubRuntime = {
+  logger: {
+    info: (...args: any[]) => {
+      if (typeof args[0] === "string" && args.length >= 3) {
+        logger.info(...args);
+      }
+    },
+    warn: (...args: any[]) => {
+      if (typeof args[0] === "string" && args.length >= 3) {
+        logger.warn(...args);
+      }
+    },
+    error: (...args: any[]) => {
+      if (typeof args[0] === "string" && args.length >= 3) {
+        logger.error(...args);
+      }
+    },
+    debug: (...args: any[]) => {
+      if (typeof args[0] === "string" && args.length >= 3) {
+        logger.debug(...args);
+      }
+    }
+  },
+  getService: () => null,
+  emitEvent: () => {}
+};
+
+export function requestAlphaTick() {
+  if (alphaTickRunning) {
+    alphaTickPending = true;
+    return;
+  }
+  alphaTickRunning = true;
+  void evaluateAlphaNarrative(stubRuntime).then(() => {
+    alphaTickRunning = false;
+    if (alphaTickPending) {
+      alphaTickPending = false;
+      setTimeout(requestAlphaTick, 100);
+    }
+  }).catch((e) => {
+    logger.error("ALPHA", "AlphaNarrativeEvaluator", "requestAlphaTick error", { error: e });
+    alphaTickRunning = false;
+  });
+}
 
 export type DecisionType = "PASS" | "FAIL" | "DISSENT" | "DEFER";
 
@@ -16,7 +65,7 @@ export interface AlphaVerdict {
   used_fallback: boolean;
 }
 
-export async function evaluateAlphaNarrative(_runtime?: any) {
+export async function evaluateAlphaNarrative(runtime?: any) {
   try {
     logger.info("ALPHA", "AlphaNarrativeEvaluator", "Evaluating narrative for pending tokens...");
     const tokensToEvaluate = await watchlistService.getTokensForAlphaEvaluation();
