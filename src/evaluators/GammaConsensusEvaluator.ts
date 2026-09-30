@@ -70,6 +70,7 @@ async function evaluateCandidatePipeline(runtime: any) {
       runtime.logger.info(`[Gamma] ${candidate.symbol} Reasons:`, synthesis.reasons);
 
       // Phase 11A: save gamma snapshot on every synthesis (BUY, DEFER, PRUNE)
+      // Phase 11B: include candle features (observe-only)
       const paForSnapshot = paMetrics ? {
         vwapRatio: paMetrics.vwapRatio,
         buySellRatio5m: paMetrics.buySellRatio5m,
@@ -78,6 +79,7 @@ async function evaluateCandidatePipeline(runtime: any) {
         isOverextended: paMetrics.isOverextended,
         currentPriceUsd: paMetrics.currentPriceUsd,
         source: paMetrics.source,
+        features: paMetrics.features,
       } : null;
       await watchlistService.saveGammaSnapshot(
         candidate.mint_address,

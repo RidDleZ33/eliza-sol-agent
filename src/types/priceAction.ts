@@ -1,3 +1,16 @@
+export type CandleFeatures = {
+  barCount: number;
+  liveStartIdx: number | null;
+  trimmed: boolean;
+  sufficient: boolean;
+  volatility: number | null;
+  priceChange: number | null;
+  volumeChange: number | null;
+  sma5: number | null;
+  sma20: number | null;
+  rsi14: number | null;
+};
+
 export interface PAMetrics {
   currentPriceUsd: number;
   vwapUsd: number;
@@ -7,4 +20,5 @@ export interface PAMetrics {
   emaTrend: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
   isOverextended?: boolean; // true if vwapRatio > 1.25 OR distanceFromPeakPct > -2.0
   source?: 'dex' | 'birdeye'; // data source: dex (pair) or birdeye (OHLCV, optional)
+  features?: CandleFeatures | null; // derived from candles, observe-only
 }

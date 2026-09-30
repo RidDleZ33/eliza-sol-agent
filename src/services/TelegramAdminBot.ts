@@ -802,6 +802,9 @@ export class TelegramAdminBot {
           const emaStr = pa.emaTrend || "";
           const overStr = typeof pa.isOverextended === "boolean" ? ` ${pa.isOverextended ? "yes" : "no"}` : "";
           msg += `${srcPrefix}vwap${vwapStr}  bs5m${bsStr}  peak${peakStr}  ema ${emaStr}  overext${overStr}\n`;
+          if (pa.features) {
+            msg += `${this.formatCandleFeatures(pa.features)}\n`;
+          }
         } else {
           msg += "PA unavailable\n";
         }
@@ -834,8 +837,9 @@ export class TelegramAdminBot {
         const regimeStr = s.regime || "";
         const age = this.relativeAge(s.at);
         const srcStr = pa?.source === "dex" ? "src=dex" : "";
+        const barsStr = pa?.features ? `bars=${pa.features.barCount}` : "bars=na";
 
-        msg += `${s.decision} ${symbol} conv=${s.conviction?.toFixed(2) ?? "n/a"} ${vwapStr} ${bsStr} ${peakStr} ${emaStr} ${srcStr} ${hvStr} ${regimeStr} ${age}\n`;
+        msg += `${s.decision} ${symbol} conv=${s.conviction?.toFixed(2) ?? "n/a"} ${vwapStr} ${bsStr} ${peakStr} ${emaStr} ${srcStr} ${hvStr} ${regimeStr} ${barsStr} ${age}\n`;
       }
       return ctx.reply(msg);
     } catch (e) {
@@ -899,6 +903,18 @@ export class TelegramAdminBot {
     if (diff < 3600000) return `${Math.floor(diff / 60000)}m`;
     if (diff < 86400000) return `${Math.floor(diff / 3600000)}h`;
     return `${Math.floor(diff / 86400000)}d`;
+  }
+
+  // Phase 11B: format candle features for gamma detail view
+  private formatCandleFeatures(f: any): string {
+    if (!f) return "features: none";
+    const trimStr = f.trimmed ? "trim=yes" : "trim=no";
+    const okStr = f.sufficient ? "ok" : "PA_INSUFFICIENT";
+    const sma5 = f.sma5 != null ? `sma5=${f.sma5.toFixed(2)}` : "sma5=n/a";
+    const sma20 = f.sma20 != null ? `sma20=${f.sma20.toFixed(2)}` : "sma20=n/a";
+    const rsi = f.rsi14 != null ? `rsi=${f.rsi14.toFixed(0)}` : "rsi=n/a";
+    const dV = f.volumeChange != null ? `dV=${f.volumeChange.toFixed(0)}%` : "dV=n/a";
+    return `bars ${f.barCount} ${trimStr} ${okStr} ${sma5} ${sma20} ${rsi} ${dV}`;
   }
 
   async start() {

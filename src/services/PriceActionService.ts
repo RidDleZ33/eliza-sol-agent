@@ -4,6 +4,7 @@ import { PAMetrics } from "../types/priceAction.ts";
 import { configService } from "./ConfigService.ts";
 import { watchlistService } from "./WatchlistService.ts";
 import { getPaBirdeyeOhlcv, getBirdeyeApiKey } from "../utils/env.ts";
+import { lastBarFeatures, OhlcvBar } from "./priceAction/candleFeatures.ts";
 
 // DexScreener pair shape (subset used by PA)
 interface DexPair {
@@ -222,6 +223,14 @@ export function mapDexPairToMetrics(pair: DexPair): PAMetrics | null {
     isOverextended,
     source: "dex",
   };
+}
+
+/**
+ * Phase 11B: derive candle features from OHLCV bars (observe-only).
+ * Returns null if bars are missing or insufficient.
+ */
+export function deriveCandleFeatures(bars: OhlcvBar[]): PAMetrics["features"] {
+  return lastBarFeatures(bars);
 }
 
 export const priceActionService = new PriceActionService();
