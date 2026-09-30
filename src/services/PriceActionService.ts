@@ -1,10 +1,11 @@
 import { fetchWithRetry } from "../utils/circuitBreaker.ts";
 import { logger } from "./LoggerService.ts";
-import { PAMetrics } from "../types/priceAction.ts";
+import { PAMetrics, CandleFeatures } from "../types/priceAction.ts";
 import { configService } from "./ConfigService.ts";
 import { watchlistService } from "./WatchlistService.ts";
 import { getPaBirdeyeOhlcv, getBirdeyeApiKey } from "../utils/env.ts";
-import { lastBarFeatures, OhlcvBar } from "./priceAction/candleFeatures.ts";
+import { lastBarFeatures, deadTrim, OhlcvBar } from "./priceAction/candleFeatures.ts";
+import { fetchBirdeyeOhlcv } from "./priceAction/birdeyeOhlcv.ts";
 
 // DexScreener pair shape (subset used by PA)
 interface DexPair {
@@ -34,50 +35,101 @@ interface DexPair {
   pairCreatedAt?: number;
 }
 
+type BarsCacheEntry = {
+  bars: OhlcvBar[] | null;
+  atMs: number;
+  reason: string;
+};
+
 export class PriceActionService {
-  private cache: Map<string, { metrics: PAMetrics; timestamp: number }> = new Map();
-  private cacheTtlMs = 30000; // 30-second cache to reduce API load
-  // Last raw Dex body per mint (for 24h HV reuse, avoids second GET)
+  private cache: Map<string, { metrics: PAMetrics; timestamp: number; source: string }> = new Map();
+  private cacheTtlMs = 30000; // 30-second cache for metrics
+
+  // Birdeye OHLCV per-mint cache (90s TTL)
+  private barsCache: Map<string, BarsCacheEntry> = new Map();
+  private barsCacheTtlMs = 90000;
+
+  // Single-flight: in-flight fetches per mint
+  private inflight: Map<string, Promise<BarsCacheEntry>> = new Map();
+
+  // 429 process-wide cooldown
+  private rate429CooldownUntil: number = 0;
+  private rate429CooldownMs = 60000;
+  private rate429Logged = false;
+
+  // Last raw Dex body per mint (for 24h HV reuse)
   private lastDexBody: Map<string, { body: DexPair; timestamp: number }> = new Map();
 
   /**
    * Fetch and calculate PA metrics for a given Solana token mint.
-   * Order: cache → stashed Dex pair → live Dex GET → optional Birdeye OHLCV.
+   * Order: cache → (Birdeye OHLCV if on) → Dex pair → null.
    * Returns null if metrics cannot be calculated.
    */
   async getPAMetrics(mintAddress: string): Promise<PAMetrics | null> {
     // Step 1: Check memory cache
     const cached = this.cache.get(mintAddress);
     if (cached && Date.now() - cached.timestamp < this.cacheTtlMs) {
-      return cached.metrics;
-    }
-
-    // Phase 11A3N: Birdeye OHLCV is opt-in, default off
-    if (!getPaBirdeyeOhlcv() || !getBirdeyeApiKey()) {
-      logger.debug("PA birdeye skipped");
+      // If cached from birdeye, or birdeye is off/cooldown, return it
+      if (cached.source === "birdeye" || !getPaBirdeyeOhlcv() || !getBirdeyeApiKey() || this.is429Cooldown()) {
+        return cached.metrics;
+      }
+      // Otherwise try fresh birdeye fetch
     }
 
     try {
-      // Step 2: Stashed Dex pair from ingest (if fresh)
+      // Step 2: Try Birdeye OHLCV (if enabled + key + no cooldown)
+      if (getPaBirdeyeOhlcv() && getBirdeyeApiKey() && !this.is429Cooldown()) {
+        const barsEntry = await this.getBirdeyeBars(mintAddress);
+        if (barsEntry.bars && barsEntry.bars.length >= 3) {
+          // Compute metrics from bars
+          const trimmed = deadTrim(barsEntry.bars);
+          const features = lastBarFeatures(trimmed);
+          const dexPair = this.getDexPairForBuySell(mintAddress);
+          const metrics = metricsFromBars(trimmed, features, dexPair);
+          if (metrics) {
+            this.cache.set(mintAddress, { metrics, timestamp: Date.now(), source: "birdeye" });
+            // Store bars in dex body map for HV reuse
+            this.lastDexBody.set(mintAddress, {
+              body: {
+                chainId: "solana",
+                baseToken: { address: mintAddress },
+                quoteToken: { address: "So11111111111111111111111111111111111111112" },
+                priceUsd: String(metrics.currentPriceUsd),
+                priceChange: { h24: features?.priceChange ?? 0 },
+              },
+              timestamp: Date.now(),
+            });
+            logger.info("PA source=birdeye", {
+              mint: mintAddress,
+              bars: barsEntry.bars.length,
+              trimmed: trimmed.length,
+              "cu~12": true,
+            });
+            return metrics;
+          }
+        }
+      }
+
+      // Step 3: Dex stashed pair (if fresh)
       const stashed = watchlistService.getDexPair(mintAddress);
       if (stashed && stashed.at && Date.now() - stashed.at < 120000) {
         try {
           const metrics = mapDexPairToMetrics(stashed.pair);
           if (metrics) {
-            this.cache.set(mintAddress, { metrics, timestamp: Date.now() });
+            this.cache.set(mintAddress, { metrics, timestamp: Date.now(), source: "dex" });
             this.lastDexBody.set(mintAddress, {
               body: stashed.pair,
               timestamp: Date.now(),
             });
-            logger.debug("PA", "PriceAction", "PA from stashed pair", { mint: mintAddress });
+            logger.debug("PA source=dex_stash", { mint: mintAddress });
             return metrics;
           }
         } catch (e: any) {
-          logger.debug("PA", "PriceAction", "Bad stashed pair", { mint: mintAddress, error: e.message });
+          logger.debug("PA bad stash", { mint: mintAddress, error: e.message });
         }
       }
 
-      // Step 3: Live Dex GET
+      // Step 4: Live Dex GET
       const url = `https://api.dexscreener.com/latest/dex/tokens/${mintAddress}`;
       const response = await fetchWithRetry(url);
       if (!response.ok) {
@@ -104,13 +156,13 @@ export class PriceActionService {
       try {
         watchlistService.saveDexPair(mintAddress, pair);
       } catch (e: any) {
-        logger.debug("PA", "PriceAction", "Failed to stash pair", { mint: mintAddress, error: e.message });
+        logger.debug("PA stash fail", { mint: mintAddress, error: e.message });
       }
 
       const metrics = mapDexPairToMetrics(pair);
       if (metrics) {
-        this.cache.set(mintAddress, { metrics, timestamp: Date.now() });
-        logger.info("PA", "PriceAction", "PA source=dex", {
+        this.cache.set(mintAddress, { metrics, timestamp: Date.now(), source: "dex" });
+        logger.info("PA source=dex", {
           mint: mintAddress,
           buys: pair.txns?.m5?.buys,
           sells: pair.txns?.m5?.sells,
@@ -128,15 +180,89 @@ export class PriceActionService {
   }
 
   /**
+   * Get or fetch Birdeye bars for a mint with caching and single-flight.
+   */
+  private async getBirdeyeBars(mintAddress: string): Promise<BarsCacheEntry> {
+    // Check bars cache
+    const cached = this.barsCache.get(mintAddress);
+    if (cached && Date.now() - cached.atMs < this.barsCacheTtlMs) {
+      return cached;
+    }
+
+    // Single-flight: if in-flight, wait for it
+    const existing = this.inflight.get(mintAddress);
+    if (existing) {
+      return existing;
+    }
+
+    const apiKey = getBirdeyeApiKey()!;
+    const promise = (async () => {
+      try {
+        const result = await fetchBirdeyeOhlcv(mintAddress, apiKey);
+
+        if (result.reason === "rate_429") {
+          this.set429Cooldown();
+        }
+
+        return { bars: result.bars, atMs: Date.now(), reason: result.reason };
+      } finally {
+        this.inflight.delete(mintAddress);
+      }
+    })();
+
+    this.inflight.set(mintAddress, promise);
+    const entry = await promise;
+
+    // Cache result
+    this.barsCache.set(mintAddress, entry);
+    return entry;
+  }
+
+  private is429Cooldown(): boolean {
+    return Date.now() < this.rate429CooldownUntil;
+  }
+
+  private set429Cooldown() {
+    this.rate429CooldownUntil = Date.now() + this.rate429CooldownMs;
+    if (!this.rate429Logged) {
+      logger.info("PA birdeye 429 cooldown", { seconds: this.rate429CooldownMs / 1000 });
+      this.rate429Logged = true;
+    }
+  }
+
+  /**
+   * Get Dex pair for buy/sell ratio (separate from OHLCV metrics).
+   */
+  private getDexPairForBuySell(mintAddress: string): DexPair | null {
+    const stashed = watchlistService.getDexPair(mintAddress);
+    if (stashed && stashed.at && Date.now() - stashed.at < 120000) {
+      return stashed.pair;
+    }
+    return null;
+  }
+
+  /**
    * Get 24h volatility using last cached Dex body or fresh GET.
-   * Reuses the body from getPAMetrics if available to avoid second request.
+   * If Birdeye bars are fresh and sufficient, compute HV from them instead.
    */
   async get24hHV(mint: string): Promise<number | null> {
+    // Try Birdeye bars first if fresh
+    if (getPaBirdeyeOhlcv() && getBirdeyeApiKey() && !this.is429Cooldown()) {
+      const cached = this.barsCache.get(mint);
+      if (cached && cached.bars && Date.now() - cached.atMs < this.barsCacheTtlMs) {
+        const trimmed = deadTrim(cached.bars);
+        if (trimmed.length >= 20) {
+          const hv = this.computeHVFromBars(trimmed);
+          if (hv !== null) return hv;
+        }
+      }
+    }
+
     try {
-      // Try last cached body first (avoids second GET)
-      const cached = this.lastDexBody.get(mint);
-      if (cached && Date.now() - cached.timestamp < 60000) {
-        return this.computeHVFromPair(cached.body);
+      // Try last cached Dex body first (avoids second GET)
+      const dexCached = this.lastDexBody.get(mint);
+      if (dexCached && Date.now() - dexCached.timestamp < 60000) {
+        return this.computeHVFromPair(dexCached.body);
       }
 
       // Stashed pair
@@ -161,9 +287,38 @@ export class PriceActionService {
 
       return this.computeHVFromPair(pair);
     } catch (e: any) {
-      logger.warn(`PA miss mint=${mint} reason=hv_${e.message}`);
+      logger.warn(`PA hv miss mint=${mint} reason=${e.message}`);
       return null;
     }
+  }
+
+  /**
+   * Compute HV from OHLCV bars: (max(high)-min(low))/mean(close).
+   */
+  private computeHVFromBars(bars: OhlcvBar[]): number | null {
+    if (bars.length < 2) return null;
+
+    let maxHigh = -Infinity;
+    let minLow = Infinity;
+    let sumClose = 0;
+
+    for (const bar of bars) {
+      if (!Number.isFinite(bar.h) || !Number.isFinite(bar.l) || !Number.isFinite(bar.c)) {
+        continue;
+      }
+      if (bar.h > maxHigh) maxHigh = bar.h;
+      if (bar.l < minLow) minLow = bar.l;
+      sumClose += bar.c;
+    }
+
+    if (!Number.isFinite(maxHigh) || !Number.isFinite(minLow) || sumClose === 0) {
+      return null;
+    }
+
+    const meanClose = sumClose / bars.length;
+    if (meanClose === 0) return null;
+
+    return (maxHigh - minLow) / meanClose;
   }
 
   private computeHVFromPair(pair: DexPair): number | null {
@@ -190,7 +345,80 @@ export class PriceActionService {
 }
 
 /**
- * Map a DexScreener pair object to PAMetrics.
+ * Compute PAMetrics from OHLCV bars + last-bar features + optional Dex pair for buy/sell.
+ * Pure function — no network, no DB.
+ */
+export function metricsFromBars(
+  bars: OhlcvBar[],
+  features: CandleFeatures | null,
+  dexPair: DexPair | null
+): PAMetrics | null {
+  if (bars.length === 0) return null;
+
+  const lastBar = bars[bars.length - 1];
+  if (!Number.isFinite(lastBar.c) || lastBar.c <= 0) return null;
+
+  const currentPriceUsd = lastBar.c;
+
+  // VWAP = sum(c*v)/sum(v) on trimmed bars with v>0
+  let sumCV = 0;
+  let sumV = 0;
+  for (const bar of bars) {
+    if (bar.v > 0 && Number.isFinite(bar.c) && Number.isFinite(bar.v)) {
+      sumCV += bar.c * bar.v;
+      sumV += bar.v;
+    }
+  }
+  const vwapUsd = sumV > 0 ? sumCV / sumV : currentPriceUsd;
+  const vwapRatio = vwapUsd > 0 ? currentPriceUsd / vwapUsd : 1;
+
+  // Distance from peak: use max(high) from bars
+  let maxHigh = 0;
+  for (const bar of bars) {
+    if (Number.isFinite(bar.h) && bar.h > maxHigh) {
+      maxHigh = bar.h;
+    }
+  }
+  const distanceFromPeakPct = maxHigh > 0 ? ((currentPriceUsd / maxHigh) - 1) * 100 : 0;
+
+  // EMA trend: SMA5 vs SMA20 as proxy (sufficient bars required)
+  let emaTrend: "BULLISH" | "BEARISH" | "NEUTRAL" = "NEUTRAL";
+  if (features?.sufficient) {
+    if (features.sma5 !== null && features.sma20 !== null) {
+      if (features.sma5 > features.sma20 * 1.005) {
+        emaTrend = "BULLISH";
+      } else if (features.sma5 < features.sma20 * 0.995) {
+        emaTrend = "BEARISH";
+      }
+    }
+  }
+
+  // Overextended: vwapRatio > 1.25 or within 2% of peak
+  const isOverextended = vwapRatio > 1.25 || distanceFromPeakPct > -2;
+
+  // Buy/sell ratio: use Dex pair if available, else 1 (unknown)
+  let buySellRatio5m = 1;
+  if (dexPair) {
+    const buys = dexPair.txns?.m5?.buys ?? 0;
+    const sells = dexPair.txns?.m5?.sells ?? 0;
+    buySellRatio5m = sells > 0 ? buys / sells : 999;
+  }
+
+  return {
+    currentPriceUsd,
+    vwapUsd,
+    vwapRatio,
+    buySellRatio5m,
+    distanceFromPeakPct,
+    emaTrend,
+    isOverextended,
+    source: "birdeye",
+    features,
+  };
+}
+
+/**
+ * Map a DexScreener pair object to PAMetrics (fallback when Birdeye is off).
  * Pure function — no network, no DB.
  */
 export function mapDexPairToMetrics(pair: DexPair): PAMetrics | null {
@@ -204,7 +432,7 @@ export function mapDexPairToMetrics(pair: DexPair): PAMetrics | null {
   const sells = pair.txns?.m5?.sells ?? 0;
   const buySellRatio5m = sells > 0 ? buys / sells : 999;
 
-  // Distance from peak: use priceChange.m5 as proxy (not a true peak, but best available)
+  // Distance from peak: use priceChange.m5 as proxy
   const priceChangeM5 = pair.priceChange?.m5 ?? 0;
 
   // EMA trend: unknown on dex fallback
@@ -215,22 +443,15 @@ export function mapDexPairToMetrics(pair: DexPair): PAMetrics | null {
 
   return {
     currentPriceUsd: priceUsd,
-    vwapUsd: priceUsd, // synthetic, not a real VWAP
+    vwapUsd: priceUsd, // synthetic
     vwapRatio: 1, // synthetic
     buySellRatio5m,
     distanceFromPeakPct: priceChangeM5,
     emaTrend,
     isOverextended,
     source: "dex",
+    features: null,
   };
-}
-
-/**
- * Phase 11B: derive candle features from OHLCV bars (observe-only).
- * Returns null if bars are missing or insufficient.
- */
-export function deriveCandleFeatures(bars: OhlcvBar[]): PAMetrics["features"] {
-  return lastBarFeatures(bars);
 }
 
 export const priceActionService = new PriceActionService();
