@@ -18,6 +18,8 @@ interface PairInfo {
   symbol: string;
   volume24h: number;
   dexId: string;
+  ageH?: number;
+  _pair?: any; // Raw DexScreener pair object stashed for priceUsd
 }
 
 export class DexScreenerBoostsWatcher implements IngestionWatcher {
@@ -82,6 +84,7 @@ export class DexScreenerBoostsWatcher implements IngestionWatcher {
 
         // Get pair info (cached or fresh lookup)
         let info = this.pairCache.get(boost.tokenAddress);
+        let pair: any = undefined;
         if (info === null) continue; // already skipped
 
         if (info === undefined) {
@@ -102,7 +105,7 @@ export class DexScreenerBoostsWatcher implements IngestionWatcher {
             }
 
             // Prefer solana pair
-            let pair = pairData.pairs.find((p: any) => p.chainId === "solana") || pairData.pairs[0];
+            pair = pairData.pairs.find((p: any) => p.chainId === "solana") || pairData.pairs[0];
 
             // Filter: DEX whitelist
             const dexId = pair.dexId || "unknown";
@@ -127,6 +130,8 @@ export class DexScreenerBoostsWatcher implements IngestionWatcher {
                 dexId,
                 ageH,
               };
+              // Stash pair for the push below and for future cache hits
+              this.pairCache.set(boost.tokenAddress, { ...info, _pair: pair });
             } else {
               logger.info("INGESTION", this.name, "boost skip", { mint: boost.tokenAddress, reason: "no_created_at" });
               this.pairCache.set(boost.tokenAddress, null);
@@ -140,13 +145,18 @@ export class DexScreenerBoostsWatcher implements IngestionWatcher {
         }
 
         if (info) {
+          // Resolve pair: fresh lookup bound it; cache hit has _pair stashed
+          let resolvedPair = pair;
+          if (!resolvedPair && info._pair) {
+            resolvedPair = info._pair;
+          }
           discovered.push({
             address: boost.tokenAddress,
             symbol: info.symbol,
             volume24h: info.volume24h,
             dexId: info.dexId,
             ageH: info.ageH,
-            pair: pair,
+            pair: resolvedPair && 'priceUsd' in resolvedPair ? resolvedPair : undefined,
           });
         }
       }
