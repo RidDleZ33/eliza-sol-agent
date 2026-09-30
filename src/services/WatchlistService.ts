@@ -250,6 +250,14 @@ class WatchlistService {
         this.db.exec("ALTER TABLE watched_tokens ADD COLUMN gamma_last_at INTEGER");
         logger.info("WATCHLIST", "migrateSchema", "Added gamma_last_at column");
       }
+      if (!watchedColumnNames.has('dex_pair_json')) {
+        this.db.exec("ALTER TABLE watched_tokens ADD COLUMN dex_pair_json TEXT");
+        logger.info("WATCHLIST", "migrateSchema", "Added dex_pair_json column");
+      }
+      if (!watchedColumnNames.has('dex_pair_at')) {
+        this.db.exec("ALTER TABLE watched_tokens ADD COLUMN dex_pair_at INTEGER");
+        logger.info("WATCHLIST", "migrateSchema", "Added dex_pair_at column");
+      }
     } catch (e: any) {
       console.error(`[WATCHLIST][migrateSchema] Migration failed: ${e.message}`);
     }
@@ -664,6 +672,66 @@ class WatchlistService {
       };
     } catch (e: any) {
       logger.error("WATCHLIST", "getGammaSnapshot", "Failed to get gamma snapshot", {
+        mint,
+        error: e.message,
+      });
+      return null;
+    }
+  }
+
+  /**
+   * Phase 11A3: Save slim Dex pair JSON for a mint (PA cache).
+   * Only stores fields needed for PA mapping, not the full Dex dump.
+   */
+  saveDexPair(mint: string, pair: any): void {
+    try {
+      // Slim: only PA-relevant fields
+      const slim = {
+        chainId: pair.chainId,
+        dexId: pair.dexId,
+        pairAddress: pair.pairAddress,
+        priceUsd: pair.priceUsd,
+        txns: { m5: pair.txns?.m5 },
+        volume: { m5: pair.volume?.m5 },
+        priceChange: {
+          m5: pair.priceChange?.m5,
+          h1: pair.priceChange?.h1,
+          h6: pair.priceChange?.h6,
+          h24: pair.priceChange?.h24,
+        },
+        pairCreatedAt: pair.pairCreatedAt,
+        liquidity: { usd: pair.liquidity?.usd },
+        baseToken: { symbol: pair.baseToken?.symbol, address: pair.baseToken?.address },
+      };
+      const stmt = this.db.prepare(
+        "UPDATE watched_tokens SET dex_pair_json = ?, dex_pair_at = ? WHERE mint_address = ?"
+      );
+      stmt.run(JSON.stringify(slim), Date.now(), mint);
+    } catch (e: any) {
+      logger.debug("WATCHLIST", "saveDexPair", "Failed to save dex pair", {
+        mint,
+        error: e.message,
+      });
+    }
+  }
+
+  /**
+   * Phase 11A3: Get stored Dex pair for a mint (PA cache).
+   */
+  getDexPair(mint: string): { pair: any; at: number } | null {
+    try {
+      const row = this.db
+        .prepare(
+          "SELECT dex_pair_json, dex_pair_at FROM watched_tokens WHERE mint_address = ?"
+        )
+        .get(mint);
+      if (!row || !row.dex_pair_json) return null;
+      return {
+        pair: JSON.parse(row.dex_pair_json),
+        at: row.dex_pair_at,
+      };
+    } catch (e: any) {
+      logger.debug("WATCHLIST", "getDexPair", "Failed to get dex pair", {
         mint,
         error: e.message,
       });

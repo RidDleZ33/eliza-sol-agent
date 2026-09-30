@@ -193,8 +193,8 @@ function synthesizeCommitteeSignals(candidate: any, paMetrics?: PAMetrics | null
       };
     }
 
-    // HARD VETO: Bearish EMA trend (gecko only; dex fallback has no real EMA)
-    if (source === "gecko" && paMetrics.emaTrend === 'BEARISH') {
+    // HARD VETO: Bearish EMA trend (birdeye OHLCV only; dex has no real EMA)
+    if (source === "birdeye" && paMetrics.emaTrend === 'BEARISH') {
       return {
         decision: "PRUNE",
         convictionScore: 0,
@@ -202,8 +202,8 @@ function synthesizeCommitteeSignals(candidate: any, paMetrics?: PAMetrics | null
       };
     }
 
-    // DEFER: Price overextended (gecko only; dex uses priceChange.m5 > 25)
-    if (source === "gecko" && paMetrics.isOverextended) {
+    // DEFER: Price overextended (birdeye OHLCV only; dex uses priceChange.m5 > 25)
+    if (source === "birdeye" && paMetrics.isOverextended) {
       return {
         decision: "DEFER",
         convictionScore: 0,
@@ -235,9 +235,9 @@ function synthesizeCommitteeSignals(candidate: any, paMetrics?: PAMetrics | null
   reasons.push(`Alpha: ${alphaScore.toFixed(2)} (Conf: ${alphaConf.toFixed(2)})`);
   reasons.push(`Beta: ${betaScore.toFixed(2)} (Conf: ${betaConf.toFixed(2)})`);
 
-  // Apply PA boost: ideal entry zone (gecko only; requires real peak distance)
+  // Apply PA boost: ideal entry zone (birdeye OHLCV only; requires real peak distance)
   let finalScore = convictionScore;
-  if (paMetrics && paMetrics.source === "gecko"
+  if (paMetrics && paMetrics.source === "birdeye"
       && paMetrics.distanceFromPeakPct >= -28 && paMetrics.distanceFromPeakPct <= -12
       && paMetrics.buySellRatio5m > 1.3 && paMetrics.vwapRatio >= 0.95 && paMetrics.vwapRatio <= 1.10) {
     finalScore = Math.min(0.95, finalScore + 0.10);

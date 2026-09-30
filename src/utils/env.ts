@@ -41,6 +41,7 @@ const EnvSchema = z.object({
   INGEST_DEXSCREENER_BOOSTS: z.string().default("false"),
   INGEST_DEXSCREENER_PROFILES: z.string().default("false"),
   SOCIAL_BIRDEYE_LINKS: z.string().default("false"),
+  PA_BIRDEYE_OHLCV: z.string().default("false"),
   TWITTER_BEARER_TOKEN: z.string().optional(),
   WALLET_MIRROR_INTERVAL_MS: z.string().default("20000"),
   RUGCHECK_API_URL: z.string().default("https://api.rugcheck.xyz/v1/tokens"),
@@ -224,4 +225,9 @@ export function getDexscreenerChain(): string {
 // Phase 9A: Birdeye overview for social links is expensive, opt-in
 export function getSocialBirdeyeLinks(): boolean {
   return env.SOCIAL_BIRDEYE_LINKS === "true" || env.SOCIAL_BIRDEYE_LINKS === "1";
+}
+
+// Phase 11A3: Birdeye OHLCV for PA is opt-in (CU cost on young mints)
+export function getPaBirdeyeOhlcv(): boolean {
+  return env.PA_BIRDEYE_OHLCV === "true" || env.PA_BIRDEYE_OHLCV === "1";
 }

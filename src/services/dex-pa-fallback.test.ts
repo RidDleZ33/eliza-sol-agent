@@ -1,85 +1,96 @@
 /**
- * Phase 11A2: Dex PA fallback mapping test.
+ * Phase 11A3: mapDexPairToMetrics pure-function test.
  * Uses a frozen Dex pair fixture to verify the field mapping logic.
- * Does not hit the network.
+ * No network, no DB.
  */
 
 import { describe, test, expect } from "bun:test";
+import { mapDexPairToMetrics } from "./PriceActionService.ts";
 
-// Frozen Dex pair fixture (minimal fields needed for PA fallback)
+// Frozen Dex pair fixture: buys 40, sells 44, chg m5 2.69, h24 457
 const DEX_PAIR_FIXTURE = {
-  pairs: [
-    {
-      chainId: "solana",
-      baseToken: { address: "So11111111111111111111111111111111111111112" },
-      quoteToken: { address: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" },
-      priceUsd: "1.50",
-      priceChange: {
-        m5: 12.5,
-        h1: 5.2,
-        h6: 15.8,
-        h24: 45.3,
-      },
-      txns: {
-        m5: { buys: 80, sells: 40 },
-        h1: { buys: 200, sells: 100 },
-        h24: { buys: 5000, sells: 2500 },
-      },
-      volume: {
-        m5: 100000,
-        h1: 500000,
-        h24: 5000000,
-      },
-    },
-  ],
+  chainId: "solana",
+  pairAddress: "FakePairAddr11111111111111111111111111",
+  dexId: "raydium",
+  baseToken: { address: "So11111111111111111111111111111111111111112", symbol: "FKCANCER" },
+  quoteToken: { address: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" },
+  priceUsd: "1.50",
+  priceChange: {
+    m5: 2.69,
+    h1: 5.2,
+    h6: 15.8,
+    h24: 457,
+  },
+  txns: {
+    m5: { buys: 40, sells: 44 },
+    h1: { buys: 200, sells: 100 },
+    h24: { buys: 5000, sells: 2500 },
+  },
+  volume: {
+    m5: 100000,
+    h1: 500000,
+    h24: 5000000,
+  },
+  liquidity: { usd: 50000 },
 };
 
-describe("Dex PA fallback mapping", () => {
+describe("mapDexPairToMetrics (phase 11a3)", () => {
   test("maps priceUsd to currentPriceUsd", () => {
-    const price = parseFloat(DEX_PAIR_FIXTURE.pairs[0].priceUsd);
-    expect(price).toBe(1.5);
+    const metrics = mapDexPairToMetrics(DEX_PAIR_FIXTURE);
+    expect(metrics).not.toBeNull();
+    expect(metrics!.currentPriceUsd).toBe(1.5);
   });
 
-  test("maps txns.m5.buys/sells to buySellRatio5m", () => {
-    const buys = DEX_PAIR_FIXTURE.pairs[0].txns.m5.buys;
-    const sells = DEX_PAIR_FIXTURE.pairs[0].txns.m5.sells;
-    const ratio = sells > 0 ? buys / sells : 999;
-    expect(ratio).toBe(2.0);
+  test("maps txns.m5.buys/sells to buySellRatio5m (40/44 ≈ 0.91)", () => {
+    const metrics = mapDexPairToMetrics(DEX_PAIR_FIXTURE);
+    expect(metrics!.buySellRatio5m).toBeCloseTo(0.90909, 4);
   });
 
   test("maps priceChange.m5 to distanceFromPeakPct", () => {
-    const distance = DEX_PAIR_FIXTURE.pairs[0].priceChange.m5;
-    expect(distance).toBe(12.5);
+    const metrics = mapDexPairToMetrics(DEX_PAIR_FIXTURE);
+    expect(metrics!.distanceFromPeakPct).toBe(2.69);
   });
 
-  test("computes isOverextended from priceChange.m5 > 25", () => {
-    const chg5m = DEX_PAIR_FIXTURE.pairs[0].priceChange.m5;
-    const isOverextended = typeof chg5m === "number" && chg5m > 25;
-    expect(isOverextended).toBe(false);
+  test("isOverextended false when priceChange.m5 ≤ 25", () => {
+    const metrics = mapDexPairToMetrics(DEX_PAIR_FIXTURE);
+    expect(metrics!.isOverextended).toBe(false);
   });
 
   test("isOverextended true when priceChange.m5 > 25", () => {
-    const chg5m = 30.0;
-    const isOverextended = typeof chg5m === "number" && chg5m > 25;
-    expect(isOverextended).toBe(true);
+    const hotPair = {
+      ...DEX_PAIR_FIXTURE,
+      priceChange: { m5: 30.0, h1: 10, h6: 20, h24: 50 },
+    };
+    const metrics = mapDexPairToMetrics(hotPair);
+    expect(metrics!.isOverextended).toBe(true);
   });
 
-  test("computes HV from max of |h24|, |h6|, |h1| changes", () => {
-    const pair = DEX_PAIR_FIXTURE.pairs[0];
-    const chg24 = Math.abs(pair.priceChange.h24 ?? 0);
-    const chg6 = Math.abs(pair.priceChange.h6 ?? 0);
-    const chg1 = Math.abs(pair.priceChange.h1 ?? 0);
-    const rangePct = Math.max(chg24, chg6, chg1);
-    const hv = rangePct / 100;
-    expect(hv).toBeCloseTo(0.453, 3);
+  test("sets source to 'dex'", () => {
+    const metrics = mapDexPairToMetrics(DEX_PAIR_FIXTURE);
+    expect(metrics!.source).toBe("dex");
   });
 
-  test("HV returns null when all changes are 0", () => {
-    const chg24 = 0;
-    const chg6 = 0;
-    const chg1 = 0;
-    const rangePct = Math.max(chg24, chg6, chg1);
-    expect(rangePct).toBe(0);
-    expect(rangePct === 0).toBe(true);
+  test("returns null when priceUsd is missing", () => {
+    const noPrice = { ...DEX_PAIR_FIXTURE, priceUsd: undefined };
+    expect(mapDexPairToMetrics(noPrice)).toBeNull();
+  });
+
+  test("buySellRatio is 999 when sells is 0", () => {
+    const noSells = {
+      ...DEX_PAIR_FIXTURE,
+      txns: { ...DEX_PAIR_FIXTURE.txns, m5: { buys: 10, sells: 0 } },
+    };
+    const metrics = mapDexPairToMetrics(noSells);
+    expect(metrics!.buySellRatio5m).toBe(999);
+  });
+
+  test("emaTrend is NEUTRAL for dex source", () => {
+    const metrics = mapDexPairToMetrics(DEX_PAIR_FIXTURE);
+    expect(metrics!.emaTrend).toBe("NEUTRAL");
+  });
+
+  test("vwapRatio is synthetic 1.0 for dex source", () => {
+    const metrics = mapDexPairToMetrics(DEX_PAIR_FIXTURE);
+    expect(metrics!.vwapRatio).toBe(1);
   });
 });

@@ -6,14 +6,5 @@ export interface PAMetrics {
   distanceFromPeakPct: number; // e.g. -18.5 = 18.5% pullback off peak
   emaTrend: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
   isOverextended?: boolean; // true if vwapRatio > 1.25 OR distanceFromPeakPct > -2.0
-  source?: 'gecko' | 'dex'; // data source: gecko (candles) or dex (pair fallback)
-}
-
-export interface Candle {
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-  volume: number;
-  timestamp: number;
+  source?: 'dex' | 'birdeye'; // data source: dex (pair) or birdeye (OHLCV, optional)
 }

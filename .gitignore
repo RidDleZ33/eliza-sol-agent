@@ -8,6 +8,8 @@ dist/
 *.db
 *.sqlite
 data/tape/
+swarm.pid
+*.pid
 *.pem
 *.key
 id.json
