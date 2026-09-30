@@ -644,12 +644,20 @@ class WatchlistService {
         `)
         .get(mint);
       if (!row) return null;
+      let pa = null;
+      if (row.pa_json) {
+        try {
+          pa = JSON.parse(row.pa_json);
+        } catch (e) {
+          // bad JSON, treat as null
+        }
+      }
       return {
         symbol: row.symbol,
         decision: row.decision,
         conviction: row.conviction,
         reasons: row.reasons,
-        pa: row.pa_json ? JSON.parse(row.pa_json) : null,
+        pa,
         hv: row.hv,
         regime: row.regime,
         at: row.at,
@@ -668,7 +676,7 @@ class WatchlistService {
    */
   listGammaSnapshots(limit = 8): any[] {
     try {
-      return this.db
+      const rows = this.db
         .prepare(`
           SELECT symbol, mint_address,
             gamma_last_decision AS decision,
@@ -683,6 +691,21 @@ class WatchlistService {
           LIMIT ?
         `)
         .all(limit);
+      // Parse pa_json for each row
+      return rows.map(row => {
+        let pa = null;
+        if (row.pa_json) {
+          try {
+            pa = JSON.parse(row.pa_json);
+          } catch (e) {
+            // bad JSON, treat as null
+          }
+        }
+        return {
+          ...row,
+          pa,
+        };
+      });
     } catch (e: any) {
       logger.error("WATCHLIST", "listGammaSnapshots", "Failed to list gamma snapshots", {
         error: e.message,

@@ -97,7 +97,7 @@ export class PositionManagerService {
           ageMinutes: ageMinutes.toFixed(0),
           staleMinutes,
         });
-        await this.exitPosition(mint, symbol, `STALE_POSITION (${ageMinutes.toFixed(0)} min)`, 0, 0);
+        await this.exitPosition(mint, symbol, `STALE_POSITION (${ageMinutes.toFixed(0)} min) | MFE n/a MAE n/a hv=na regime=na`, 0, 0);
       }
       return;
     }

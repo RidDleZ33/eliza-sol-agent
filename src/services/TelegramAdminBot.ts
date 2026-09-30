@@ -781,12 +781,12 @@ export class TelegramAdminBot {
           return ctx.reply(`no gamma snapshot for ${arg}`);
         }
         const symbol = snap.symbol || arg;
-        const pa = snap.pa;
-        const vwapStr = pa?.vwapRatio != null ? ` ${pa.vwapRatio.toFixed(2)}` : "";
-        const bsStr = pa?.buySellRatio5m != null ? ` ${pa.buySellRatio5m.toFixed(2)}` : "";
-        const peakStr = pa?.distanceFromPeakPct != null ? ` ${pa.distanceFromPeakPct.toFixed(1)}%` : "";
-        const emaStr = pa?.emaTrend || "";
-        const overStr = pa?.isOverextended ? " yes" : " no";
+        let pa = null;
+        try {
+          pa = snap.pa;
+        } catch (e) {
+          // bad JSON, treat as null
+        }
         const hvStr = snap.hv != null ? ` ${snap.hv.toFixed(2)}` : "";
         const regimeStr = snap.regime || "";
         const age = this.relativeAge(snap.at);
@@ -794,7 +794,17 @@ export class TelegramAdminBot {
 
         let msg = `GAMMA $${symbol}\n`;
         msg += `dec ${snap.decision} conv=${snap.conviction?.toFixed(2) ?? "n/a"}\n`;
-        msg += `vwap${vwapStr}  bs5m${bsStr}  peak${peakStr}  ema ${emaStr}  overext${overStr}\n`;
+        if (pa) {
+          const srcPrefix = pa.source === "dex" ? "src=dex " : "";
+          const vwapStr = pa.vwapRatio != null ? ` ${pa.vwapRatio.toFixed(2)}` : "";
+          const bsStr = pa.buySellRatio5m != null ? ` ${pa.buySellRatio5m.toFixed(2)}` : "";
+          const peakStr = pa.distanceFromPeakPct != null ? ` ${pa.distanceFromPeakPct.toFixed(1)}%` : "";
+          const emaStr = pa.emaTrend || "";
+          const overStr = typeof pa.isOverextended === "boolean" ? ` ${pa.isOverextended ? "yes" : "no"}` : "";
+          msg += `${srcPrefix}vwap${vwapStr}  bs5m${bsStr}  peak${peakStr}  ema ${emaStr}  overext${overStr}\n`;
+        } else {
+          msg += "PA unavailable\n";
+        }
         msg += `hv${hvStr}  regime ${regimeStr}\n`;
         msg += `reasons: ${reasons}\n`;
         msg += `age ${age}`;
@@ -810,7 +820,12 @@ export class TelegramAdminBot {
       let msg = "GAMMA RECENT SNAPSHOTS\n";
       for (const s of snaps) {
         const symbol = s.symbol || s.mint_address.slice(0, 6) + "...";
-        const pa = s.pa_json ? JSON.parse(s.pa_json) : null;
+        let pa = null;
+        try {
+          pa = s.pa_json ? JSON.parse(s.pa_json) : null;
+        } catch (e) {
+          // bad JSON, treat as null
+        }
         const vwapStr = pa?.vwapRatio != null ? `vwap=${pa.vwapRatio.toFixed(2)}` : "";
         const bsStr = pa?.buySellRatio5m != null ? `bs=${pa.buySellRatio5m.toFixed(1)}` : "";
         const peakStr = pa?.distanceFromPeakPct != null ? `peak=${pa.distanceFromPeakPct.toFixed(0)}%` : "";
@@ -818,8 +833,9 @@ export class TelegramAdminBot {
         const hvStr = s.hv != null ? `hv=${s.hv.toFixed(2)}` : "";
         const regimeStr = s.regime || "";
         const age = this.relativeAge(s.at);
+        const srcStr = pa?.source === "dex" ? "src=dex" : "";
 
-        msg += `${s.decision} ${symbol} conv=${s.conviction?.toFixed(2) ?? "n/a"} ${vwapStr} ${bsStr} ${peakStr} ${emaStr} ${hvStr} ${regimeStr} ${age}\n`;
+        msg += `${s.decision} ${symbol} conv=${s.conviction?.toFixed(2) ?? "n/a"} ${vwapStr} ${bsStr} ${peakStr} ${emaStr} ${srcStr} ${hvStr} ${regimeStr} ${age}\n`;
       }
       return ctx.reply(msg);
     } catch (e) {

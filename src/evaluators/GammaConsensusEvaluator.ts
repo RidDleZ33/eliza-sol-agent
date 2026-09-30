@@ -40,7 +40,8 @@ async function evaluateCandidatePipeline(runtime: any) {
       try {
         paMetrics = await priceActionService.getPAMetrics(candidate.mint_address);
         if (paMetrics) {
-          runtime.logger.info(`[Gamma] ${candidate.symbol} PA Metrics:`, {
+          const sourceStr = paMetrics.source ? ` [${paMetrics.source}]` : "";
+          runtime.logger.info(`[Gamma] ${candidate.symbol} PA Metrics:${sourceStr}`, {
             vwapRatio: paMetrics.vwapRatio.toFixed(3),
             buySellRatio: paMetrics.buySellRatio5m.toFixed(2),
             distanceFromPeak: paMetrics.distanceFromPeakPct.toFixed(1) + '%',
@@ -66,6 +67,7 @@ async function evaluateCandidatePipeline(runtime: any) {
 
       const synthesis = synthesizeCommitteeSignals(candidate, paMetrics);
       runtime.logger.info(`[Gamma] ${candidate.symbol} Conviction: ${synthesis.convictionScore.toFixed(2)} -> Decision: ${synthesis.decision}`);
+      runtime.logger.info(`[Gamma] ${candidate.symbol} Reasons:`, synthesis.reasons);
 
       // Phase 11A: save gamma snapshot on every synthesis (BUY, DEFER, PRUNE)
       const paForSnapshot = paMetrics ? {
@@ -75,6 +77,7 @@ async function evaluateCandidatePipeline(runtime: any) {
         emaTrend: paMetrics.emaTrend,
         isOverextended: paMetrics.isOverextended,
         currentPriceUsd: paMetrics.currentPriceUsd,
+        source: paMetrics.source,
       } : null;
       await watchlistService.saveGammaSnapshot(
         candidate.mint_address,
@@ -177,9 +180,11 @@ function synthesizeCommitteeSignals(candidate: any, paMetrics?: PAMetrics | null
     return { decision: "PRUNE", convictionScore: 0, reasons: [`HARD VETO: Artificial/Bot volume (Organicity: ${alphaOrganicity})`] };
   }
 
-  // NEW: Price Action hard vetoes
+  // Price Action hard vetoes (dex fallback: only buy/sell ratio, no EMA/overext)
   if (paMetrics) {
-    // HARD VETO: Heavy sell pressure (buy/sell ratio < 0.5)
+    const source = paMetrics.source;
+
+    // HARD VETO: Heavy sell pressure (buy/sell ratio < 0.5) - applies to both sources
     if (paMetrics.buySellRatio5m < 0.5) {
       return {
         decision: "PRUNE",
@@ -188,8 +193,8 @@ function synthesizeCommitteeSignals(candidate: any, paMetrics?: PAMetrics | null
       };
     }
 
-    // HARD VETO: Bearish EMA trend
-    if (paMetrics.emaTrend === 'BEARISH') {
+    // HARD VETO: Bearish EMA trend (gecko only; dex fallback has no real EMA)
+    if (source === "gecko" && paMetrics.emaTrend === 'BEARISH') {
       return {
         decision: "PRUNE",
         convictionScore: 0,
@@ -197,8 +202,8 @@ function synthesizeCommitteeSignals(candidate: any, paMetrics?: PAMetrics | null
       };
     }
 
-    // DEFER: Price overextended (buying the top)
-    if (paMetrics.isOverextended) {
+    // DEFER: Price overextended (gecko only; dex uses priceChange.m5 > 25)
+    if (source === "gecko" && paMetrics.isOverextended) {
       return {
         decision: "DEFER",
         convictionScore: 0,
@@ -209,8 +214,20 @@ function synthesizeCommitteeSignals(candidate: any, paMetrics?: PAMetrics | null
       };
     }
 
+    // DEFER: Dex fallback overextended via priceChange.m5 > 25
+    if (source === "dex" && typeof paMetrics.isOverextended === "boolean" && paMetrics.isOverextended) {
+      return {
+        decision: "DEFER",
+        convictionScore: 0,
+        reasons: [`DEFER (PA): Price change 5m ${paMetrics.distanceFromPeakPct.toFixed(1)}% (overextended)`]
+      };
+    }
+
     // Log PA context for transparency
-    reasons.push(`PA: VWAP ratio ${paMetrics.vwapRatio.toFixed(2)}, B/S ${paMetrics.buySellRatio5m.toFixed(2)}, Peak drop ${paMetrics.distanceFromPeakPct.toFixed(1)}%`);
+    const srcPrefix = source === "dex" ? "[src=dex] " : "";
+    reasons.push(`${srcPrefix}PA: VWAP ratio ${paMetrics.vwapRatio.toFixed(2)}, B/S ${paMetrics.buySellRatio5m.toFixed(2)}, Peak drop ${paMetrics.distanceFromPeakPct.toFixed(1)}%`);
+  } else {
+    reasons.push("PA unavailable");
   }
 
   const convictionScore = 0.45 * (alphaScore * alphaConf) + 0.55 * (betaScore * betaConf);
@@ -218,9 +235,10 @@ function synthesizeCommitteeSignals(candidate: any, paMetrics?: PAMetrics | null
   reasons.push(`Alpha: ${alphaScore.toFixed(2)} (Conf: ${alphaConf.toFixed(2)})`);
   reasons.push(`Beta: ${betaScore.toFixed(2)} (Conf: ${betaConf.toFixed(2)})`);
 
-  // Apply PA boost: ideal entry zone (12-28% pullback from peak with good momentum)
+  // Apply PA boost: ideal entry zone (gecko only; requires real peak distance)
   let finalScore = convictionScore;
-  if (paMetrics && paMetrics.distanceFromPeakPct >= -28 && paMetrics.distanceFromPeakPct <= -12
+  if (paMetrics && paMetrics.source === "gecko"
+      && paMetrics.distanceFromPeakPct >= -28 && paMetrics.distanceFromPeakPct <= -12
       && paMetrics.buySellRatio5m > 1.3 && paMetrics.vwapRatio >= 0.95 && paMetrics.vwapRatio <= 1.10) {
     finalScore = Math.min(0.95, finalScore + 0.10);
     reasons.push("BUY BOOST (PA): Ideal dip entry zone (+0.10 conviction)");

@@ -5,7 +5,8 @@ export interface PAMetrics {
   buySellRatio5m: number; // e.g. 1.80 = 80% more buys than sells
   distanceFromPeakPct: number; // e.g. -18.5 = 18.5% pullback off peak
   emaTrend: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
-  isOverextended: boolean; // true if vwapRatio > 1.25 OR distanceFromPeakPct > -2.0
+  isOverextended?: boolean; // true if vwapRatio > 1.25 OR distanceFromPeakPct > -2.0
+  source?: 'gecko' | 'dex'; // data source: gecko (candles) or dex (pair fallback)
 }
 
 export interface Candle {
