@@ -3,6 +3,7 @@ import { logger } from "./LoggerService.ts";
 import { PAMetrics } from "../types/priceAction.ts";
 import { configService } from "./ConfigService.ts";
 import { watchlistService } from "./WatchlistService.ts";
+import { getPaBirdeyeOhlcv, getBirdeyeApiKey } from "../utils/env.ts";
 
 // DexScreener pair shape (subset used by PA)
 interface DexPair {
@@ -50,19 +51,28 @@ export class PriceActionService {
       return cached.metrics;
     }
 
+    // Phase 11A3N: Birdeye OHLCV is opt-in, default off
+    if (!getPaBirdeyeOhlcv() || !getBirdeyeApiKey()) {
+      logger.debug("PA birdeye skipped");
+    }
+
     try {
       // Step 2: Stashed Dex pair from ingest (if fresh)
       const stashed = watchlistService.getDexPair(mintAddress);
       if (stashed && stashed.at && Date.now() - stashed.at < 120000) {
-        const metrics = mapDexPairToMetrics(stashed.pair);
-        if (metrics) {
-          this.cache.set(mintAddress, { metrics, timestamp: Date.now() });
-          this.lastDexBody.set(mintAddress, {
-            body: stashed.pair,
-            timestamp: Date.now(),
-          });
-          logger.debug("PA", "PriceAction", "PA from stashed pair", { mint: mintAddress });
-          return metrics;
+        try {
+          const metrics = mapDexPairToMetrics(stashed.pair);
+          if (metrics) {
+            this.cache.set(mintAddress, { metrics, timestamp: Date.now() });
+            this.lastDexBody.set(mintAddress, {
+              body: stashed.pair,
+              timestamp: Date.now(),
+            });
+            logger.debug("PA", "PriceAction", "PA from stashed pair", { mint: mintAddress });
+            return metrics;
+          }
+        } catch (e: any) {
+          logger.debug("PA", "PriceAction", "Bad stashed pair", { mint: mintAddress, error: e.message });
         }
       }
 
@@ -70,17 +80,14 @@ export class PriceActionService {
       const url = `https://api.dexscreener.com/latest/dex/tokens/${mintAddress}`;
       const response = await fetchWithRetry(url);
       if (!response.ok) {
-        logger.warn("PA", "PriceAction", "DexScreener pair fetch failed", {
-          mint: mintAddress,
-          status: response.status,
-        });
+        logger.warn(`PA miss mint=${mintAddress} reason=http_${response.status}`);
         return null;
       }
 
       const data = await response.json();
       const pairs = data?.pairs;
       if (!pairs || pairs.length === 0) {
-        logger.warn("PA", "PriceAction", "No DexScreener pairs found", { mint: mintAddress });
+        logger.warn(`PA miss mint=${mintAddress} reason=no_pair`);
         return null;
       }
 
@@ -111,12 +118,10 @@ export class PriceActionService {
         return metrics;
       }
 
+      logger.warn(`PA miss mint=${mintAddress} reason=map_failed`);
       return null;
     } catch (e: any) {
-      logger.error("PA", "PriceAction", "PA fetch error", {
-        mint: mintAddress,
-        error: e.message,
-      });
+      logger.warn(`PA miss mint=${mintAddress} reason=${e.message}`);
       return null;
     }
   }
@@ -155,10 +160,7 @@ export class PriceActionService {
 
       return this.computeHVFromPair(pair);
     } catch (e: any) {
-      logger.warn("PA", "PriceAction", "24h HV fetch failed", {
-        mint,
-        error: e.message,
-      });
+      logger.warn(`PA miss mint=${mint} reason=hv_${e.message}`);
       return null;
     }
   }

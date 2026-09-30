@@ -71,7 +71,7 @@ export class DexScreenerBoostsWatcher implements IngestionWatcher {
 
       // Filter by chain and cap
       const maxTokens = getMaxTrendingTokens();
-      const discovered: { address: string; symbol: string; volume24h: number; dexId: string; ageH: number }[] = [];
+      const discovered: { address: string; symbol: string; volume24h: number; dexId: string; ageH: number; pair?: any }[] = [];
       const now = Date.now();
       const maxAgeMs = this.MAX_AGE_HOURS * 60 * 60 * 1000;
 
@@ -146,6 +146,7 @@ export class DexScreenerBoostsWatcher implements IngestionWatcher {
             volume24h: info.volume24h,
             dexId: info.dexId,
             ageH: info.ageH,
+            pair: pair,
           });
         }
       }
@@ -168,6 +169,10 @@ export class DexScreenerBoostsWatcher implements IngestionWatcher {
             ageH: tok.ageH,
             volume24h: tok.volume24h,
           });
+          // Phase 11A3N: stash pair at ingest so PA is warm on first Gamma tick
+          if (tok.pair) {
+            watchlistService.saveDexPair(tok.address, tok.pair);
+          }
         } else {
           dupCount++;
         }

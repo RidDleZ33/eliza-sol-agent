@@ -107,7 +107,8 @@ export class DexScreenerTrendingWatcher implements IngestionWatcher {
 
       let newCount = 0;
       let dupCount = 0;
-      for (const tok of discovered) {
+      for (let i = 0; i < discovered.length; i++) {
+        const tok = discovered[i];
         const inserted = await watchlistService.addDiscoveredToken(
           tok.address,
           tok.symbol,
@@ -116,6 +117,11 @@ export class DexScreenerTrendingWatcher implements IngestionWatcher {
         );
         if (inserted) {
           newCount++;
+          // Phase 11A3N: stash pair at ingest so PA is warm on first Gamma tick
+          const pair = pairs[i];
+          if (pair && pair.priceUsd) {
+            watchlistService.saveDexPair(tok.address, pair);
+          }
         } else {
           dupCount++;
         }
