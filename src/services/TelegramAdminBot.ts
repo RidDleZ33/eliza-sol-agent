@@ -3,6 +3,7 @@ import { PublicKey } from "@solana/web3.js";
 import { configService, ConfigKey } from "./ConfigService.ts";
 import { logger, LogLevel } from "./LoggerService.ts";
 import { watchlistService } from "./WatchlistService.ts";
+import { aggregateBook } from "./TradeBookService.ts";
 import { TelegramDashboardFormatter } from "../utils/TelegramDashboardFormatter.ts";
 import { tier, can } from "../entitlements/tier.ts";
 
@@ -174,6 +175,20 @@ export class TelegramAdminBot {
       this.pauseLogStream();
       this.pauseWarRoom();
       await this.showPnl(ctx);
+    });
+
+    this.bot.command("book", async (ctx) => {
+      if (!this.isAdmin(ctx)) {
+        await ctx.reply("⚠️ Admin access only.");
+        return;
+      }
+      if (!can("view_trades")) {
+        await ctx.reply(`⚠️ tier ${tier()} too low for trade journal`);
+        return;
+      }
+      this.pauseLogStream();
+      this.pauseWarRoom();
+      await this.showBook(ctx);
     });
 
     this.bot.command("dashboard", async (ctx) => {
@@ -372,6 +387,7 @@ export class TelegramAdminBot {
         "/positions - Detailed active position list\n" +
         "/trades - Trade journal and state\n" +
         "/pnl - Session PnL and position count\n" +
+        "/book [24h] - Closed round-trip book sliced by exit/pa/src/hold\n" +
         "/gamma [SYMBOL] - Gamma consensus snapshots (last 8 or specific token)\n" +
         "/logs - Logging configuration\n" +
         "\n" +
@@ -892,6 +908,28 @@ export class TelegramAdminBot {
       await ctx.reply(text);
     } catch (e) {
       logger.error("TELEGRAM", "TelegramAdminBot", "Failed to show PnL", { error: e.message });
+      await ctx.reply(`❌ Failed: ${e.message}`);
+    }
+  }
+
+  private async showBook(ctx: any) {
+    try {
+      const arg = ctx.args?.[0];
+      let hoursBack: number | null = null;
+      if (arg === "24h" || arg === "24") {
+        hoursBack = 24;
+      }
+      const { trips, lines } = aggregateBook(hoursBack);
+      if (trips.length === 0) {
+        return ctx.reply("BOOK empty");
+      }
+      let msg = lines.join("\n");
+      if (msg.length > 3500) {
+        msg = msg.substring(0, 3500) + "\n... (truncated)";
+      }
+      await ctx.reply(msg);
+    } catch (e) {
+      logger.error("TELEGRAM", "TelegramAdminBot", "Failed to show book", { error: e.message });
       await ctx.reply(`❌ Failed: ${e.message}`);
     }
   }

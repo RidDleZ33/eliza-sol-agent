@@ -32,7 +32,7 @@ function classifyPaSrc(reason: string | null | undefined, buyReason: string | nu
   return "unk";
 }
 
-function classifyIngest(addedBy: string | null | undefined): string {
+export function classifyIngest(addedBy: string | null | undefined): string {
   if (!addedBy) return "unk";
   if (addedBy.includes("ds_boost")) return "ds_boost";
   if (addedBy.includes("be_new")) return "be_new";
@@ -57,118 +57,126 @@ function bucketLine(label: string, buckets: Map<string, { n: number; pnl: number
   return s.trim();
 }
 
+export function aggregateTrips(
+  sells: any[],
+  buys: Map<string, any[]>,
+  watchedIngest: Map<string, string>
+): ClosedTrip[] {
+  const trips: ClosedTrip[] = [];
+  // Build per-mint buy lists sorted by id ascending
+  for (const [mint, list] of buys.entries()) {
+    list.sort((a, b) => a.id - b.id);
+  }
+  for (const sell of sells) {
+    const list = buys.get(sell.mint);
+    if (!list) continue;
+    // Find most recent buy with id < sell.id
+    let best: any = null;
+    for (const b of list) {
+      if (b.id < sell.id) best = b;
+      else break;
+    }
+    if (!best) continue;
+    // Remove from list so it's not reused
+    const idx = list.indexOf(best);
+    if (idx >= 0) list.splice(idx, 1);
+    // Normalize timestamps: if < 1e12, treat as seconds
+    const buyTs = best.created_at < 1e12 ? best.created_at * 1000 : best.created_at;
+    const sellTs = sell.created_at < 1e12 ? sell.created_at * 1000 : sell.created_at;
+    const pnl = sell.sol_out - best.sol_in;
+    trips.push({
+      buy_at: buyTs,
+      sell_at: sellTs,
+      sol_in: best.sol_in,
+      sol_out: sell.sol_out,
+      pnl_sol: pnl,
+      exit_fam: classifyExit(sell.reason),
+      pa_src: classifyPaSrc(sell.reason, best.reason),
+      ingest: classifyIngest(watchedIngest.get(sell.mint) || null),
+      symbol: sell.symbol || "",
+      mint: sell.mint,
+    });
+  }
+  return trips;
+}
+
+export function formatBook(trips: ClosedTrip[]): string[] {
+  const lines: string[] = [];
+  if (trips.length === 0) {
+    lines.push("BOOK empty");
+    return lines;
+  }
+  const totalPnl = trips.reduce((s, t) => s + t.pnl_sol, 0);
+  const wins = trips.filter((t) => t.pnl_sol > 0).length;
+  const wr = (wins / trips.length) * 100;
+  const sign = totalPnl >= 0 ? "+" : "";
+  lines.push(
+    `BOOK n=${trips.length}  pnl=${sign}${totalPnl.toFixed(2)} SOL  wr=${wr.toFixed(0)}%`
+  );
+  const exitBuckets = new Map<string, { n: number; pnl: number }>();
+  for (const t of trips) {
+    const b = exitBuckets.get(t.exit_fam) || { n: 0, pnl: 0 };
+    b.n++; b.pnl += t.pnl_sol;
+    exitBuckets.set(t.exit_fam, b);
+  }
+  lines.push(bucketLine("by exit", exitBuckets));
+  const paBuckets = new Map<string, { n: number; pnl: number }>();
+  for (const t of trips) {
+    const b = paBuckets.get(t.pa_src) || { n: 0, pnl: 0 };
+    b.n++; b.pnl += t.pnl_sol;
+    paBuckets.set(t.pa_src, b);
+  }
+  lines.push(bucketLine("by pa", paBuckets));
+  const ingestBuckets = new Map<string, { n: number; pnl: number }>();
+  for (const t of trips) {
+    const b = ingestBuckets.get(t.ingest) || { n: 0, pnl: 0 };
+    b.n++; b.pnl += t.pnl_sol;
+    ingestBuckets.set(t.ingest, b);
+  }
+  lines.push(bucketLine("by src", ingestBuckets));
+  const holdBuckets = new Map<string, { n: number; pnl: number }>();
+  for (const t of trips) {
+    const key = holdBucket((t.sell_at - t.buy_at) / 1000);
+    const b = holdBuckets.get(key) || { n: 0, pnl: 0 };
+    b.n++; b.pnl += t.pnl_sol;
+    holdBuckets.set(key, b);
+  }
+  lines.push(bucketLine("by hold", holdBuckets));
+  return lines;
+}
+
 export function aggregateBook(hoursBack: number | null): {
   trips: ClosedTrip[];
   lines: string[];
 } {
   const db = watchlistService.getDb();
-
-  // SQL: pair each SELL on a mint with the most recent prior unfilled BUY on same mint.
-  // Walk sells, find matching buy, mark buy as used.
   const sells = db.prepare(
     `SELECT id, mint, symbol, side, sol_in, sol_out, reason, created_at
      FROM trades
      WHERE side = 'SELL' AND sol_out IS NOT NULL
      ORDER BY created_at ASC`
   ).all() as any[];
-
-  const trips: ClosedTrip[] = [];
-  const usedBuys = new Set<number>();
-
-  for (const sell of sells) {
-    const buy = db.prepare(
-      `SELECT id, sol_in, reason, created_at FROM trades
-       WHERE mint = ? AND side = 'BUY' AND sol_in IS NOT NULL
-         AND id < ? AND id NOT IN (${Array.from(usedBuys).join(",") || "0"})
-       ORDER BY id DESC LIMIT 1`
-    ).get(sell.mint, sell.id) as any;
-
-    if (!buy) continue;
-    usedBuys.add(buy.id);
-
-    const pnl = sell.sol_out - buy.sol_in;
-    const holdSecs = (sell.created_at - buy.created_at) / 1000;
-
-    // Look up ingest source from watched_tokens
-    const watched = db.prepare("SELECT added_by_agent FROM watched_tokens WHERE mint_address = ? LIMIT 1").get(sell.mint);
-
-    trips.push({
-      buy_at: buy.created_at,
-      sell_at: sell.created_at,
-      sol_in: buy.sol_in,
-      sol_out: sell.sol_out,
-      pnl_sol: pnl,
-      exit_fam: classifyExit(sell.reason),
-      pa_src: classifyPaSrc(sell.reason, buy.reason),
-      ingest: classifyIngest(watched?.added_by_agent),
-      symbol: sell.symbol || "",
-      mint: sell.mint,
-    });
+  const buyRows = db.prepare(
+    `SELECT id, mint, side, sol_in, reason, created_at
+     FROM trades
+     WHERE side = 'BUY' AND sol_in IS NOT NULL`
+  ).all() as any[];
+  const buys = new Map<string, any[]>();
+  for (const r of buyRows) {
+    if (!buys.has(r.mint)) buys.set(r.mint, []);
+    buys.get(r.mint)!.push(r);
   }
-
+  // watched_tokens ingest source map
+  const watchedRows = db.prepare("SELECT mint_address, added_by_agent FROM watched_tokens").all() as any[];
+  const watchedIngest = new Map<string, string>();
+  for (const r of watchedRows) {
+    if (r.added_by_agent) watchedIngest.set(r.mint_address, r.added_by_agent);
+  }
+  let trips = aggregateTrips(sells, buys, watchedIngest);
   // Filter by time if requested
-  let filtered = trips;
   if (hoursBack !== null) {
     const cutoff = Date.now() - hoursBack * 3600 * 1000;
-    filtered = trips.filter((t) => t.sell_at >= cutoff);
+    trips = trips.filter((t) => t.sell_at >= cutoff);
   }
-
-  const lines: string[] = [];
-
-  if (filtered.length === 0) {
-    lines.push("BOOK empty");
-    return { trips: filtered, lines };
-  }
-
-  // Totals
-  const totalPnl = filtered.reduce((s, t) => s + t.pnl_sol, 0);
-  const wins = filtered.filter((t) => t.pnl_sol > 0).length;
-  const wr = (wins / filtered.length) * 100;
-  const sign = totalPnl >= 0 ? "+" : "";
-  lines.push(
-    `BOOK n=${filtered.length}  pnl=${sign}${totalPnl.toFixed(2)} SOL  wr=${wr.toFixed(0)}%`
-  );
-
-  // By exit family
-  const exitBuckets = new Map<string, { n: number; pnl: number }>();
-  for (const t of filtered) {
-    const b = exitBuckets.get(t.exit_fam) || { n: 0, pnl: 0 };
-    b.n++;
-    b.pnl += t.pnl_sol;
-    exitBuckets.set(t.exit_fam, b);
-  }
-  lines.push(bucketLine("by exit", exitBuckets));
-
-  // By PA source
-  const paBuckets = new Map<string, { n: number; pnl: number }>();
-  for (const t of filtered) {
-    const b = paBuckets.get(t.pa_src) || { n: 0, pnl: 0 };
-    b.n++;
-    b.pnl += t.pnl_sol;
-    paBuckets.set(t.pa_src, b);
-  }
-  lines.push(bucketLine("by pa", paBuckets));
-
-  // By ingest source
-  const ingestBuckets = new Map<string, { n: number; pnl: number }>();
-  for (const t of filtered) {
-    const b = ingestBuckets.get(t.ingest) || { n: 0, pnl: 0 };
-    b.n++;
-    b.pnl += t.pnl_sol;
-    ingestBuckets.set(t.ingest, b);
-  }
-  lines.push(bucketLine("by src", ingestBuckets));
-
-  // By hold bucket
-  const holdBuckets = new Map<string, { n: number; pnl: number }>();
-  for (const t of filtered) {
-    const key = holdBucket((t.sell_at - t.buy_at) / 1000);
-    const b = holdBuckets.get(key) || { n: 0, pnl: 0 };
-    b.n++;
-    b.pnl += t.pnl_sol;
-    holdBuckets.set(key, b);
-  }
-  lines.push(bucketLine("by hold", holdBuckets));
-
-  return { trips: filtered, lines };
+  return { trips, lines: formatBook(trips) };
 }
