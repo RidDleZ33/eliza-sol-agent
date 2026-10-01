@@ -1,5 +1,16 @@
 import type { DashboardMetrics } from "../services/WatchlistService.ts";
 
+/**
+ * Escape user/market strings for Telegram HTML.
+ * & must be first so we don't double-escape.
+ */
+export function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
 export class TelegramDashboardFormatter {
   /**
    * Formats Dashboard Metrics into Telegram HTML
@@ -30,14 +41,14 @@ export class TelegramDashboardFormatter {
         const posPnlEmoji = pos.unrealized_pnl_pct >= 0 ? "📈" : "📉";
         const shortenedMint = `${pos.mint_address.slice(0, 4)}...${pos.mint_address.slice(-4)}`;
 
-        html += `<b>${idx + 1}. $${pos.symbol}</b> (<code>${shortenedMint}</code>)\n`;
+        html += `<b>${idx + 1}. $${escapeHtml(pos.symbol)}</b> (<code>${shortenedMint}</code>)\n`;
         html += `  • <b>Size:</b> <code>${pos.amount_sol} SOL</code>\n`;
         html += `  • <b>Entry $ :</b> <code>$${pos.entry_price_usd.toFixed(6)}</code>\n`;
         html += `  • <b>Current $:</b> <code>$${pos.current_price_usd.toFixed(6)}</code>\n`;
         html += `  • <b>Peak High $:</b> <code>$${pos.peak_price_usd.toFixed(6)}</code>\n`;
         html += `  • <b>PnL:</b> ${posPnlEmoji} <b>${pos.unrealized_pnl_pct >= 0 ? '+' : ''}${pos.unrealized_pnl_pct.toFixed(2)}%</b> (<code>${pos.unrealized_pnl_sol >= 0 ? '+' : ''}${pos.unrealized_pnl_sol.toFixed(4)} SOL</code>)\n`;
         html += `  • <b>Trailing SL:</b> <code>$${pos.trailing_stop_level_usd.toFixed(6)}</code>\n`;
-        html += `  • <b>Tier:</b> <code>${pos.trailing_tier}</code>\n\n`;
+        html += `  • <b>Tier:</b> <code>${escapeHtml(pos.trailing_tier)}</code>\n\n`;
       });
     }
 
@@ -53,8 +64,8 @@ export class TelegramDashboardFormatter {
     } else {
       recent_journal.forEach((log) => {
         const time = new Date(log.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        html += `• <code>[${time}]</code> <b>${log.symbol}</b> - <b>${log.event_type}</b>\n`;
-        if (log.reason) html += `  <i>Reason: ${log.reason}</i>\n`;
+        html += `• <code>[${time}]</code> <b>${escapeHtml(log.symbol)}</b> - <b>${escapeHtml(log.event_type)}</b>\n`;
+        if (log.reason) html += `  <i>Reason: ${escapeHtml(log.reason)}</i>\n`;
       });
     }
 
