@@ -81,16 +81,17 @@ export class PriceActionService {
       if (getPaBirdeyeOhlcv() && getBirdeyeApiKey() && !this.is429Cooldown()) {
         const barsEntry = await this.getBirdeyeBars(mintAddress);
         if (barsEntry.bars && barsEntry.bars.length >= 3) {
-          // lastBarFeatures dead-trims internally; don't double-trim
-          const features = lastBarFeatures(barsEntry.bars);
+          // Trim once; pass same trimmed array to both features and metrics
+          const trimmed = deadTrim(barsEntry.bars);
+          const features = lastBarFeatures(trimmed);
           const dexPair = this.getDexPairForBuySell(mintAddress);
-          const metrics = metricsFromBars(barsEntry.bars, features, dexPair);
+          const metrics = metricsFromBars(trimmed, features, dexPair);
           if (metrics) {
             this.cache.set(mintAddress, { metrics, timestamp: Date.now(), source: "birdeye" });
             logger.info("PA source=birdeye", {
               mint: mintAddress,
               bars: barsEntry.bars.length,
-              trimmed: features?.barCount ?? 0,
+              trimmed: trimmed.length,
               "cu~12": true,
             });
             return metrics;
