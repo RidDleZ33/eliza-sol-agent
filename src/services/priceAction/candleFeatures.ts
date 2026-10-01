@@ -51,6 +51,26 @@ function simpleMovingAverage(bars: OhlcvBar[], period: number): number | null {
   return sum / period;
 }
 
+/**
+ * Standard EMA (Exponential Moving Average).
+ * Seed = SMA of first `period` values, then k=2/(period+1).
+ */
+export function ema(values: number[], period: number): number | null {
+  if (values.length < period) return null;
+  // Seed with SMA
+  let seedSum = 0;
+  for (let i = 0; i < period; i++) {
+    seedSum += values[i];
+  }
+  let emaVal = seedSum / period;
+  const k = 2 / (period + 1);
+  // Iterate through remaining values
+  for (let i = period; i < values.length; i++) {
+    emaVal = values[i] * k + emaVal * (1 - k);
+  }
+  return emaVal;
+}
+
 function rsi(bars: OhlcvBar[], period = 14): number | null {
   if (bars.length < period + 1) return null;
   let gains = 0;
@@ -65,28 +85,25 @@ function rsi(bars: OhlcvBar[], period = 14): number | null {
   return 100 - 100 / (1 + rs);
 }
 
+// Last-bar feature metrics (on trimmed window)
 function volatilityPct(bars: OhlcvBar[]): number | null {
-  if (bars.length < 2) return null;
-  const first = bars[0].o;
-  const last = bars[bars.length - 1].c;
-  if (first === 0) return null;
-  return Math.abs((last - first) / first);
+  const last = bars[bars.length - 1];
+  if (last.o === 0) return null;
+  return (last.h - last.l) / last.o;
 }
 
 function priceChangePct(bars: OhlcvBar[]): number | null {
-  if (bars.length < 2) return null;
-  const first = bars[0].o;
-  const last = bars[bars.length - 1].c;
-  if (first === 0) return null;
-  return ((last - first) / first) * 100;
+  const last = bars[bars.length - 1];
+  if (last.o === 0) return null;
+  return ((last.c - last.o) / last.o) * 100;
 }
 
 function volumeChangePct(bars: OhlcvBar[]): number | null {
   if (bars.length < 2) return null;
-  const first = bars[0].v;
-  const last = bars[bars.length - 1].v;
-  if (first === 0) return null;
-  return ((last - first) / first) * 100;
+  const prev = bars[bars.length - 2];
+  const last = bars[bars.length - 1];
+  if (prev.v === 0) return null;
+  return ((last.v - prev.v) / prev.v) * 100;
 }
 
 export type LastBarFeatures = {
@@ -111,7 +128,7 @@ export function lastBarFeatures(bars: OhlcvBar[], minBars = 20): LastBarFeatures
   const sufficient = trimmedBars.length >= minBars;
 
   return {
-    barCount: bars.length,
+    barCount: trimmedBars.length,
     liveStartIdx: live,
     trimmed,
     sufficient,

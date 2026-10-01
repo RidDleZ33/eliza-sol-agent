@@ -1,8 +1,14 @@
-import { describe, test, expect } from "bun:test";
+import { describe, test, expect, afterEach } from "bun:test";
 import { fetchBirdeyeOhlcv, BirdeyeOhlcvItem } from "../src/services/priceAction/birdeyeOhlcv.ts";
-import { deadTrim, firstLiveIndex, lastBarFeatures, OhlcvBar } from "../src/services/priceAction/candleFeatures.ts";
+import { deadTrim, firstLiveIndex, lastBarFeatures, ema, OhlcvBar } from "../src/services/priceAction/candleFeatures.ts";
 import { metricsFromBars } from "../src/services/PriceActionService.ts";
 import { CandleFeatures } from "../src/types/priceAction.ts";
+
+const origFetch = globalThis.fetch;
+
+afterEach(() => {
+  globalThis.fetch = origFetch;
+});
 
 // Fixture: Birdeye-style OHLCV items (seconds timestamps)
 const fixtureItems: BirdeyeOhlcvItem[] = [
@@ -11,6 +17,24 @@ const fixtureItems: BirdeyeOhlcvItem[] = [
   { unix_time: 1790000120, o: 1.2, h: 1.4, l: 1.1, c: 1.3, v: 200, v_usd: 260 },
   { unix_time: 1790000180, o: 1.3, h: 1.5, l: 1.2, c: 1.4, v: 180, v_usd: 252 },
 ];
+
+describe("ema", () => {
+  test("flat series EMA9 equals close", () => {
+    const closes = Array(30).fill(10);
+    const e9 = ema(closes, 9);
+    expect(e9).toBe(10);
+  });
+
+  test("rising 30 bars EMA9 > EMA21", () => {
+    const closes: number[] = [];
+    for (let i = 0; i < 30; i++) closes.push(10 + i);
+    const e9 = ema(closes, 9);
+    const e21 = ema(closes, 21);
+    expect(e9).not.toBeNull();
+    expect(e21).not.toBeNull();
+    expect(e9!).toBeGreaterThan(e21!);
+  });
+});
 
 describe("candleFeatures helpers", () => {
   test("deadTrim trims leading flat bars", () => {
@@ -23,7 +47,6 @@ describe("candleFeatures helpers", () => {
       { t: 6, o: 1.4, h: 1.7, l: 1.3, c: 1.5, v: 30 },
     ];
     const trimmed = deadTrim(bars, 2);
-    // First live index is 3; lookback=2 => slice from 1
     expect(trimmed.length).toBe(5);
     expect(trimmed[0].t).toBe(2);
   });
@@ -73,6 +96,41 @@ describe("candleFeatures helpers", () => {
     const features = lastBarFeatures(bars, 20);
     expect(features).not.toBeNull();
     expect(features!.sufficient).toBe(true);
+    expect(features!.barCount).toBe(25);
+  });
+
+  test("lastBarFeatures volatility is last bar's range/open", () => {
+    const bars: OhlcvBar[] = [];
+    for (let i = 0; i < 25; i++) {
+      bars.push({
+        t: i * 60000,
+        o: 10,
+        h: 10.5,
+        l: 9.5,
+        c: 10.2,
+        v: 100,
+      });
+    }
+    const features = lastBarFeatures(bars, 20);
+    // volatility = (h - l) / o = 0.5/10 = 0.05
+    expect(features!.volatility).toBeCloseTo(0.1);
+  });
+
+  test("lastBarFeatures priceChange is last bar's close/open", () => {
+    const bars: OhlcvBar[] = [];
+    for (let i = 0; i < 25; i++) {
+      bars.push({
+        t: i * 60000,
+        o: 10,
+        h: 11,
+        l: 9,
+        c: 10.5,
+        v: 100,
+      });
+    }
+    const features = lastBarFeatures(bars, 20);
+    // priceChange = (c - o) / o * 100 = 0.5/10 * 100 = 5
+    expect(features!.priceChange).toBeCloseTo(5);
   });
 });
 
@@ -105,7 +163,7 @@ describe("metricsFromBars", () => {
     // Last price is above VWAP
     expect(metrics!.currentPriceUsd).toBeGreaterThan(metrics!.vwapUsd);
 
-    // EMA trend: SMA5 > SMA20 on rising bars => BULLISH
+    // EMA trend: EMA9 > EMA21 on rising bars => BULLISH
     expect(metrics!.emaTrend).toBe("BULLISH");
 
     // Overextended: within 2% of peak (rising bars are near peak)
@@ -165,7 +223,6 @@ describe("metricsFromBars", () => {
 
 describe("fetchBirdeyeOhlcv parse shapes", () => {
   test("parseItems handles { items: [...] } shape", async () => {
-    // Mock fetch to return items shape
     globalThis.fetch = async (url: string) => {
       return {
         ok: true,
@@ -239,7 +296,6 @@ describe("fetchBirdeyeOhlcv parse shapes", () => {
       { unix_time: 1790000060, o: 1.1, h: 1.3, l: 1.0, c: 1.2, v: 150 },
     ];
 
-    // Map manually to check non-finite filtering
     const bars: OhlcvBar[] = [];
     for (const item of badItems) {
       if (Number.isFinite(item.o) && Number.isFinite(item.h) &&
@@ -249,7 +305,6 @@ describe("fetchBirdeyeOhlcv parse shapes", () => {
         bars.push({ t, o: item.o, h: item.h, l: item.l, c: item.c, v });
       }
     }
-    // First item has NaN open, should be filtered
     expect(bars.length).toBe(1);
     expect(bars[0].t).toBe(1790000060000);
   });

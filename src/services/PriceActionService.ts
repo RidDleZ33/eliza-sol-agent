@@ -4,7 +4,7 @@ import { PAMetrics, CandleFeatures } from "../types/priceAction.ts";
 import { configService } from "./ConfigService.ts";
 import { watchlistService } from "./WatchlistService.ts";
 import { getPaBirdeyeOhlcv, getBirdeyeApiKey } from "../utils/env.ts";
-import { lastBarFeatures, deadTrim, OhlcvBar } from "./priceAction/candleFeatures.ts";
+import { lastBarFeatures, deadTrim, ema, OhlcvBar } from "./priceAction/candleFeatures.ts";
 import { fetchBirdeyeOhlcv } from "./priceAction/birdeyeOhlcv.ts";
 
 // DexScreener pair shape (subset used by PA)
@@ -81,28 +81,16 @@ export class PriceActionService {
       if (getPaBirdeyeOhlcv() && getBirdeyeApiKey() && !this.is429Cooldown()) {
         const barsEntry = await this.getBirdeyeBars(mintAddress);
         if (barsEntry.bars && barsEntry.bars.length >= 3) {
-          // Compute metrics from bars
-          const trimmed = deadTrim(barsEntry.bars);
-          const features = lastBarFeatures(trimmed);
+          // lastBarFeatures dead-trims internally; don't double-trim
+          const features = lastBarFeatures(barsEntry.bars);
           const dexPair = this.getDexPairForBuySell(mintAddress);
-          const metrics = metricsFromBars(trimmed, features, dexPair);
+          const metrics = metricsFromBars(barsEntry.bars, features, dexPair);
           if (metrics) {
             this.cache.set(mintAddress, { metrics, timestamp: Date.now(), source: "birdeye" });
-            // Store bars in dex body map for HV reuse
-            this.lastDexBody.set(mintAddress, {
-              body: {
-                chainId: "solana",
-                baseToken: { address: mintAddress },
-                quoteToken: { address: "So11111111111111111111111111111111111111112" },
-                priceUsd: String(metrics.currentPriceUsd),
-                priceChange: { h24: features?.priceChange ?? 0 },
-              },
-              timestamp: Date.now(),
-            });
             logger.info("PA source=birdeye", {
               mint: mintAddress,
               bars: barsEntry.bars.length,
-              trimmed: trimmed.length,
+              trimmed: features?.barCount ?? 0,
               "cu~12": true,
             });
             return metrics;
@@ -219,7 +207,11 @@ export class PriceActionService {
   }
 
   private is429Cooldown(): boolean {
-    return Date.now() < this.rate429CooldownUntil;
+    if (Date.now() >= this.rate429CooldownUntil) {
+      this.rate429Logged = false;
+      return false;
+    }
+    return true;
   }
 
   private set429Cooldown() {
@@ -381,13 +373,16 @@ export function metricsFromBars(
   }
   const distanceFromPeakPct = maxHigh > 0 ? ((currentPriceUsd / maxHigh) - 1) * 100 : 0;
 
-  // EMA trend: SMA5 vs SMA20 as proxy (sufficient bars required)
+  // EMA trend: real EMA9 vs EMA21 (need ≥21 closes)
   let emaTrend: "BULLISH" | "BEARISH" | "NEUTRAL" = "NEUTRAL";
-  if (features?.sufficient) {
-    if (features.sma5 !== null && features.sma20 !== null) {
-      if (features.sma5 > features.sma20 * 1.005) {
+  const closes = bars.map((b) => b.c).filter((c) => Number.isFinite(c));
+  if (closes.length >= 21) {
+    const ema9 = ema(closes, 9);
+    const ema21 = ema(closes, 21);
+    if (ema9 !== null && ema21 !== null) {
+      if (ema9 > ema21 * 1.001) {
         emaTrend = "BULLISH";
-      } else if (features.sma5 < features.sma20 * 0.995) {
+      } else if (ema9 < ema21 * 0.999) {
         emaTrend = "BEARISH";
       }
     }

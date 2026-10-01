@@ -125,21 +125,30 @@ describe("lastBarFeatures", () => {
     expect(features!.rsi14).toBeLessThanOrEqual(100);
   });
 
-  test("price change is null when open is 0", () => {
+  test("price change is null when last bar open is 0", () => {
     const bars = [
-      makeBar(0, 0, 0, 0, 0, 0),
-      makeBar(1, 100, 101, 99, 100.5, 50),
-      makeBar(2, 100.5, 102, 99, 101, 55),
+      makeBar(0, 100, 101, 99, 100.5, 50),
+      makeBar(1, 100.5, 102, 99, 101, 55),
+      makeBar(2, 0, 10, 5, 8, 60),
     ];
     const features = lastBarFeatures(bars);
     expect(features!.priceChange).toBe(null);
-    expect(features!.volatility).toBe(null);
   });
 
-  test("volume change is null when first volume is 0", () => {
+  test("volatility is last bar's range/open", () => {
     const bars = [
-      makeBar(0, 100, 101, 99, 100.5, 0),
+      makeBar(0, 100, 101, 99, 100.5, 50),
       makeBar(1, 100.5, 102, 99, 101, 55),
+      makeBar(2, 101, 103, 99, 101.5, 60),
+    ];
+    const features = lastBarFeatures(bars);
+    expect(features!.volatility).toBeCloseTo(0.04); // (103-99)/101
+  });
+
+  test("volume change is null when previous bar volume is 0", () => {
+    const bars = [
+      makeBar(0, 100, 101, 99, 100.5, 50),
+      makeBar(1, 100.5, 102, 99, 101, 0),
       makeBar(2, 101, 103, 99, 101.5, 60),
     ];
     const features = lastBarFeatures(bars);
