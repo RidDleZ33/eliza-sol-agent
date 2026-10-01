@@ -9,7 +9,8 @@ export type BirdeyeOhlcvResult =
   | { bars: null; reason: string };
 
 export interface BirdeyeOhlcvItem {
-  unix_time: number;
+  unix_time?: number;
+  unixTime?: number;
   o: number;
   h: number;
   l: number;
@@ -31,10 +32,11 @@ export async function fetchBirdeyeOhlcv(
   mint: string,
   apiKey: string
 ): Promise<BirdeyeOhlcvResult> {
+  const nowSecs = Math.floor(Date.now() / 1000);
   const url =
     "https://public-api.birdeye.so/defi/v3/ohlcv" +
     "?address=" + encodeURIComponent(mint) +
-    "&type=1m&mode=count&count_limit=60";
+    "&type=1m&mode=count&count_limit=60&time_to=" + nowSecs;
 
   try {
     const response = await fetch(url, {
@@ -77,8 +79,10 @@ export async function fetchBirdeyeOhlcv(
         continue;
       }
       const v = Number.isFinite(item.v) ? item.v : (item.v_usd ?? 0);
-      // unix_time from Birdeye is seconds; convert to ms
-      const t = item.unix_time < 1e12 ? item.unix_time * 1000 : item.unix_time;
+      // Accept unix_time (snake) or unixTime (camel) from Birdeye
+      const raw = item.unix_time ?? item.unixTime;
+      if (!Number.isFinite(raw)) continue;
+      const t = raw < 1e12 ? raw * 1000 : raw;
       bars.push({ t, o: item.o, h: item.h, l: item.l, c: item.c, v });
     }
 

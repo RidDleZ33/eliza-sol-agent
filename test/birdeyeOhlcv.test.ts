@@ -222,6 +222,21 @@ describe("metricsFromBars", () => {
 });
 
 describe("fetchBirdeyeOhlcv parse shapes", () => {
+  test("URL contains time_to= parameter", async () => {
+    let capturedUrl = "";
+    globalThis.fetch = async (url: string) => {
+      capturedUrl = url;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ success: true, data: { items: fixtureItems } }),
+      } as Response;
+    };
+
+    await fetchBirdeyeOhlcv("mint", "key");
+    expect(capturedUrl).toContain("time_to=");
+  });
+
   test("parseItems handles { items: [...] } shape", async () => {
     globalThis.fetch = async (url: string) => {
       return {
@@ -239,6 +254,30 @@ describe("fetchBirdeyeOhlcv parse shapes", () => {
     expect(result.bars!.length).toBe(4);
     expect(result.bars![0].t).toBe(1790000000000); // seconds -> ms
     expect(result.reason).toBe("ok");
+  });
+
+  test("parseItems handles unixTime (camelCase) items", async () => {
+    const camelItems = [
+      { unixTime: 1790000000, o: 1.0, h: 1.2, l: 0.9, c: 1.1, v: 100 },
+      { unixTime: 1790000060, o: 1.1, h: 1.3, l: 1.0, c: 1.2, v: 150 },
+      { unixTime: 1790000120, o: 1.2, h: 1.4, l: 1.1, c: 1.3, v: 200 },
+    ];
+
+    globalThis.fetch = async (url: string) => {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          success: true,
+          data: { items: camelItems },
+        }),
+      } as Response;
+    };
+
+    const result = await fetchBirdeyeOhlcv("mint", "key");
+    expect(result.bars).not.toBeNull();
+    expect(result.bars!.length).toBe(3);
+    expect(result.bars![0].t).toBe(1790000000000); // seconds -> ms
   });
 
   test("parseItems handles array shape", async () => {

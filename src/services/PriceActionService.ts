@@ -57,6 +57,10 @@ export class PriceActionService {
   private rate429CooldownMs = 60000;
   private rate429Logged = false;
 
+  // One-time skip reason logs
+  private birdeyeOffLogged = false;
+  private birdeyeNoKeyLogged = false;
+
   // Last raw Dex body per mint (for 24h HV reuse)
   private lastDexBody: Map<string, { body: DexPair; timestamp: number }> = new Map();
 
@@ -78,7 +82,19 @@ export class PriceActionService {
 
     try {
       // Step 2: Try Birdeye OHLCV (if enabled + key + no cooldown)
-      if (getPaBirdeyeOhlcv() && getBirdeyeApiKey() && !this.is429Cooldown()) {
+      if (!getPaBirdeyeOhlcv()) {
+        if (!this.birdeyeOffLogged) {
+          logger.info("PA birdeye off");
+          this.birdeyeOffLogged = true;
+        }
+      } else if (!getBirdeyeApiKey()) {
+        if (!this.birdeyeNoKeyLogged) {
+          logger.info("PA birdeye nokey");
+          this.birdeyeNoKeyLogged = true;
+        }
+      } else if (this.is429Cooldown()) {
+        // Already logged by set429Cooldown
+      } else {
         const barsEntry = await this.getBirdeyeBars(mintAddress);
         if (barsEntry.bars && barsEntry.bars.length >= 3) {
           // Trim once; pass same trimmed array to both features and metrics
@@ -97,6 +113,14 @@ export class PriceActionService {
             return metrics;
           }
         }
+        // Birdeye attempted but not used — log skip reason
+        const reason = barsEntry.reason;
+        const barsCount = barsEntry.bars?.length ?? 0;
+        logger.info("PA birdeye skip", {
+          mint: mintAddress,
+          reason,
+          bars: barsCount,
+        });
       }
 
       // Step 3: Dex stashed pair (if fresh)
