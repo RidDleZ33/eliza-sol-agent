@@ -81,7 +81,7 @@ describe("trade book aggregation", () => {
   const watchedIngest = new Map<string, string>();
   watchedIngest.set("mint1", "ds_boost");
   watchedIngest.set("mint2", "be_new");
-  watchedIngest.set("mint3", "ds_boost");
+  watchedIngest.set("mint3", "ds_profile");
   watchedIngest.set("mint4", "ds_boost");
   watchedIngest.set("mint5", "ds_boost");
 
@@ -125,6 +125,7 @@ describe("trade book aggregation", () => {
   test("ingest source classification", () => {
     expect(trips[0].ingest).toBe("ds_boost");
     expect(trips[1].ingest).toBe("be_new");
+    expect(trips[2].ingest).toBe("ds_profile");
   });
 
   test("tag-prefixed trailing stop still classifies", () => {
@@ -160,6 +161,9 @@ describe("trade book aggregation", () => {
     expect(lines[2]).toContain("dex");
     expect(lines[2]).toContain("none");
     expect(lines[3]).toContain("by src");
+    // Raw feed names must appear distinct, not collapsed into a whitelist
+    expect(lines[3]).toContain("ds_boost");
+    expect(lines[3]).toContain("ds_profile");
     expect(lines[4]).toContain("by hold");
   });
 });

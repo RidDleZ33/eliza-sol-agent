@@ -43,11 +43,8 @@ function classifyPaSrc(reason: string | null | undefined, buyReason: string | nu
 
 export function classifyIngest(addedBy: string | null | undefined): string {
   if (!addedBy) return "unk";
-  if (addedBy.includes("ds_boost")) return "ds_boost";
-  if (addedBy.includes("be_new")) return "be_new";
-  if (addedBy.includes("trader")) return "trader";
-  if (addedBy.includes("trending")) return "trending";
-  return addedBy;
+  // Bucket by raw feed name stored at insert time — no whitelist, no mapping
+  return addedBy.trim().replace(/\s+/g, " ");
 }
 
 function holdBucket(secs: number): string {
