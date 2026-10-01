@@ -16,7 +16,9 @@ interface ClosedTrip {
 
 function classifyExit(reason: string | null | undefined): string {
   if (!reason) return "OTHER";
-  const upper = reason.toUpperCase();
+  // Strip leading [src=...] tag if present, then classify
+  let r = reason.replace(/^\[[^\]]*\]\s*/, "").trim();
+  const upper = r.toUpperCase();
   if (upper.startsWith("TRAILING_STOP")) return "TRAILING_STOP";
   if (upper.startsWith("STOP") || upper.includes("STOP_LOSS")) return "STOP";
   if (upper.startsWith("TAKE_PROFIT")) return "TAKE_PROFIT";
@@ -63,26 +65,32 @@ export function aggregateTrips(
   watchedIngest: Map<string, string>
 ): ClosedTrip[] {
   const trips: ClosedTrip[] = [];
-  // Build per-mint buy lists sorted by id ascending
+  // Build per-mint buy lists sorted by created_at ascending (time, not id)
   for (const [mint, list] of buys.entries()) {
-    list.sort((a, b) => a.id - b.id);
+    list.sort((a, b) => {
+      const at = a.created_at < 1e12 ? a.created_at * 1000 : a.created_at;
+      const bt = b.created_at < 1e12 ? b.created_at * 1000 : b.created_at;
+      if (at !== bt) return at - bt;
+      // Same timestamp: lower id first (stable tiebreak)
+      return a.id - b.id;
+    });
   }
   for (const sell of sells) {
     const list = buys.get(sell.mint);
     if (!list) continue;
-    // Find most recent buy with id < sell.id
+    // Find closest prior BUY by created_at (not id)
+    const sellTs = sell.created_at < 1e12 ? sell.created_at * 1000 : sell.created_at;
     let best: any = null;
     for (const b of list) {
-      if (b.id < sell.id) best = b;
+      const bTs = b.created_at < 1e12 ? b.created_at * 1000 : b.created_at;
+      if (bTs < sellTs) best = b;
       else break;
     }
     if (!best) continue;
     // Remove from list so it's not reused
     const idx = list.indexOf(best);
     if (idx >= 0) list.splice(idx, 1);
-    // Normalize timestamps: if < 1e12, treat as seconds
     const buyTs = best.created_at < 1e12 ? best.created_at * 1000 : best.created_at;
-    const sellTs = sell.created_at < 1e12 ? sell.created_at * 1000 : sell.created_at;
     const pnl = sell.sol_out - best.sol_in;
     trips.push({
       buy_at: buyTs,

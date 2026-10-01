@@ -1,4 +1,4 @@
-import { aggregateTrips, formatBook, classifyIngest } from "./TradeBookService.ts";
+import { aggregateTrips, formatBook } from "./TradeBookService.ts";
 
 describe("trade book aggregation", () => {
   // Fixture: 3 trips
@@ -38,6 +38,16 @@ describe("trade book aggregation", () => {
       reason: "STALE(30m)",
       created_at: now - 1000 * 60 * 35,
     },
+    {
+      id: 8,
+      mint: "mint4",
+      symbol: "TRIP4",
+      side: "SELL",
+      sol_in: null,
+      sol_out: 0.9,
+      reason: "[src=dex] TRAILING_STOP (10% below peak) | MFE +1%",
+      created_at: now - 1000 * 60 * 5,
+    },
   ];
 
   const buys = new Map<string, any[]>();
@@ -50,11 +60,15 @@ describe("trade book aggregation", () => {
   buys.set("mint3", [
     { id: 5, mint: "mint3", side: "BUY", sol_in: 0.5, reason: "src=dex boost", created_at: now - 1000 * 60 * 100 },
   ]);
+  buys.set("mint4", [
+    { id: 7, mint: "mint4", side: "BUY", sol_in: 0.8, reason: "src=dex signal", created_at: now - 1000 * 60 * 10 },
+  ]);
 
   const watchedIngest = new Map<string, string>();
   watchedIngest.set("mint1", "ds_boost");
   watchedIngest.set("mint2", "be_new");
   watchedIngest.set("mint3", "ds_boost");
+  watchedIngest.set("mint4", "ds_boost");
 
   let trips: any[] = [];
   let lines: string[] = [];
@@ -64,8 +78,8 @@ describe("trade book aggregation", () => {
     lines = formatBook(trips);
   });
 
-  test("detects 3 closed round trips", () => {
-    expect(trips.length).toBe(3);
+  test("detects 4 closed round trips", () => {
+    expect(trips.length).toBe(4);
   });
 
   test("trip 1 (dex+trail) has positive PnL of ~0.3 SOL", () => {
@@ -98,19 +112,24 @@ describe("trade book aggregation", () => {
     expect(trips[1].ingest).toBe("be_new");
   });
 
+  test("tag-prefixed trailing stop still classifies", () => {
+    expect(trips[3].exit_fam).toBe("TRAILING_STOP");
+    expect(trips[3].pa_src).toBe("dex");
+  });
+
   test("aggregate PnL sum", () => {
     const total = trips.reduce((s, t) => s + t.pnl_sol, 0);
-    expect(Math.abs(total - (-0.2))).toBeLessThan(0.001);
+    expect(Math.abs(total - (-0.1))).toBeLessThan(0.001);
   });
 
   test("win rate count", () => {
     const wins = trips.filter((t) => t.pnl_sol > 0).length;
-    expect(wins).toBe(1);
+    expect(wins).toBe(2);
   });
 
-  test("formatBook header has n=3 and total pnl", () => {
-    expect(lines[0]).toContain("n=3");
-    expect(lines[0]).toContain("pnl=-0.20 SOL");
+  test("formatBook header has n=4 and total pnl", () => {
+    expect(lines[0]).toContain("n=4");
+    expect(lines[0]).toContain("pnl=-0.10 SOL");
   });
 
   test("formatBook has bucket lines", () => {
