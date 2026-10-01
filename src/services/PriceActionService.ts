@@ -1,9 +1,9 @@
 import { fetchWithRetry } from "../utils/circuitBreaker.ts";
 import { logger } from "./LoggerService.ts";
 import { PAMetrics, CandleFeatures } from "../types/priceAction.ts";
-import { configService } from "./ConfigService.ts";
+
 import { watchlistService } from "./WatchlistService.ts";
-import { getPaBirdeyeOhlcv, getBirdeyeApiKey } from "../utils/env.ts";
+import { getPaBirdeyeOhlcv, getBirdeyeApiKey, getDexscreenerChain } from "../utils/env.ts";
 import { lastBarFeatures, deadTrim, ema, OhlcvBar } from "./priceAction/candleFeatures.ts";
 import { fetchBirdeyeOhlcv } from "./priceAction/birdeyeOhlcv.ts";
 
@@ -134,7 +134,7 @@ export class PriceActionService {
       }
 
       // Prefer Solana chain pair
-      const chainId = configService.getString("INGEST_DEXSCREENER_CHAIN") || "solana";
+      const chainId = getDexscreenerChain();
       const solPair = pairs.find((p: any) => p.chainId === chainId) || pairs[0];
       const pair = solPair as DexPair;
 
@@ -274,7 +274,7 @@ export class PriceActionService {
       const pairs = data?.pairs;
       if (!pairs || pairs.length === 0) return null;
 
-      const chainId = configService.getString("INGEST_DEXSCREENER_CHAIN") || "solana";
+      const chainId = getDexscreenerChain();
       const solPair = pairs.find((p: any) => p.chainId === chainId) || pairs[0];
       const pair = solPair as DexPair;
 
