@@ -16,8 +16,15 @@ interface ClosedTrip {
 
 function classifyExit(reason: string | null | undefined): string {
   if (!reason) return "OTHER";
-  // Strip leading [src=...] tag if present, then classify
+  // Strip leading [src=...] tag if present
   let r = reason.replace(/^\[[^\]]*\]\s*/, "").trim();
+  // Sell reasons now written as: pnl_sol=X (FAMILY (...) | MFE ...) — extract family from first paren
+  if (r.startsWith("pnl_sol=")) {
+    const parenMatch = r.match(/\(\s*(\w+)/);
+    if (parenMatch) {
+      r = parenMatch[1];
+    }
+  }
   const upper = r.toUpperCase();
   if (upper.startsWith("TRAILING_STOP")) return "TRAILING_STOP";
   if (upper.startsWith("STOP") || upper.includes("STOP_LOSS")) return "STOP";
