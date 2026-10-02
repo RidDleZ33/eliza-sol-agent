@@ -78,6 +78,10 @@ export function getSessionPnl(): number {
   return sessionRealizedPnl.value;
 }
 
+export function resetSessionPnl(): void {
+  sessionRealizedPnl.value = 0.0;
+}
+
 export async function getOpenPositionSol(): Promise<number> {
   const positions = await watchlistService.getActivePositions();
   let total = 0.0;

@@ -1,7 +1,7 @@
 import { watchlistService } from "../WatchlistService.ts";
 import { logger } from "../LoggerService.ts";
 import { IngestionWatcher } from "./IngestionWatcher.ts";
-import { getIngestionInterval, getDexscreenerChain, getMaxTrendingTokens } from "../../utils/env.ts";
+import { getIngestionInterval, getDexscreenerChain, getMaxTrendingTokens, getDexscreenerProfilesMaxAgeH } from "../../utils/env.ts";
 import { requestAlphaTick } from "../../evaluators/AlphaNarrativeEvaluator.ts";
 import { fetchWithRetry } from "../../utils/circuitBreaker.ts";
 
@@ -26,7 +26,7 @@ export class DexScreenerProfilesWatcher implements IngestionWatcher {
   private maxBackoffMs = 60000;
   private chainId: string;
   private pairCache: Map<string, PairInfo | null> = new Map();
-  private readonly MAX_AGE_HOURS = 6;
+  private readonly MAX_AGE_HOURS = getDexscreenerProfilesMaxAgeH();
   private readonly DEX_IDS = new Set(["raydium", "pumpswap", "meteora", "orca"]);
   private readonly NOT_BONDED_DXS = new Set(["pumpfun"]);
 

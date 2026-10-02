@@ -310,6 +310,15 @@ export class PriceActionService {
           if (hv !== null) return hv;
         }
       }
+      // Fallback to 5m bars if 1m miss or insufficient
+      const cached5m = this.barsCacheByInterval.get(`${mint}:5m`);
+      if (cached5m && cached5m.bars && Date.now() - cached5m.atMs < this.barsCacheTtlMs) {
+        const trimmed = deadTrim(cached5m.bars);
+        if (trimmed.length >= 20) {
+          const hv = this.computeHVFromBars(trimmed);
+          if (hv !== null) return hv;
+        }
+      }
     }
 
     try {

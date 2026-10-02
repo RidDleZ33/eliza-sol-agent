@@ -4,6 +4,7 @@ import { configService, ConfigKey } from "./ConfigService.ts";
 import { logger, LogLevel } from "./LoggerService.ts";
 import { watchlistService } from "./WatchlistService.ts";
 import { aggregateBook } from "./TradeBookService.ts";
+import { resetSessionPnl } from "../execution/risk.ts";
 import { TelegramDashboardFormatter } from "../utils/TelegramDashboardFormatter.ts";
 import { tier, can } from "../entitlements/tier.ts";
 
@@ -266,18 +267,21 @@ export class TelegramAdminBot {
       this.pauseWarRoom();
       
       if (!ctx.args || ctx.args.length < 1 || ctx.args[0] !== "yes") {
-        await ctx.reply("⚠️ This will clear all watched tokens, traders, and positions.\nType /cleardb yes to confirm.");
+        await ctx.reply("⚠️ This will clear all watched tokens, traders, positions, trade journal, and book.\nType /cleardb yes to confirm.");
         return;
       }
       
       try {
         const db = watchlistService.getDb();
-        db.exec("DELETE FROM watched_tokens");
-        db.exec("DELETE FROM watched_traders");
-        db.exec("DELETE FROM positions");
+        const wt = db.exec("DELETE FROM watched_tokens");
+        const wtr = db.exec("DELETE FROM watched_traders");
+        const pos = db.exec("DELETE FROM positions");
+        const tr = db.exec("DELETE FROM trades");
+        const tj = db.exec("DELETE FROM trade_journal");
+        resetSessionPnl();
         
         logger.info("TELEGRAM", "TelegramAdminBot", "Database cleared via admin command");
-        await ctx.reply("✅ Database cleared. Fresh start.");
+        await ctx.reply(`✅ Database cleared: ${wt.changes} watched_tokens, ${wtr.changes} watched_traders, ${pos.changes} positions, ${tr.changes} trades, ${tj.changes} journal entries. Session PnL reset. Fresh start.`);
       } catch (e) {
         logger.error("TELEGRAM", "TelegramAdminBot", "Failed to clear database", { error: e.message });
         await ctx.reply(`❌ Failed: ${e.message}`);
@@ -514,6 +518,9 @@ export class TelegramAdminBot {
           db.exec("DELETE FROM watched_tokens");
           db.exec("DELETE FROM watched_traders");
           db.exec("DELETE FROM positions");
+          db.exec("DELETE FROM trades");
+          db.exec("DELETE FROM trade_journal");
+          resetSessionPnl();
           logger.info("TELEGRAM", "TelegramAdminBot", "Database cleared via button");
           await ctx.answerCbQuery("Database cleared");
           return;
