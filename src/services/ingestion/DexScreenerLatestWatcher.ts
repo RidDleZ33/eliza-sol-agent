@@ -130,3 +130,10 @@ export class DexScreenerLatestWatcher implements IngestionWatcher {
     }
   }
 }
+
+export const dexScreenerLatestSource = {
+  flag: "INGEST_DEXSCREENER_LATEST",
+  source: "ds_latest",
+  defaults: { INGEST_DEXSCREENER_LATEST: "false" },
+  create: () => new DexScreenerLatestWatcher(),
+};

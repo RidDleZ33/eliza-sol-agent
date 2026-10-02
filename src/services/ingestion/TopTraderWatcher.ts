@@ -158,3 +158,10 @@ export class TopTraderWatcher implements IngestionWatcher {
     }));
   }
 }
+
+export const birdeyeTopTradersSource = {
+  flag: "INGEST_BIRDEYE_TOP_TRADERS",
+  source: "birdeye_top_traders",
+  defaults: { INGEST_BIRDEYE_TOP_TRADERS: "false" },
+  create: () => new TopTraderWatcher(),
+};

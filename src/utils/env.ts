@@ -60,7 +60,7 @@ const EnvSchema = z.object({
 
 export const env = EnvSchema.parse(process.env);
 
-function isTruthyFlag(val: string | undefined): boolean {
+export function isTruthyFlag(val: string | undefined): boolean {
   return val === "true" || val === "1";
 }
 

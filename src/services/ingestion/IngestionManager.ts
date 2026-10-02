@@ -1,13 +1,27 @@
-import { TrendingTokenWatcher } from "./TrendingTokenWatcher.ts";
-import { TopTraderWatcher } from "./TopTraderWatcher.ts";
-import { PhantomTrendingWatcher } from "./PhantomTrendingWatcher.ts";
-import { DexScreenerLatestWatcher } from "./DexScreenerLatestWatcher.ts";
-import { DexScreenerTrendingWatcher } from "./DexScreenerTrendingWatcher.ts";
-import { BirdeyeNewListingWatcher } from "./BirdeyeNewListingWatcher.ts";
-import { DexScreenerBoostsWatcher } from "./DexScreenerBoostsWatcher.ts";
 import { IngestionWatcher } from "./IngestionWatcher.ts";
-import { getIngestionInterval, ingestFlag, getDexscreenerTrendingPeriod } from "../../utils/env.ts";
+import { getIngestionInterval, getDexscreenerTrendingPeriod, isTruthyFlag } from "../../utils/env.ts";
 import { logger } from "../LoggerService.ts";
+import { birdeyeNewListingSource } from "./BirdeyeNewListingWatcher.ts";
+import { dexScreenerLatestSource } from "./DexScreenerLatestWatcher.ts";
+import { dexScreenerTrendingSource } from "./DexScreenerTrendingWatcher.ts";
+import { birdeyeTrendingSource } from "./TrendingTokenWatcher.ts";
+import { birdeyeTopTradersSource } from "./TopTraderWatcher.ts";
+import { phantomTrendingSource } from "./PhantomTrendingWatcher.ts";
+import { dexScreenerBoostsSource } from "./DexScreenerBoostsWatcher.ts";
+
+// Phase 12A: ingestion source registry.
+// Each watcher file exports a spec; this list is the single place that
+// enables a feed. Adding a new feed = one watcher file + one spec export
+// + one line here + one .env.example row.
+const SOURCE_REGISTRY = [
+  birdeyeNewListingSource,
+  dexScreenerLatestSource,
+  dexScreenerTrendingSource,
+  birdeyeTrendingSource,
+  birdeyeTopTradersSource,
+  phantomTrendingSource,
+  dexScreenerBoostsSource,
+];
 
 export class IngestionManager {
   private watchers: Map<string, IngestionWatcher> = new Map();
@@ -16,29 +30,12 @@ export class IngestionManager {
   constructor() {
     this.intervalMs = getIngestionInterval();
 
-    // Gate each watcher on its ingestion flag (phase 6A + 6B + 7B)
-    // Dex latest launches is dead (404); Birdeye new_listing is the new launch board.
-    if (ingestFlag("INGEST_BIRDEYE_NEW_LISTING")) {
-      this.registerWatcher(new BirdeyeNewListingWatcher());
-    }
-    // DexScreenerLatestWatcher still registered for legacy compat; will detect 404 and self-disable.
-    if (ingestFlag("INGEST_DEXSCREENER_LATEST")) {
-      this.registerWatcher(new DexScreenerLatestWatcher());
-    }
-    if (ingestFlag("INGEST_DEXSCREENER_TRENDING")) {
-      this.registerWatcher(new DexScreenerTrendingWatcher());
-    }
-    if (ingestFlag("INGEST_BIRDEYE_TRENDING")) {
-      this.registerWatcher(new TrendingTokenWatcher());
-    }
-    if (ingestFlag("INGEST_BIRDEYE_TOP_TRADERS")) {
-      this.registerWatcher(new TopTraderWatcher());
-    }
-    if (ingestFlag("INGEST_PHANTOM")) {
-      this.registerWatcher(new PhantomTrendingWatcher());
-    }
-    if (ingestFlag("INGEST_DEXSCREENER_BOOSTS")) {
-      this.registerWatcher(new DexScreenerBoostsWatcher());
+    for (const spec of SOURCE_REGISTRY) {
+      const enabled = isTruthyFlag(process.env[spec.flag] ?? spec.defaults[spec.flag]);
+      logger.info("INGESTION", "IngestionManager", `${spec.flag}=${enabled} for ${spec.source}`);
+      if (enabled) {
+        this.registerWatcher(spec.create());
+      }
     }
   }
 

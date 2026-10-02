@@ -140,3 +140,10 @@ export class DexScreenerTrendingWatcher implements IngestionWatcher {
     }
   }
 }
+
+export const dexScreenerTrendingSource = {
+  flag: "INGEST_DEXSCREENER_TRENDING",
+  source: "ds_trending",
+  defaults: { INGEST_DEXSCREENER_TRENDING: "false" },
+  create: () => new DexScreenerTrendingWatcher(),
+};

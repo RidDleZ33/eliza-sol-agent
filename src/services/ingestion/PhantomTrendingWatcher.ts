@@ -129,3 +129,10 @@ export class PhantomTrendingWatcher implements IngestionWatcher {
     return tokens;
   }
 }
+
+export const phantomTrendingSource = {
+  flag: "INGEST_PHANTOM",
+  source: "phantom_trending",
+  defaults: { INGEST_PHANTOM: "false" },
+  create: () => new PhantomTrendingWatcher(),
+};

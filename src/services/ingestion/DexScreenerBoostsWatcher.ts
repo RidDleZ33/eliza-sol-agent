@@ -208,3 +208,10 @@ export class DexScreenerBoostsWatcher implements IngestionWatcher {
     }
   }
 }
+
+export const dexScreenerBoostsSource = {
+  flag: "INGEST_DEXSCREENER_BOOSTS",
+  source: "ds_boost",
+  defaults: { INGEST_DEXSCREENER_BOOSTS: "false" },
+  create: () => new DexScreenerBoostsWatcher(),
+};

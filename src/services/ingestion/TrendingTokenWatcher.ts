@@ -143,3 +143,10 @@ export class TrendingTokenWatcher implements IngestionWatcher {
   // DexScreener token-profiles fallback retired in phase 6B.
   // Pair boards are handled by dedicated watchers.
 }
+
+export const birdeyeTrendingSource = {
+  flag: "INGEST_BIRDEYE_TRENDING",
+  source: "birdeye_trending",
+  defaults: { INGEST_BIRDEYE_TRENDING: "true" },
+  create: () => new TrendingTokenWatcher(),
+};

@@ -147,3 +147,10 @@ export class BirdeyeNewListingWatcher implements IngestionWatcher {
     return results;
   }
 }
+
+export const birdeyeNewListingSource = {
+  flag: "INGEST_BIRDEYE_NEW_LISTING",
+  source: "birdeye_new",
+  defaults: { INGEST_BIRDEYE_NEW_LISTING: "true" },
+  create: () => new BirdeyeNewListingWatcher(),
+};
