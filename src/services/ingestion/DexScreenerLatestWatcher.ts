@@ -12,6 +12,8 @@ import {
   getMaxTrendingTokens,
 } from "../../utils/env.ts";
 
+const SOURCE = "ds_latest";
+
 export class DexScreenerLatestWatcher implements IngestionWatcher {
   public name = "dexscreener_latest";
   private intervalId: ReturnType<typeof setInterval> | null = null;
@@ -103,7 +105,7 @@ export class DexScreenerLatestWatcher implements IngestionWatcher {
           tok.address,
           tok.symbol,
           tok.volume24h,
-          "ds_latest"
+          SOURCE
         );
         if (inserted) {
           newCount++;
@@ -133,7 +135,7 @@ export class DexScreenerLatestWatcher implements IngestionWatcher {
 
 export const dexScreenerLatestSource = {
   flag: "INGEST_DEXSCREENER_LATEST",
-  source: "ds_latest",
+  source: SOURCE,
   defaults: { INGEST_DEXSCREENER_LATEST: "false" },
   create: () => new DexScreenerLatestWatcher(),
 };

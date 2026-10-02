@@ -4,6 +4,8 @@ import { logger } from "../LoggerService.ts";
 import { fetchWithRetry } from "../../utils/circuitBreaker.ts";
 import { IngestionWatcher } from "./IngestionWatcher.ts";
 
+const SOURCE = "phantom_trending";
+
 interface PhantomToken {
   address: string;
   symbol: string;
@@ -56,7 +58,8 @@ export class PhantomTrendingWatcher implements IngestionWatcher {
         const inserted = await watchlistService.addDiscoveredToken(
           token.address,
           token.symbol,
-          token.volume24h
+          token.volume24h,
+          SOURCE
         );
         if (inserted) {
           newDiscoveries++;
@@ -132,7 +135,7 @@ export class PhantomTrendingWatcher implements IngestionWatcher {
 
 export const phantomTrendingSource = {
   flag: "INGEST_PHANTOM",
-  source: "phantom_trending",
+  source: SOURCE,
   defaults: { INGEST_PHANTOM: "false" },
   create: () => new PhantomTrendingWatcher(),
 };

@@ -6,6 +6,8 @@ import { fetchWithRetry } from "../../utils/circuitBreaker.ts";
 import { IngestionWatcher } from "./IngestionWatcher.ts";
 import { requestAlphaTick } from "../../evaluators/AlphaNarrativeEvaluator.ts";
 
+const SOURCE = "birdeye_new";
+
 interface NewListingToken {
   address: string;
   symbol: string;
@@ -123,7 +125,7 @@ export class BirdeyeNewListingWatcher implements IngestionWatcher {
         address,
         symbol,
         volumeUSD,
-        "birdeye_new"
+        SOURCE
       );
 
       if (inserted) {
@@ -132,7 +134,7 @@ export class BirdeyeNewListingWatcher implements IngestionWatcher {
           address,
           symbol,
           volumeUSD,
-          source: "birdeye_new",
+          source: SOURCE,
         });
       }
 
@@ -150,7 +152,7 @@ export class BirdeyeNewListingWatcher implements IngestionWatcher {
 
 export const birdeyeNewListingSource = {
   flag: "INGEST_BIRDEYE_NEW_LISTING",
-  source: "birdeye_new",
+  source: SOURCE,
   defaults: { INGEST_BIRDEYE_NEW_LISTING: "true" },
   create: () => new BirdeyeNewListingWatcher(),
 };

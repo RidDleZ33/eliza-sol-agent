@@ -6,6 +6,8 @@ import { fetchWithRetry } from "../../utils/circuitBreaker.ts";
 import { IngestionWatcher } from "./IngestionWatcher.ts";
 import { requestAlphaTick } from "../../evaluators/AlphaNarrativeEvaluator.ts";
 
+const SOURCE = "birdeye_trending";
+
 interface TrendingToken {
   address: string;
   symbol: string;
@@ -73,7 +75,8 @@ export class TrendingTokenWatcher implements IngestionWatcher {
         const inserted = await watchlistService.addDiscoveredToken(
           token.address,
           token.symbol,
-          token.volume24h
+          token.volume24h,
+          SOURCE
         );
         if (inserted) {
           newDiscoveries++;
@@ -146,7 +149,7 @@ export class TrendingTokenWatcher implements IngestionWatcher {
 
 export const birdeyeTrendingSource = {
   flag: "INGEST_BIRDEYE_TRENDING",
-  source: "birdeye_trending",
+  source: SOURCE,
   defaults: { INGEST_BIRDEYE_TRENDING: "true" },
   create: () => new TrendingTokenWatcher(),
 };

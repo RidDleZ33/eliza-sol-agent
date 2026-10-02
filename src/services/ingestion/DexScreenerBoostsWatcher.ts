@@ -6,6 +6,8 @@ import { getIngestionInterval, ingestFlag, getDexscreenerChain, getMaxTrendingTo
 import { requestAlphaTick } from "../../evaluators/AlphaNarrativeEvaluator.ts";
 import { fetchWithRetry } from "../../utils/circuitBreaker.ts";
 
+const SOURCE = "ds_boost";
+
 interface BoostEntry {
   chainId: string;
   tokenAddress: string;
@@ -168,7 +170,7 @@ export class DexScreenerBoostsWatcher implements IngestionWatcher {
           tok.address,
           tok.symbol,
           tok.volume24h,
-          "ds_boost"
+          SOURCE
         );
         if (inserted) {
           newCount++;
@@ -211,7 +213,7 @@ export class DexScreenerBoostsWatcher implements IngestionWatcher {
 
 export const dexScreenerBoostsSource = {
   flag: "INGEST_DEXSCREENER_BOOSTS",
-  source: "ds_boost",
+  source: SOURCE,
   defaults: { INGEST_DEXSCREENER_BOOSTS: "false" },
   create: () => new DexScreenerBoostsWatcher(),
 };
