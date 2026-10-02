@@ -68,6 +68,13 @@ function triggerDailyLossHaltNotify() {
   const msg = `HALT daily-loss pnl=${pnl} limit=${limit} — buys blocked`;
   logger.warn("RISK", "TradeExecution", msg);
   telegramAdminBot.notifyAdmin(msg).catch(() => {});
+  telegramAdminBot.sendToChat(msg).catch(() => {});
+  watchlistService.logTradeJournal({
+    mint_address: "HALT",
+    symbol: "HALT",
+    event_type: "BUY_FAILED",
+    reason: msg,
+  }).catch(() => {});
 }
 
 export function addSessionPnl(pnl: number): void {
