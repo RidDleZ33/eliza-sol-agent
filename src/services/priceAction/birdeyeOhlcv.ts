@@ -30,13 +30,15 @@ export interface BirdeyeOhlcvResponse {
 
 export async function fetchBirdeyeOhlcv(
   mint: string,
-  apiKey: string
+  apiKey: string,
+  interval: "1m" | "5m" = "1m",
+  countLimit: number = 60
 ): Promise<BirdeyeOhlcvResult> {
   const nowSecs = Math.floor(Date.now() / 1000);
   const url =
     "https://public-api.birdeye.so/defi/v3/ohlcv" +
     "?address=" + encodeURIComponent(mint) +
-    "&type=1m&mode=count&count_limit=60&time_to=" + nowSecs;
+    `&type=${interval}&mode=count&count_limit=${countLimit}&time_to=` + nowSecs;
 
   try {
     const response = await fetch(url, {

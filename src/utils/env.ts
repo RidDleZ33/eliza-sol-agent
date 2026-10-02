@@ -42,6 +42,8 @@ const EnvSchema = z.object({
   INGEST_DEXSCREENER_PROFILES: z.string().default("false"),
   SOCIAL_BIRDEYE_LINKS: z.string().default("false"),
   PA_BIRDEYE_OHLCV: z.string().default("false"),
+  PA_BAR_AGE_SPLIT_MIN: z.string().default("90"),
+  PA_NO_BARS_VETO_PCT: z.string().default("-25"),
   TWITTER_BEARER_TOKEN: z.string().optional(),
   WALLET_MIRROR_INTERVAL_MS: z.string().default("20000"),
   RUGCHECK_API_URL: z.string().default("https://api.rugcheck.xyz/v1/tokens"),
@@ -230,4 +232,16 @@ export function getSocialBirdeyeLinks(): boolean {
 // Phase 11A3: Birdeye OHLCV for PA is opt-in (CU cost on young mints)
 export function getPaBirdeyeOhlcv(): boolean {
   return env.PA_BIRDEYE_OHLCV === "true" || env.PA_BIRDEYE_OHLCV === "1";
+}
+
+// Phase 12D: bar-size split age (minutes). Under this: 1m bars; at/over: 5m bars.
+export function getPaBarAgeSplitMin(): number {
+  const raw = parseInt(env.PA_BAR_AGE_SPLIT_MIN, 10);
+  return Number.isFinite(raw) && raw > 0 ? raw : 90;
+}
+
+// Phase 12D: no-bars 5m-change hard veto threshold (pct, negative).
+export function getPaNoBarsVetoPct(): number {
+  const raw = parseFloat(env.PA_NO_BARS_VETO_PCT);
+  return Number.isFinite(raw) ? raw : -25;
 }

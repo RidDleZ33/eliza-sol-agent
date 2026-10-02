@@ -117,9 +117,10 @@ export type LastBarFeatures = {
   sma5: number | null;
   sma20: number | null;
   rsi14: number | null;
+  barInterval: "1m" | "5m";
 };
 
-export function lastBarFeatures(bars: OhlcvBar[], minBars = 20): LastBarFeatures | null {
+export function lastBarFeatures(bars: OhlcvBar[], minBars = 20, interval: "1m" | "5m" = "1m"): LastBarFeatures | null {
   if (bars.length < 3) return null;
 
   const trimmedBars = deadTrim(bars);
@@ -138,5 +139,6 @@ export function lastBarFeatures(bars: OhlcvBar[], minBars = 20): LastBarFeatures
     sma5: simpleMovingAverage(trimmedBars, 5),
     sma20: simpleMovingAverage(trimmedBars, 20),
     rsi14: rsi(trimmedBars, 14),
+    barInterval: interval,
   };
 }

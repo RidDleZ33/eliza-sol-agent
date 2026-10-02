@@ -3,7 +3,7 @@ import { logger } from "./LoggerService.ts";
 import { PAMetrics, CandleFeatures } from "../types/priceAction.ts";
 
 import { watchlistService } from "./WatchlistService.ts";
-import { getPaBirdeyeOhlcv, getBirdeyeApiKey, getDexscreenerChain } from "../utils/env.ts";
+import { getPaBirdeyeOhlcv, getBirdeyeApiKey, getDexscreenerChain, getPaBarAgeSplitMin, getPaNoBarsVetoPct } from "../utils/env.ts";
 import { lastBarFeatures, deadTrim, ema, OhlcvBar } from "./priceAction/candleFeatures.ts";
 import { fetchBirdeyeOhlcv } from "./priceAction/birdeyeOhlcv.ts";
 
@@ -45,17 +45,17 @@ export class PriceActionService {
   private cache: Map<string, { metrics: PAMetrics; timestamp: number; source: string }> = new Map();
   private cacheTtlMs = 30000; // 30-second cache for metrics
 
-  // Birdeye OHLCV per-mint cache (90s TTL)
-  private barsCache: Map<string, BarsCacheEntry> = new Map();
+  // Phase 12D: interval-aware caches; legacy names kept for HV path (always 1m)
   private barsCacheTtlMs = 90000;
-
-  // Single-flight: in-flight fetches per mint
-  private inflight: Map<string, Promise<BarsCacheEntry>> = new Map();
 
   // 429 process-wide cooldown
   private rate429CooldownUntil: number = 0;
   private rate429CooldownMs = 60000;
   private rate429Logged = false;
+
+  // Phase 12D: per-interval bars cache (mint + interval are separate cache entries)
+  private barsCacheByInterval: Map<string, BarsCacheEntry> = new Map();
+  private inflightByInterval: Map<string, Promise<BarsCacheEntry>> = new Map();
 
   // One-time skip reason logs
   private birdeyeOffLogged = false;
@@ -95,19 +95,23 @@ export class PriceActionService {
       } else if (this.is429Cooldown()) {
         // Already logged by set429Cooldown
       } else {
-        const barsEntry = await this.getBirdeyeBars(mintAddress);
+        // Phase 12D: choose interval by pair age
+        const interval = this.chooseInterval(mintAddress);
+        const countLimit = interval === "1m" ? 60 : 48;
+        const barsEntry = await this.getBirdeyeBars(mintAddress, interval, countLimit);
         if (barsEntry.bars && barsEntry.bars.length >= 3) {
           // Trim once; pass same trimmed array to both features and metrics
           const trimmed = deadTrim(barsEntry.bars);
-          const features = lastBarFeatures(trimmed);
+          const features = lastBarFeatures(trimmed, 20, interval);
           const dexPair = this.getDexPairForBuySell(mintAddress);
-          const metrics = metricsFromBars(trimmed, features, dexPair);
+          const metrics = metricsFromBars(trimmed, features, dexPair, interval);
           if (metrics) {
             this.cache.set(mintAddress, { metrics, timestamp: Date.now(), source: "birdeye" });
             logger.info("PA source=birdeye", {
               mint: mintAddress,
               bars: barsEntry.bars.length,
               trimmed: trimmed.length,
+              interval,
               "cu~12": true,
             });
             return metrics;
@@ -120,6 +124,7 @@ export class PriceActionService {
           mint: mintAddress,
           reason,
           bars: barsCount,
+          interval,
         });
       }
 
@@ -193,17 +198,48 @@ export class PriceActionService {
   }
 
   /**
-   * Get or fetch Birdeye bars for a mint with caching and single-flight.
+   * Phase 12D: choose bar interval by pair age.
+   * Under the age split → 1m bars; at/over → 5m bars.
    */
-  private async getBirdeyeBars(mintAddress: string): Promise<BarsCacheEntry> {
-    // Check bars cache
-    const cached = this.barsCache.get(mintAddress);
+  private chooseInterval(mintAddress: string): "1m" | "5m" {
+    // Policy: if age missing, treat as old → 5m bars
+    const ageMin = this.pairAgeMinutes(mintAddress);
+    if (ageMin !== null && ageMin < getPaBarAgeSplitMin()) {
+      return "1m";
+    }
+    return "5m";
+  }
+
+  /**
+   * Pair age in minutes from stashed Dex pair pairCreatedAt.
+   * Null if unknown (treated as old → 5m bars).
+   */
+  private pairAgeMinutes(mintAddress: string): number | null {
+    const stashed = watchlistService.getDexPair(mintAddress);
+    if (!stashed || !stashed.pair.pairCreatedAt) {
+      return null;
+    }
+    return (Date.now() - stashed.pair.pairCreatedAt) / 60000;
+  }
+
+  /**
+   * Get or fetch Birdeye bars for a mint at a given interval with interval-keyed cache.
+   */
+  private async getBirdeyeBars(
+    mintAddress: string,
+    interval: "1m" | "5m",
+    countLimit: number
+  ): Promise<BarsCacheEntry> {
+    const cacheKey = `${mintAddress}:${interval}`;
+
+    // Check interval-keyed bars cache
+    const cached = this.barsCacheByInterval.get(cacheKey);
     if (cached && Date.now() - cached.atMs < this.barsCacheTtlMs) {
       return cached;
     }
 
     // Single-flight: if in-flight, wait for it
-    const existing = this.inflight.get(mintAddress);
+    const existing = this.inflightByInterval.get(cacheKey);
     if (existing) {
       return existing;
     }
@@ -211,7 +247,7 @@ export class PriceActionService {
     const apiKey = getBirdeyeApiKey()!;
     const promise = (async () => {
       try {
-        const result = await fetchBirdeyeOhlcv(mintAddress, apiKey);
+        const result = await fetchBirdeyeOhlcv(mintAddress, apiKey, interval, countLimit);
 
         if (result.reason === "rate_429") {
           this.set429Cooldown();
@@ -219,15 +255,15 @@ export class PriceActionService {
 
         return { bars: result.bars, atMs: Date.now(), reason: result.reason };
       } finally {
-        this.inflight.delete(mintAddress);
+        this.inflightByInterval.delete(cacheKey);
       }
     })();
 
-    this.inflight.set(mintAddress, promise);
+    this.inflightByInterval.set(cacheKey, promise);
     const entry = await promise;
 
-    // Cache result
-    this.barsCache.set(mintAddress, entry);
+    // Cache result by interval key
+    this.barsCacheByInterval.set(cacheKey, entry);
     return entry;
   }
 
@@ -265,7 +301,8 @@ export class PriceActionService {
   async get24hHV(mint: string): Promise<number | null> {
     // Try Birdeye bars first if fresh
     if (getPaBirdeyeOhlcv() && getBirdeyeApiKey() && !this.is429Cooldown()) {
-      const cached = this.barsCache.get(mint);
+      // HV path: use 1m bars if cached (cheaper, higher-res for volatility)
+      const cached = this.barsCacheByInterval.get(`${mint}:1m`);
       if (cached && cached.bars && Date.now() - cached.atMs < this.barsCacheTtlMs) {
         const trimmed = deadTrim(cached.bars);
         if (trimmed.length >= 20) {
@@ -368,7 +405,8 @@ export class PriceActionService {
 export function metricsFromBars(
   bars: OhlcvBar[],
   features: CandleFeatures | null,
-  dexPair: DexPair | null
+  dexPair: DexPair | null,
+  interval: "1m" | "5m" = "1m"
 ): PAMetrics | null {
   if (bars.length === 0) return null;
 
@@ -434,6 +472,7 @@ export function metricsFromBars(
     isOverextended,
     source: "birdeye",
     features,
+    interval,
   };
 }
 
@@ -471,6 +510,7 @@ export function mapDexPairToMetrics(pair: DexPair): PAMetrics | null {
     isOverextended,
     source: "dex",
     features: null,
+    interval: null,
   };
 }
 

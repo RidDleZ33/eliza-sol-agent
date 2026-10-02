@@ -4,6 +4,7 @@ import { WAR_ROOM_ID } from "../utils/warRoom.ts";
 import { postWarRoomMessage } from "../services/WarRoomService.ts";
 import { priceActionService } from "../services/PriceActionService.ts";
 import { PAMetrics } from "../types/priceAction.ts";
+import { getPaNoBarsVetoPct } from "../utils/env.ts";
 
 // Gamma evaluator: entry decisions only. Exit management is the sole responsibility
 // of PositionManagerService (stop/TP/trailing logic runs on its own interval).
@@ -192,6 +193,15 @@ function synthesizeCommitteeSignals(candidate: any, paMetrics?: PAMetrics | null
         decision: "PRUNE",
         convictionScore: 0,
         reasons: [`HARD VETO (PA): Buy/Sell ratio 5m is ${paMetrics.buySellRatio5m.toFixed(2)} (heavy sell pressure)`]
+      };
+    }
+
+    // Phase 12D: no-bars + 5m crash veto (MEME500 class). Only when we have no candles.
+    if (source === "dex" && paMetrics.distanceFromPeakPct <= getPaNoBarsVetoPct()) {
+      return {
+        decision: "PRUNE",
+        convictionScore: 0,
+        reasons: [`HARD VETO (PA): no bars and 5m ${paMetrics.distanceFromPeakPct.toFixed(0)}%`]
       };
     }
 

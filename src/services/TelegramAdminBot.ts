@@ -853,9 +853,11 @@ export class TelegramAdminBot {
         const regimeStr = s.regime || "";
         const age = this.relativeAge(s.at);
         const srcStr = pa?.source === "dex" ? "src=dex" : "";
+        const tf = pa?.interval;
+        const tfStr = tf ? `tf=${tf}` : (srcStr ? "tf=na" : "");
         const barsStr = pa?.features ? `bars=${pa.features.barCount}` : "bars=na";
 
-        msg += `${s.decision} ${symbol} conv=${s.conviction?.toFixed(2) ?? "n/a"} ${vwapStr} ${bsStr} ${peakStr} ${emaStr} ${srcStr} ${hvStr} ${regimeStr} ${barsStr} ${age}\n`;
+        msg += `${s.decision} ${symbol} conv=${s.conviction?.toFixed(2) ?? "n/a"} ${vwapStr} ${bsStr} ${peakStr} ${emaStr} ${srcStr} ${tfStr} ${hvStr} ${regimeStr} ${barsStr} ${age}\n`;
       }
       return ctx.reply(msg);
     } catch (e) {

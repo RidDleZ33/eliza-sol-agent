@@ -9,6 +9,7 @@ export type CandleFeatures = {
   sma5: number | null;
   sma20: number | null;
   rsi14: number | null;
+  barInterval: "1m" | "5m";
 };
 
 export interface PAMetrics {
@@ -21,4 +22,5 @@ export interface PAMetrics {
   isOverextended?: boolean; // true if vwapRatio > 1.25 OR distanceFromPeakPct > -2.0
   source?: 'dex' | 'birdeye'; // data source: dex (pair) or birdeye (OHLCV, optional)
   features?: CandleFeatures | null; // derived from candles, observe-only
+  interval?: "1m" | "5m" | null; // bar interval used, or null if Dex fallback
 }
