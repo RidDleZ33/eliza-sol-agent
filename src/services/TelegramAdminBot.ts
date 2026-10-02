@@ -273,11 +273,11 @@ export class TelegramAdminBot {
       
       try {
         const db = watchlistService.getDb();
-        const wt = db.exec("DELETE FROM watched_tokens");
-        const wtr = db.exec("DELETE FROM watched_traders");
-        const pos = db.exec("DELETE FROM positions");
-        const tr = db.exec("DELETE FROM trades");
-        const tj = db.exec("DELETE FROM trade_journal");
+        const wt = db.prepare("DELETE FROM watched_tokens").run();
+        const wtr = db.prepare("DELETE FROM watched_traders").run();
+        const pos = db.prepare("DELETE FROM positions").run();
+        const tr = db.prepare("DELETE FROM trades").run();
+        const tj = db.prepare("DELETE FROM trade_journal").run();
         resetSessionPnl();
         
         logger.info("TELEGRAM", "TelegramAdminBot", "Database cleared via admin command");
@@ -515,14 +515,14 @@ export class TelegramAdminBot {
 
         if (query.data === "clear_db") {
           const db = watchlistService.getDb();
-          db.exec("DELETE FROM watched_tokens");
-          db.exec("DELETE FROM watched_traders");
-          db.exec("DELETE FROM positions");
-          db.exec("DELETE FROM trades");
-          db.exec("DELETE FROM trade_journal");
+          const wt = db.prepare("DELETE FROM watched_tokens").run();
+          const wtr = db.prepare("DELETE FROM watched_traders").run();
+          const pos = db.prepare("DELETE FROM positions").run();
+          const tr = db.prepare("DELETE FROM trades").run();
+          const tj = db.prepare("DELETE FROM trade_journal").run();
           resetSessionPnl();
           logger.info("TELEGRAM", "TelegramAdminBot", "Database cleared via button");
-          await ctx.answerCbQuery("Database cleared");
+          await ctx.answerCbQuery(`Database cleared: ${wt.changes} watched_tokens, ${wtr.changes} watched_traders, ${pos.changes} positions, ${tr.changes} trades, ${tj.changes} journal entries. Session PnL reset.`);
           return;
         }
 
@@ -860,13 +860,15 @@ export class TelegramAdminBot {
         if (i > 0) msg += "\n";
         msg += `${s.decision}  ${symbol}  ${age}\n`;
 
-        // Second line: conv, src, tf, bars
+        // Second line: conv, src, tf, bars (omit tf/bars when pa is null)
         const parts: string[] = [`conv ${convStr}`];
-        const src = pa?.source;
-        const tf = pa?.interval;
-        if (src) parts.push(`src=${src}`);
-        parts.push(tf ? `tf=${tf}` : "tf=na");
-        parts.push(pa?.features ? `bars=${pa.features.barCount}` : "bars=na");
+        if (pa) {
+          const src = pa.source;
+          const tf = pa.interval;
+          if (src) parts.push(`src=${src}`);
+          parts.push(tf ? `tf=${tf}` : "tf=na");
+          parts.push(pa.features ? `bars=${pa.features.barCount}` : "bars=na");
+        }
         msg += `  ${parts.join("  ")}\n`;
 
         // Third line: price action facts
