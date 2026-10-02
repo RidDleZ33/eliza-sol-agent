@@ -80,6 +80,7 @@ async function evaluateCandidatePipeline(runtime: any) {
         isOverextended: paMetrics.isOverextended,
         currentPriceUsd: paMetrics.currentPriceUsd,
         source: paMetrics.source,
+        interval: paMetrics.interval,
         features: paMetrics.features,
       } : null;
       await watchlistService.saveGammaSnapshot(
