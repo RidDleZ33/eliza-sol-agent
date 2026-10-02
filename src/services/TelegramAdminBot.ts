@@ -862,10 +862,10 @@ export class TelegramAdminBot {
 
         // Second line: conv, src, tf, bars (omit tf/bars when pa is null)
         const parts: string[] = [`conv ${convStr}`];
+        const src = pa?.source;
         if (pa) {
-          const src = pa.source;
-          const tf = pa.interval;
           if (src) parts.push(`src=${src}`);
+          const tf = pa.interval;
           parts.push(tf ? `tf=${tf}` : "tf=na");
           parts.push(pa.features ? `bars=${pa.features.barCount}` : "bars=na");
         }
