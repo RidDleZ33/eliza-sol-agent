@@ -2,6 +2,7 @@
 // Import from env.ts for env values.
 
 import { logger } from "../services/LoggerService.ts";
+import { telegramAdminBot } from "../services/TelegramAdminBot.ts";
 import { watchlistService } from "../services/WatchlistService.ts";
 import { getMaxTradeSizeSol, getMaxDeployedSol, getMaxDailyLossSol, getKillSwitch } from "../utils/env.ts";
 
@@ -52,6 +53,23 @@ function breakerReset(b: Breaker): void {
 // ---- Risk cap helpers ----
 const sessionRealizedPnl = { value: 0.0 };
 
+// Phase 12C: daily-loss halt notification throttle
+let lastHaltNotifyMs = 0;
+const HALT_NOTIFY_THROTTLE_MS = 30 * 60 * 1000; // 30 minutes
+
+function triggerDailyLossHaltNotify() {
+  const now = Date.now();
+  if (now - lastHaltNotifyMs < HALT_NOTIFY_THROTTLE_MS) {
+    return; // still within throttle window
+  }
+  lastHaltNotifyMs = now;
+  const pnl = sessionRealizedPnl.value.toFixed(2);
+  const limit = (-maxDailyLossSol()).toFixed(2);
+  const msg = `HALT daily-loss pnl=${pnl} limit=${limit} — buys blocked`;
+  logger.warn("RISK", "TradeExecution", msg);
+  telegramAdminBot.notifyAdmin(msg).catch(() => {});
+}
+
 export function addSessionPnl(pnl: number): void {
   sessionRealizedPnl.value += pnl;
 }
@@ -95,6 +113,7 @@ export function killSwitchOn(): boolean {
 export interface RiskCheckResult {
   ok: boolean;
   reason: string;
+  halt?: boolean; // true if this is a daily-loss halt (phase 12C)
 }
 
 export async function checkBuyRisk(tradeSize: number): Promise<RiskCheckResult> {
@@ -112,7 +131,9 @@ export async function checkBuyRisk(tradeSize: number): Promise<RiskCheckResult> 
   }
 
   if (sessionRealizedPnl.value <= -maxDailyLossSol()) {
-    return { ok: false, reason: `session pnl ${sessionRealizedPnl.value} <= -MAX_DAILY_LOSS_SOL ${maxDailyLossSol()}` };
+    const reason = `session pnl ${sessionRealizedPnl.value} <= -MAX_DAILY_LOSS_SOL ${maxDailyLossSol()}`;
+    triggerDailyLossHaltNotify();
+    return { ok: false, reason, halt: true };
   }
 
   return { ok: true, reason: "ok" };
