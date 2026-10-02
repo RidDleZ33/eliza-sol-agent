@@ -54,14 +54,7 @@ function holdBucket(secs: number): string {
   return ">60m";
 }
 
-function bucketLine(label: string, buckets: Map<string, { n: number; pnl: number }>): string {
-  let s = `${label}  `;
-  for (const [key, val] of buckets) {
-    const sign = val.pnl >= 0 ? "+" : "";
-    s += `${key} n=${val.n} pnl=${sign}${val.pnl.toFixed(2)}  `;
-  }
-  return s.trim();
-}
+
 
 export function aggregateTrips(
   sells: any[],
@@ -112,40 +105,52 @@ export function aggregateTrips(
   return trips;
 }
 
+function groupLines(label: string, buckets: Map<string, { n: number; pnl: number }>): string[] {
+  if (buckets.size === 0) return [];
+  const out: string[] = [label];
+  for (const [key, val] of buckets) {
+    const sign = val.pnl >= 0 ? "+" : "";
+    out.push(`  ${key}  n=${val.n}  pnl=${sign}${val.pnl.toFixed(2)}`);
+  }
+  return out;
+}
+
 export function formatBook(trips: ClosedTrip[]): string[] {
-  const lines: string[] = [];
   if (trips.length === 0) {
-    lines.push("BOOK empty");
-    return lines;
+    return ["BOOK empty"];
   }
   const totalPnl = trips.reduce((s, t) => s + t.pnl_sol, 0);
   const wins = trips.filter((t) => t.pnl_sol > 0).length;
   const wr = (wins / trips.length) * 100;
   const sign = totalPnl >= 0 ? "+" : "";
-  lines.push(
-    `BOOK n=${trips.length}  pnl=${sign}${totalPnl.toFixed(2)} SOL  wr=${wr.toFixed(0)}%`
-  );
+  const lines: string[] = [
+    `BOOK  n=${trips.length}  pnl=${sign}${totalPnl.toFixed(2)} SOL  wr=${wr.toFixed(0)}%`
+  ];
+
   const exitBuckets = new Map<string, { n: number; pnl: number }>();
   for (const t of trips) {
     const b = exitBuckets.get(t.exit_fam) || { n: 0, pnl: 0 };
     b.n++; b.pnl += t.pnl_sol;
     exitBuckets.set(t.exit_fam, b);
   }
-  lines.push(bucketLine("by exit", exitBuckets));
+  lines.push(...groupLines("exit", exitBuckets));
+
   const paBuckets = new Map<string, { n: number; pnl: number }>();
   for (const t of trips) {
     const b = paBuckets.get(t.pa_src) || { n: 0, pnl: 0 };
     b.n++; b.pnl += t.pnl_sol;
     paBuckets.set(t.pa_src, b);
   }
-  lines.push(bucketLine("by pa", paBuckets));
+  lines.push(...groupLines("pa", paBuckets));
+
   const ingestBuckets = new Map<string, { n: number; pnl: number }>();
   for (const t of trips) {
     const b = ingestBuckets.get(t.ingest) || { n: 0, pnl: 0 };
     b.n++; b.pnl += t.pnl_sol;
     ingestBuckets.set(t.ingest, b);
   }
-  lines.push(bucketLine("by src", ingestBuckets));
+  lines.push(...groupLines("src", ingestBuckets));
+
   const holdBuckets = new Map<string, { n: number; pnl: number }>();
   for (const t of trips) {
     const key = holdBucket((t.sell_at - t.buy_at) / 1000);
@@ -153,8 +158,17 @@ export function formatBook(trips: ClosedTrip[]): string[] {
     b.n++; b.pnl += t.pnl_sol;
     holdBuckets.set(key, b);
   }
-  lines.push(bucketLine("by hold", holdBuckets));
-  return lines;
+  lines.push(...groupLines("hold", holdBuckets));
+
+  // Insert blank lines between groups
+  const result: string[] = [lines[0]];
+  for (let i = 1; i < lines.length; i++) {
+    if (lines[i] !== "" && !lines[i].startsWith("  ")) {
+      result.push("");
+    }
+    result.push(lines[i]);
+  }
+  return result;
 }
 
 export function aggregateBook(hoursBack: number | null): {

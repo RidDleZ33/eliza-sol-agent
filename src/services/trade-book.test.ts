@@ -154,16 +154,19 @@ describe("trade book aggregation", () => {
     expect(lines[0]).toContain("pnl=-0.03 SOL");
   });
 
-  test("formatBook has bucket lines", () => {
-    expect(lines[1]).toContain("by exit");
-    expect(lines[1]).toContain("TRAILING_STOP");
-    expect(lines[2]).toContain("by pa");
-    expect(lines[2]).toContain("dex");
-    expect(lines[2]).toContain("none");
-    expect(lines[3]).toContain("by src");
-    // Raw feed names must appear distinct, not collapsed into a whitelist
-    expect(lines[3]).toContain("ds_boost");
-    expect(lines[3]).toContain("ds_profile");
-    expect(lines[4]).toContain("by hold");
+  test("formatBook has grouped exit/pa/src/hold buckets", () => {
+    // exit group
+    expect(lines[2]).toBe("exit");
+    expect(lines[3]).toContain("TRAILING_STOP");
+    // pa group (line 7, after blank at 6)
+    expect(lines[7]).toBe("pa");
+    expect(lines[8]).toContain("dex");
+    expect(lines[9]).toContain("none");
+    // src group (line 11, after blank at 10)
+    expect(lines[11]).toBe("src");
+    expect(lines[12]).toContain("ds_boost");
+    expect(lines[14]).toContain("ds_profile");
+    // hold group (line 16, after blank at 15)
+    expect(lines[16]).toBe("hold");
   });
 });

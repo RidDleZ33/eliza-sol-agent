@@ -843,8 +843,9 @@ export class TelegramAdminBot {
         return ctx.reply("no gamma snapshots");
       }
 
-      let msg = "GAMMA RECENT SNAPSHOTS\n";
-      for (const s of snaps) {
+      let msg = "";
+      for (let i = 0; i < snaps.length; i++) {
+        const s = snaps[i];
         const symbol = s.symbol || s.mint_address.slice(0, 6) + "...";
         let pa = null;
         try {
@@ -852,19 +853,46 @@ export class TelegramAdminBot {
         } catch (e) {
           // bad JSON, treat as null
         }
-        const vwapStr = pa?.vwapRatio != null ? `vwap=${pa.vwapRatio.toFixed(2)}` : "";
-        const bsStr = pa?.buySellRatio5m != null ? `bs=${pa.buySellRatio5m.toFixed(1)}` : "";
-        const peakStr = pa?.distanceFromPeakPct != null ? `peak=${pa.distanceFromPeakPct.toFixed(0)}%` : "";
-        const emaStr = pa?.emaTrend ? `ema=${pa.emaTrend}` : "";
-        const hvStr = s.hv != null ? `hv=${s.hv.toFixed(2)}` : "";
-        const regimeStr = s.regime || "";
         const age = this.relativeAge(s.at);
-        const srcStr = pa?.source === "dex" ? "src=dex" : "";
-        const tf = pa?.interval;
-        const tfStr = tf ? `tf=${tf}` : (srcStr ? "tf=na" : "");
-        const barsStr = pa?.features ? `bars=${pa.features.barCount}` : "bars=na";
+        const convStr = s.conviction != null ? s.conviction.toFixed(2) : "n/a";
 
-        msg += `${s.decision} ${symbol} conv=${s.conviction?.toFixed(2) ?? "n/a"} ${vwapStr} ${bsStr} ${peakStr} ${emaStr} ${srcStr} ${tfStr} ${hvStr} ${regimeStr} ${barsStr} ${age}\n`;
+        // Header line: decision symbol age
+        if (i > 0) msg += "\n";
+        msg += `${s.decision}  ${symbol}  ${age}\n`;
+
+        // Second line: conv, src, tf, bars
+        const parts: string[] = [`conv ${convStr}`];
+        const src = pa?.source;
+        const tf = pa?.interval;
+        if (src) parts.push(`src=${src}`);
+        parts.push(tf ? `tf=${tf}` : "tf=na");
+        parts.push(pa?.features ? `bars=${pa.features.barCount}` : "bars=na");
+        msg += `  ${parts.join("  ")}\n`;
+
+        // Third line: price action facts
+        const facts: string[] = [];
+        if (pa?.distanceFromPeakPct != null) {
+          const label = src === "dex" ? "5m" : "peak";
+          facts.push(`${label} ${pa.distanceFromPeakPct.toFixed(0)}%`);
+        }
+        if (pa?.buySellRatio5m != null) {
+          facts.push(`bs ${pa.buySellRatio5m.toFixed(1)}`);
+        }
+        if (src !== "dex" && pa?.emaTrend && pa.emaTrend !== "NEUTRAL") {
+          facts.push(`ema ${pa.emaTrend}`);
+        }
+        if (s.hv != null) {
+          facts.push(`hv ${s.hv.toFixed(2)}`);
+        }
+        if (s.regime) {
+          facts.push(s.regime);
+        }
+        if (facts.length > 0) {
+          msg += `  ${facts.join("  ")}\n`;
+        }
+      }
+      if (msg.length > 3500) {
+        msg = msg.substring(0, 3500) + "\n... (truncated)";
       }
       return ctx.reply(msg);
     } catch (e) {
