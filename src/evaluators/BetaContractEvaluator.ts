@@ -1,7 +1,7 @@
 import { watchlistService } from "../services/WatchlistService.ts";
 import { contractForensicsService } from "../services/ContractForensicsService.ts";
 import { postWarRoomMessage } from "../services/WarRoomService.ts";
-import { getMinLiquidityUsd } from "../utils/env.ts";
+import { getMinLiquidityUsd, getDexscreenerProfilesMaxAgeH } from "../utils/env.ts";
 
 export type DecisionType = "PASS" | "FAIL" | "DISSENT";
 
@@ -69,9 +69,30 @@ export async function evaluateBetaContract(runtime: any) {
 
         runtime.logger.info(`[Beta] ${token.symbol} Verdict: ${verdict.decision} (${verdict.reasons.join("; ")})`);
 
-        // Phase 12K: MIN_LIQUIDITY_USD floor overrides forensics verdict
+        // Phase 12K+12L: refresh stale pair on re-eval, then apply MIN_LIQUIDITY_USD floor
         const minLiquidity = getMinLiquidityUsd();
-        const dexPair = watchlistService.getDexPair(token.mint_address);
+        let dexPair = watchlistService.getDexPair(token.mint_address);
+
+        // Phase 12L: refresh if missing or older than defer window (10 min)
+        const staleMs = 10 * 60 * 1000;
+        if (!dexPair || !dexPair.at || Date.now() - dexPair.at > staleMs) {
+          runtime.logger.info(`[Beta] ${token.symbol} refreshing dex pair (stale or missing)`);
+          try {
+            const url = `https://api.dexscreener.com/latest/dex/tokens/${token.mint_address}`;
+            const resp = await fetch(url);
+            if (resp.ok) {
+              const data = await resp.json();
+              const pairs = data?.pairs;
+              if (pairs && pairs.length > 0) {
+                watchlistService.saveDexPair(token.mint_address, pairs[0]);
+                dexPair = watchlistService.getDexPair(token.mint_address);
+              }
+            }
+          } catch (e: any) {
+            runtime.logger.error(`[Beta] ${token.symbol} dex pair refresh failed:`, e.message);
+          }
+        }
+
         if (!dexPair) {
           runtime.logger.info(`[Beta] ${token.symbol} liquidity FAIL: no stashed dex pair`);
           verdict = {
@@ -83,17 +104,43 @@ export async function evaluateBetaContract(runtime: any) {
             top10ConcentrationPct: 0,
             reasons: ["liquidity unknown (no dex pair)"],
           };
-        } else if (dexPair.pair.liquidity.usd < minLiquidity) {
-          runtime.logger.info(`[Beta] ${token.symbol} liquidity FAIL: ${dexPair.pair.liquidity.usd} < ${minLiquidity}`);
-          verdict = {
-            decision: "FAIL",
-            confidenceRatio: 1.0,
-            securityScore: 0.0,
-            isMintDisabled: false,
-            isFreezeDisabled: false,
-            top10ConcentrationPct: 0,
-            reasons: [`liquidity ${dexPair.pair.liquidity.usd} < ${minLiquidity}`],
-          };
+        } else {
+          // Phase 12L: guard liquidity.usd — missing field fails closed
+          if (dexPair.pair.liquidity == null || dexPair.pair.liquidity.usd == null) {
+            runtime.logger.info(`[Beta] ${token.symbol} liquidity FAIL: liquidity field missing`);
+            verdict = {
+              decision: "FAIL",
+              confidenceRatio: 1.0,
+              securityScore: 0.0,
+              isMintDisabled: false,
+              isFreezeDisabled: false,
+              top10ConcentrationPct: 0,
+              reasons: ["liquidity unknown (missing field)"],
+            };
+          } else if (dexPair.pair.liquidity.usd < minLiquidity) {
+            // Phase 12L: age alone does not fail — only old+thin pools
+            const maxAgeMs = getDexscreenerProfilesMaxAgeH() * 60 * 60 * 1000;
+            let ageMs = 0;
+            if (dexPair.pair.pairCreatedAt) {
+              ageMs = Date.now() - dexPair.pair.pairCreatedAt;
+            }
+            const tooOld = ageMs > maxAgeMs;
+
+            if (tooOld) {
+              runtime.logger.info(`[Beta] ${token.symbol} liquidity FAIL: old+thin pool (${dexPair.pair.liquidity.usd} < ${minLiquidity}, age > ${getDexscreenerProfilesMaxAgeH()}h)`);
+            } else {
+              runtime.logger.info(`[Beta] ${token.symbol} liquidity FAIL: ${dexPair.pair.liquidity.usd} < ${minLiquidity}`);
+            }
+            verdict = {
+              decision: "FAIL",
+              confidenceRatio: 1.0,
+              securityScore: 0.0,
+              isMintDisabled: false,
+              isFreezeDisabled: false,
+              top10ConcentrationPct: 0,
+              reasons: [`liquidity ${dexPair.pair.liquidity.usd} < ${minLiquidity}${tooOld ? " (old thin pool)" : ""}`],
+            };
+          }
         }
 
         // War room: broadcast risk assessment

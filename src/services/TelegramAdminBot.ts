@@ -824,7 +824,7 @@ export class TelegramAdminBot {
         if (pa) {
           const srcPrefix = pa.source === "dex" ? "src=dex " : "";
           const vwapStr = pa.vwapRatio != null ? ` ${pa.vwapRatio.toFixed(2)}` : "";
-          const bsStr = pa.buySellRatio5m != null ? ` ${pa.buySellRatio5m.toFixed(2)}` : "";
+          const bsStr = pa.buySellRatio5m != null ? (pa.buySellRatio5m === 999 ? " na" : ` ${pa.buySellRatio5m.toFixed(2)}`) : "";
           const peakStr = pa.distanceFromPeakPct != null ? ` ${pa.distanceFromPeakPct.toFixed(1)}%` : "";
           const emaStr = pa.emaTrend || "";
           const overStr = typeof pa.isOverextended === "boolean" ? ` ${pa.isOverextended ? "yes" : "no"}` : "";
@@ -882,7 +882,11 @@ export class TelegramAdminBot {
           facts.push(`${label} ${pa.distanceFromPeakPct.toFixed(0)}%`);
         }
         if (pa?.buySellRatio5m != null) {
-          facts.push(`bs ${pa.buySellRatio5m.toFixed(1)}`);
+          if (pa.buySellRatio5m === 999) {
+            facts.push("bs na");
+          } else {
+            facts.push(`bs ${pa.buySellRatio5m.toFixed(1)}`);
+          }
         }
         if (src !== "dex" && pa?.emaTrend && pa.emaTrend !== "NEUTRAL") {
           facts.push(`ema ${pa.emaTrend}`);
