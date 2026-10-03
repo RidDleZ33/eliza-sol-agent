@@ -189,12 +189,12 @@ function synthesizeCommitteeSignals(candidate: any, paMetrics?: PAMetrics | null
     const source = paMetrics.source;
     const minBars = getPaMinBars();
 
-    // Phase 12I: min-bars veto (birdeye only; dex has no bar count)
+    // Phase 12I2: min-bars → DEFER (birdeye only; dex has no bar count)
     if (source === "birdeye" && paMetrics.features && paMetrics.features.barCount < minBars) {
       return {
-        decision: "PRUNE",
+        decision: "DEFER",
         convictionScore: 0,
-        reasons: [`HARD VETO (PA): bars ${paMetrics.features.barCount} < ${minBars}`]
+        reasons: [`DEFER (PA): bars ${paMetrics.features.barCount} < ${minBars}`]
       };
     }
 
@@ -207,8 +207,15 @@ function synthesizeCommitteeSignals(candidate: any, paMetrics?: PAMetrics | null
       };
     }
 
-    // Phase 12I: peak-drop hard veto (applies to both sources)
+    // Phase 12I2: peak-drop → DEFER on birdeye (recovered), PRUNE on dex (5m change)
     if (paMetrics.distanceFromPeakPct <= getPaMaxPeakDropPct()) {
+      if (source === "birdeye") {
+        return {
+          decision: "DEFER",
+          convictionScore: 0,
+          reasons: [`DEFER (PA): peak ${paMetrics.distanceFromPeakPct.toFixed(0)}%`]
+        };
+      }
       return {
         decision: "PRUNE",
         convictionScore: 0,
