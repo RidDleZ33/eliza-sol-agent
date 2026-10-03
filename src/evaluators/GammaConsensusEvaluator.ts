@@ -207,6 +207,15 @@ function synthesizeCommitteeSignals(candidate: any, paMetrics?: PAMetrics | null
       };
     }
 
+    // Phase 12K: bearish EMA hard vetoes even extreme peak drops
+    if (source === "birdeye" && paMetrics.emaTrend === 'BEARISH') {
+      return {
+        decision: "PRUNE",
+        convictionScore: 0,
+        reasons: [`HARD VETO (PA): Bearish EMA trend (9<21)`]
+      };
+    }
+
     // Phase 12I2: peak-drop → DEFER on birdeye (recovered), PRUNE on dex (5m change)
     if (paMetrics.distanceFromPeakPct <= getPaMaxPeakDropPct()) {
       if (source === "birdeye") {
@@ -238,15 +247,6 @@ function synthesizeCommitteeSignals(candidate: any, paMetrics?: PAMetrics | null
         decision: "PRUNE",
         convictionScore: 0,
         reasons: [`HARD VETO (PA): no bars and 5m ${paMetrics.distanceFromPeakPct.toFixed(0)}%`]
-      };
-    }
-
-    // HARD VETO: Bearish EMA trend (birdeye OHLCV only; dex has no real EMA)
-    if (source === "birdeye" && paMetrics.emaTrend === 'BEARISH') {
-      return {
-        decision: "PRUNE",
-        convictionScore: 0,
-        reasons: [`HARD VETO (PA): Bearish EMA trend (9<21)`]
       };
     }
 

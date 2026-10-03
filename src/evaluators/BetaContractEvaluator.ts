@@ -1,6 +1,7 @@
 import { watchlistService } from "../services/WatchlistService.ts";
 import { contractForensicsService } from "../services/ContractForensicsService.ts";
 import { postWarRoomMessage } from "../services/WarRoomService.ts";
+import { getMinLiquidityUsd } from "../utils/env.ts";
 
 export type DecisionType = "PASS" | "FAIL" | "DISSENT";
 
@@ -67,6 +68,33 @@ export async function evaluateBetaContract(runtime: any) {
         }
 
         runtime.logger.info(`[Beta] ${token.symbol} Verdict: ${verdict.decision} (${verdict.reasons.join("; ")})`);
+
+        // Phase 12K: MIN_LIQUIDITY_USD floor overrides forensics verdict
+        const minLiquidity = getMinLiquidityUsd();
+        const dexPair = watchlistService.getDexPair(token.mint_address);
+        if (!dexPair) {
+          runtime.logger.info(`[Beta] ${token.symbol} liquidity FAIL: no stashed dex pair`);
+          verdict = {
+            decision: "FAIL",
+            confidenceRatio: 1.0,
+            securityScore: 0.0,
+            isMintDisabled: false,
+            isFreezeDisabled: false,
+            top10ConcentrationPct: 0,
+            reasons: ["liquidity unknown (no dex pair)"],
+          };
+        } else if (dexPair.pair.liquidity.usd < minLiquidity) {
+          runtime.logger.info(`[Beta] ${token.symbol} liquidity FAIL: ${dexPair.pair.liquidity.usd} < ${minLiquidity}`);
+          verdict = {
+            decision: "FAIL",
+            confidenceRatio: 1.0,
+            securityScore: 0.0,
+            isMintDisabled: false,
+            isFreezeDisabled: false,
+            top10ConcentrationPct: 0,
+            reasons: [`liquidity ${dexPair.pair.liquidity.usd} < ${minLiquidity}`],
+          };
+        }
 
         // War room: broadcast risk assessment
         await postWarRoomMessage("BETA", "RISK_ASSESSMENT", {
