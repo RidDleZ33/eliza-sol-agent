@@ -45,6 +45,9 @@ const EnvSchema = z.object({
   PA_BIRDEYE_OHLCV: z.string().default("false"),
   PA_BAR_AGE_SPLIT_MIN: z.string().default("90"),
   PA_NO_BARS_VETO_PCT: z.string().default("-25"),
+  PA_MIN_BARS: z.string().default("21"),
+  PA_VETO_NO_BARS: z.string().default("true"),
+  PA_MAX_PEAK_DROP_PCT: z.string().default("-40"),
   TWITTER_BEARER_TOKEN: z.string().optional(),
   WALLET_MIRROR_INTERVAL_MS: z.string().default("20000"),
   RUGCHECK_API_URL: z.string().default("https://api.rugcheck.xyz/v1/tokens"),
@@ -245,6 +248,23 @@ export function getPaBarAgeSplitMin(): number {
 export function getPaNoBarsVetoPct(): number {
   const raw = parseFloat(env.PA_NO_BARS_VETO_PCT);
   return Number.isFinite(raw) ? raw : -25;
+}
+
+// Phase 12I: minimum bars for PA to be considered live.
+export function getPaMinBars(): number {
+  const raw = parseInt(env.PA_MIN_BARS, 10);
+  return Number.isFinite(raw) && raw > 0 ? raw : 21;
+}
+
+// Phase 12I: block BUY when no bars (source=dex or missing stack).
+export function getPaVetoNoBars(): boolean {
+  return env.PA_VETO_NO_BARS === "true" || env.PA_VETO_NO_BARS === "1";
+}
+
+// Phase 12I: peak-drop hard veto threshold (pct, negative).
+export function getPaMaxPeakDropPct(): number {
+  const raw = parseFloat(env.PA_MAX_PEAK_DROP_PCT);
+  return Number.isFinite(raw) ? raw : -40;
 }
 
 // Phase 12E: DexScreener profiles max pair age in hours

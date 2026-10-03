@@ -3,7 +3,7 @@ import { logger } from "./LoggerService.ts";
 import { PAMetrics, CandleFeatures } from "../types/priceAction.ts";
 
 import { watchlistService } from "./WatchlistService.ts";
-import { getPaBirdeyeOhlcv, getBirdeyeApiKey, getDexscreenerChain, getPaBarAgeSplitMin, getPaNoBarsVetoPct } from "../utils/env.ts";
+import { getPaBirdeyeOhlcv, getBirdeyeApiKey, getDexscreenerChain, getPaBarAgeSplitMin, getPaNoBarsVetoPct, getPaMinBars } from "../utils/env.ts";
 import { lastBarFeatures, deadTrim, ema, OhlcvBar } from "./priceAction/candleFeatures.ts";
 import { fetchBirdeyeOhlcv } from "./priceAction/birdeyeOhlcv.ts";
 
@@ -102,7 +102,7 @@ export class PriceActionService {
         if (barsEntry.bars && barsEntry.bars.length >= 3) {
           // Trim once; pass same trimmed array to both features and metrics
           const trimmed = deadTrim(barsEntry.bars);
-          const features = lastBarFeatures(trimmed, 20, interval);
+          const features = lastBarFeatures(trimmed, getPaMinBars(), interval);
           const dexPair = this.getDexPairForBuySell(mintAddress);
           const metrics = metricsFromBars(trimmed, features, dexPair, interval);
           if (metrics) {

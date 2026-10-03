@@ -4,7 +4,7 @@ import { WAR_ROOM_ID } from "../utils/warRoom.ts";
 import { postWarRoomMessage } from "../services/WarRoomService.ts";
 import { priceActionService } from "../services/PriceActionService.ts";
 import { PAMetrics } from "../types/priceAction.ts";
-import { getPaNoBarsVetoPct } from "../utils/env.ts";
+import { getPaNoBarsVetoPct, getPaMinBars, getPaVetoNoBars, getPaMaxPeakDropPct } from "../utils/env.ts";
 
 // Gamma evaluator: entry decisions only. Exit management is the sole responsibility
 // of PositionManagerService (stop/TP/trailing logic runs on its own interval).
@@ -187,6 +187,34 @@ function synthesizeCommitteeSignals(candidate: any, paMetrics?: PAMetrics | null
   // Price Action hard vetoes (dex fallback: only buy/sell ratio, no EMA/overext)
   if (paMetrics) {
     const source = paMetrics.source;
+    const minBars = getPaMinBars();
+
+    // Phase 12I: min-bars veto (birdeye only; dex has no bar count)
+    if (source === "birdeye" && paMetrics.features && paMetrics.features.barCount < minBars) {
+      return {
+        decision: "PRUNE",
+        convictionScore: 0,
+        reasons: [`HARD VETO (PA): bars ${paMetrics.features.barCount} < ${minBars}`]
+      };
+    }
+
+    // Phase 12I: no-bars veto (default on)
+    if (getPaVetoNoBars() && source === "dex") {
+      return {
+        decision: "PRUNE",
+        convictionScore: 0,
+        reasons: [`HARD VETO (PA): no bars`]
+      };
+    }
+
+    // Phase 12I: peak-drop hard veto (applies to both sources)
+    if (paMetrics.distanceFromPeakPct <= getPaMaxPeakDropPct()) {
+      return {
+        decision: "PRUNE",
+        convictionScore: 0,
+        reasons: [`HARD VETO (PA): peak ${paMetrics.distanceFromPeakPct.toFixed(0)}%`]
+      };
+    }
 
     // HARD VETO: Heavy sell pressure (buy/sell ratio < 0.5) - applies to both sources
     if (paMetrics.buySellRatio5m < 0.5) {
