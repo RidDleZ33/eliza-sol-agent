@@ -20,6 +20,10 @@ function escapeMd(text: string): string {
   return String(text).replace(/([*_\[\]()~`>#+|=!])/g, "\\$1");
 }
 
+function escapeHtml(text: string): string {
+  return String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
 export class TelegramAdminBot {
   private bot: Telegraf<any> | null = null;
   private adminChatId: string;
@@ -815,7 +819,7 @@ export class TelegramAdminBot {
         const age = this.relativeAge(snap.at);
         const reasons = (snap.reasons || "").slice(0, 240);
 
-        let msg = `GAMMA <a href="https://dexscreener.com/solana/${mint}">$${symbol}</a>\n`;
+        let msg = `GAMMA <a href="https://dexscreener.com/solana/${mint}">$${escapeHtml(symbol)}</a>\n`;
         msg += `dec ${snap.decision} conv=${snap.conviction?.toFixed(2) ?? "n/a"}\n`;
         if (pa) {
           const srcPrefix = pa.source === "dex" ? "src=dex " : "";
@@ -858,7 +862,7 @@ export class TelegramAdminBot {
 
         // Header line: decision symbol age
         if (i > 0) msg += "\n";
-        msg += `${s.decision}  <a href="https://dexscreener.com/solana/${s.mint_address}">${symbol}</a>  ${age}\n`;
+        msg += `${s.decision}  <a href="https://dexscreener.com/solana/${s.mint_address}">${escapeHtml(symbol)}</a>  ${age}\n`;
 
         // Second line: conv, src, tf, bars (omit tf/bars when pa is null)
         const parts: string[] = [`conv ${convStr}`];
