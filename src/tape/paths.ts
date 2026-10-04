@@ -329,4 +329,103 @@ for (const policy of policies) {
   }
 }
 
+// ===== Phase 13D: scale-out exits (under 30m bucket) =====
+
+console.log(`\n=== scale-out exits (<30m bucket only) ===`);
+
+// Policy 1: sell all at first tick >= 1.3x
+{
+  const returns: number[] = [];
+  for (const r of youngMints) {
+    const ticks = db
+      .prepare("SELECT price_usd FROM market_ticks WHERE mint = ? ORDER BY observed_at ASC")
+      .all(r.mint) as { price_usd: number }[];
+    if (ticks.length === 0) continue;
+    const firstPrice = ticks[0].price_usd;
+    if (firstPrice <= 0) continue;
+    let exitPrice = ticks[ticks.length - 1].price_usd;
+    for (const tick of ticks) {
+      if (tick.price_usd >= firstPrice * 1.3) {
+        exitPrice = tick.price_usd;
+        break;
+      }
+    }
+    returns.push(exitPrice / firstPrice - 1);
+  }
+  returns.sort((a, b) => a - b);
+  const medianRet = returns[Math.floor(returns.length / 2)];
+  const sumRet = returns.reduce((a, b) => a + b, 0);
+  console.log(`  sell-all-1.3x: n=${returns.length} median_ret=${(medianRet * 100).toFixed(1)}% sum_ret=${(sumRet * 100).toFixed(1)}%`);
+}
+
+// Policy 2: sell half at 1.3x, half at 2x; unhit remainder at last tick
+{
+  const returns: number[] = [];
+  for (const r of youngMints) {
+    const ticks = db
+      .prepare("SELECT price_usd FROM market_ticks WHERE mint = ? ORDER BY observed_at ASC")
+      .all(r.mint) as { price_usd: number }[];
+    if (ticks.length === 0) continue;
+    const firstPrice = ticks[0].price_usd;
+    if (firstPrice <= 0) continue;
+    let exitPrice1 = ticks[ticks.length - 1].price_usd;
+    let exitPrice2 = ticks[ticks.length - 1].price_usd;
+    let found1 = false;
+    for (const tick of ticks) {
+      if (!found1 && tick.price_usd >= firstPrice * 1.3) {
+        exitPrice1 = tick.price_usd;
+        found1 = true;
+      }
+      if (tick.price_usd >= firstPrice * 2.0) {
+        exitPrice2 = tick.price_usd;
+        break;
+      }
+    }
+    const proceeds = 0.5 * exitPrice1 + 0.5 * exitPrice2;
+    returns.push(proceeds / firstPrice - 1);
+  }
+  returns.sort((a, b) => a - b);
+  const medianRet = returns[Math.floor(returns.length / 2)];
+  const sumRet = returns.reduce((a, b) => a + b, 0);
+  console.log(`  half-1.3x-half-2x: n=${returns.length} median_ret=${(medianRet * 100).toFixed(1)}% sum_ret=${(sumRet * 100).toFixed(1)}%`);
+}
+
+// Policy 3: sell half at 1.3x, half at 20% under max seen after half sold
+{
+  const returns: number[] = [];
+  for (const r of youngMints) {
+    const ticks = db
+      .prepare("SELECT price_usd FROM market_ticks WHERE mint = ? ORDER BY observed_at ASC")
+      .all(r.mint) as { price_usd: number }[];
+    if (ticks.length === 0) continue;
+    const firstPrice = ticks[0].price_usd;
+    if (firstPrice <= 0) continue;
+    let exitPrice1 = ticks[ticks.length - 1].price_usd;
+    let exitPrice2 = ticks[ticks.length - 1].price_usd;
+    let found1 = false;
+    let maxAfter = 0;
+    for (const tick of ticks) {
+      if (!found1 && tick.price_usd >= firstPrice * 1.3) {
+        exitPrice1 = tick.price_usd;
+        found1 = true;
+      }
+      if (found1) {
+        if (tick.price_usd > maxAfter) {
+          maxAfter = tick.price_usd;
+        }
+        if (tick.price_usd <= maxAfter * 0.8) {
+          exitPrice2 = tick.price_usd;
+          break;
+        }
+      }
+    }
+    const proceeds = 0.5 * exitPrice1 + 0.5 * exitPrice2;
+    returns.push(proceeds / firstPrice - 1);
+  }
+  returns.sort((a, b) => a - b);
+  const medianRet = returns[Math.floor(returns.length / 2)];
+  const sumRet = returns.reduce((a, b) => a + b, 0);
+  console.log(`  half-1.3x-half-20pct-drawdown: n=${returns.length} median_ret=${(medianRet * 100).toFixed(1)}% sum_ret=${(sumRet * 100).toFixed(1)}%`);
+}
+
 db.close();
