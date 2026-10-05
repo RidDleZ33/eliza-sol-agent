@@ -1,0 +1,5 @@
+mints: total=2549 train=2039 holdout=510
+first_bar: train_n=929 train_med=33.0p holdout_n=241 holdout_med=32.8p
+bar_8: train_n=616 train_med=33.6p holdout_n=140 holdout_med=34.0p
+bar_21: train_n=508 train_med=34.0p holdout_n=115 holdout_med=32.0p
+ema_cross_21: train_n=553 train_med=34.9p holdout_n=134 holdout_med=37.0p

@@ -1,0 +1,13 @@
+mints: total=2553 train=2042 holdout=511
+first_bar:
+  train: n=931 hit=586 capped_med=33.0p hold_med=-11.7p
+  holdout: n=242 hit=140 capped_med=32.8p hold_med=-7.3p
+bar_8:
+  train: n=617 hit=411 capped_med=33.6p hold_med=-29.6p
+  holdout: n=139 hit=95 capped_med=33.9p hold_med=-19.1p
+bar_21:
+  train: n=509 hit=330 capped_med=34.0p hold_med=-31.2p
+  holdout: n=118 hit=74 capped_med=32.3p hold_med=-15.8p
+ema_cross_21:
+  train: n=554 hit=365 capped_med=34.9p hold_med=-13.0p
+  holdout: n=137 hit=91 capped_med=37.0p hold_med=-9.7p

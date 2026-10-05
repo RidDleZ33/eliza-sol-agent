@@ -97,6 +97,7 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
   }
 
   // Step 3: Poll boosts separately (Phase 15B)
+  // Collect Solana mints from boosts, fetch their pairs, same as profiles.
   try {
     const boostsUrl = `${DS_BASE}/token-boosts/latest/v1?limit=25`;
     const boostsResp = await fetch(boostsUrl);
@@ -107,11 +108,20 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
       const boosts = await boostsResp.json();
       if (Array.isArray(boosts)) {
         const now = Date.now();
+        const boostMints = new Set<string>();
         for (const b of boosts) {
           if (b.chainId === "solana" && b.tokenAddress) {
             keepaliveMints.set(b.tokenAddress, now);
             thisPollBoardMints.add(b.tokenAddress);
+            boostMints.add(b.tokenAddress);
           }
+        }
+
+        // Fetch pair data for boosted mints in batches (same as profiles)
+        const boostArray = Array.from(boostMints);
+        for (let i = 0; i < boostArray.length; i += 15) {
+          const batch = boostArray.slice(i, i + 15);
+          await pollTokenBatch(runId, batch, result, true);
         }
       }
     }
