@@ -4,7 +4,7 @@ import { WAR_ROOM_ID } from "../utils/warRoom.ts";
 import { postWarRoomMessage } from "../services/WarRoomService.ts";
 import { priceActionService } from "../services/PriceActionService.ts";
 import { PAMetrics } from "../types/priceAction.ts";
-import { getPaNoBarsVetoPct, getPaMinBars, getPaVetoNoBars, getPaMaxPeakDropPct } from "../utils/env.ts";
+import { getPaNoBarsVetoPct, getPaMinBars, getPaVetoNoBars, getPaMaxPeakDropPct, getPaBirdeyeOhlcv } from "../utils/env.ts";
 
 // Gamma evaluator: entry decisions only. Exit management is the sole responsibility
 // of PositionManagerService (stop/TP/trailing logic runs on its own interval).
@@ -198,8 +198,18 @@ function synthesizeCommitteeSignals(candidate: any, paMetrics?: PAMetrics | null
       };
     }
 
-    // Phase 12I: no-bars veto (default on)
+    // Phase 14B: no-bars on dex source — retry via DEFER when Birdeye is on
     if (getPaVetoNoBars() && source === "dex") {
+      if (getPaBirdeyeOhlcv()) {
+        const retries = candidate.eval_count ?? 0;
+        if (retries < 2) {
+          return {
+            decision: "DEFER",
+            convictionScore: 0,
+            reasons: [`DEFER (PA): no bars, retry`]
+          };
+        }
+      }
       return {
         decision: "PRUNE",
         convictionScore: 0,
