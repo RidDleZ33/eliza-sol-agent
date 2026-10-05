@@ -84,7 +84,6 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
           for (const [m, ts] of keepaliveMints) {
             stmt.run(m, ts);
           }
-          stmt.finalize();
           db.exec("COMMIT;");
         } catch (err: any) {
           console.log(`[tape] failed to persist keepalive mints: ${err.message}`);
