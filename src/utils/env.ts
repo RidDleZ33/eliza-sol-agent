@@ -41,6 +41,7 @@ const EnvSchema = z.object({
   INGEST_DEXSCREENER_BOOSTS: z.string().default("false"),
   INGEST_DEXSCREENER_PROFILES: z.string().default("false"),
   INGEST_DEXSCREENER_PROFILES_MAX_AGE_H: z.string().default("6"),
+  INGEST_WALLET_FACTS: z.string().default("false"),
   SOCIAL_BIRDEYE_LINKS: z.string().default("false"),
   PA_BIRDEYE_OHLCV: z.string().default("false"),
   PA_BAR_AGE_SPLIT_MIN: z.string().default("90"),
@@ -214,6 +215,7 @@ export function ingestFlag(name: string): boolean {
     INGEST_PHANTOM: env.INGEST_PHANTOM,
     INGEST_DEXSCREENER_BOOSTS: env.INGEST_DEXSCREENER_BOOSTS,
     INGEST_DEXSCREENER_PROFILES: env.INGEST_DEXSCREENER_PROFILES,
+    INGEST_WALLET_FACTS: env.INGEST_WALLET_FACTS,
   };
   return isTruthy(map[name]);
 }

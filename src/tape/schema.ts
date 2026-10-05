@@ -140,6 +140,42 @@ export function createSchema(db: any): void {
       extra_json TEXT
     );
   `);
+
+  // Phase 15B: decisions table (populated by harness, not Gamma)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS decisions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      mint TEXT NOT NULL,
+      observed_at TEXT NOT NULL,
+      observed_at_ms INTEGER NOT NULL,
+      decision TEXT NOT NULL,
+      reason TEXT,
+      bar_count INTEGER,
+      interval TEXT,
+      vwap_ratio REAL,
+      peak_pct REAL,
+      ema REAL,
+      buy_sell TEXT,
+      liq_usd REAL,
+      pair_age_min INTEGER
+    );
+  `);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_decisions_mint_obs ON decisions(mint, observed_at_ms);`);
+
+  // Phase 15B: wallet_facts table (empty until later slice fills it)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS wallet_facts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      mint TEXT NOT NULL,
+      observed_at TEXT NOT NULL,
+      observed_at_ms INTEGER NOT NULL,
+      lp_slot INTEGER,
+      fresh_wallets_same_slot INTEGER,
+      top10_pct REAL,
+      dispersed_supply_pct REAL
+    );
+  `);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_wallet_facts_mint_obs ON wallet_facts(mint, observed_at_ms);`);
 }
 
 export function seedSchemaMeta(db: any): void {

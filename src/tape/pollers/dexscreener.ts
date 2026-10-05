@@ -1,6 +1,8 @@
 // DexScreener poller v1
-// Polls token-profiles/latest and fetches pair data for each Solana mint.
+// Polls token-profiles/latest AND token-boosts/latest
+// Fetches pair data for each Solana mint.
 // Writes market_ticks + discovery_events.
+// Phase 15B: Keep writing pair ticks for 6h after mint leaves the board.
 
 import { normalizeDexScreenerPair } from "../normalize";
 import { shouldRecordFirstSeen, recordDiscoveryEvent, shouldRecordTrendingEnter } from "../discover";
@@ -9,6 +11,7 @@ import { SCHEMA_VERSION } from "../schema";
 import { appendTickToJsonl } from "../jsonl";
 
 const DS_BASE = "https://api.dexscreener.com";
+const KEEPALIVE_MS = 6 * 60 * 60 * 1000; // 6 hours
 
 interface PollerResult {
   ticks: number;
@@ -16,6 +19,9 @@ interface PollerResult {
   trending: number;
   errors: number;
 }
+
+// Mints we've seen on any board recently — used to continue ticking after leaving
+const keepaliveMints = new Map<string, number>(); // mint -> last board sighting ms
 
 export async function pollDexScreener(runId: number): Promise<PollerResult> {
   const db = getDb();
@@ -39,6 +45,12 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
           }
         }
 
+        // Update keepalive set
+        const now = Date.now();
+        for (const m of mints) {
+          keepaliveMints.set(m, now);
+        }
+
         // Step 2: Fetch token details in batches (max 15 at a time)
         const mintArray = Array.from(mints);
         for (let i = 0; i < mintArray.length; i += 15) {
@@ -49,6 +61,59 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
     }
   } catch (err: any) {
     recordError("dexscreener", "http", `profiles error: ${err.message}`, null);
+    result.errors++;
+  }
+
+  // Step 3: Poll boosts separately (Phase 15B)
+  try {
+    const boostsUrl = `${DS_BASE}/token-boosts/latest/v1?limit=25`;
+    const boostsResp = await fetch(boostsUrl);
+    if (!boostsResp.ok) {
+      recordError("dexscreener", "http", `boosts: HTTP ${boostsResp.status}`, null);
+      result.errors++;
+    } else {
+      const boosts = await boostsResp.json();
+      if (Array.isArray(boosts)) {
+        const now = Date.now();
+        for (const b of boosts) {
+          if (b.chainId === "solana" && b.tokenAddress) {
+            keepaliveMints.set(b.tokenAddress, now);
+          }
+        }
+      }
+    }
+  } catch (err: any) {
+    recordError("dexscreener", "http", `boosts error: ${err.message}`, null);
+    result.errors++;
+  }
+
+  // Step 4: Keepalive — poll pairs for mints that left the board but are within window
+  try {
+    const now = Date.now();
+    const expired = new Set<string>();
+    const keepaliveArray: string[] = [];
+
+    for (const [mint, lastSeen] of keepaliveMints) {
+      if (now - lastSeen > KEEPALIVE_MS) {
+        expired.add(mint);
+      } else if (now - lastSeen > 0) {
+        // Still in window but not on current board — keep ticking
+        keepaliveArray.push(mint);
+      }
+    }
+
+    // Remove expired
+    for (const m of expired) {
+      keepaliveMints.delete(m);
+    }
+
+    // Poll keepalive mints in batches
+    for (let i = 0; i < keepaliveArray.length; i += 15) {
+      const batch = keepaliveArray.slice(i, i + 15);
+      await pollTokenBatch(runId, batch, result, false);
+    }
+  } catch (err: any) {
+    recordError("dexscreener", "http", `keepalive error: ${err.message}`, null);
     result.errors++;
   }
 
