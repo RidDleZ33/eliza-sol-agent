@@ -3,7 +3,7 @@ import { logger } from "./LoggerService.ts";
 import { PAMetrics, CandleFeatures } from "../types/priceAction.ts";
 
 import { watchlistService } from "./WatchlistService.ts";
-import { getPaBirdeyeOhlcv, getBirdeyeApiKey, getDexscreenerChain, getPaBarAgeSplitMin, getPaNoBarsVetoPct, getPaMinBars } from "../utils/env.ts";
+import { getPaBirdeyeOhlcv, getBirdeyeApiKey, getDexscreenerChain, getPaBarAgeSplitMin, getPaNoBarsVetoPct, getPaMinBars, getPaVwapDeferRatio } from "../utils/env.ts";
 import { lastBarFeatures, deadTrim, ema, OhlcvBar } from "./priceAction/candleFeatures.ts";
 import { fetchBirdeyeOhlcv } from "./priceAction/birdeyeOhlcv.ts";
 
@@ -460,8 +460,9 @@ export function metricsFromBars(
     }
   }
 
-  // Overextended: vwapRatio > 1.25 or within 2% of peak
-  const isOverextended = vwapRatio > 1.25 || distanceFromPeakPct > -2;
+  // Overextended: vwapRatio exceeds threshold (disabled if threshold <= 0) or within 2% of peak
+  const vwapThreshold = getPaVwapDeferRatio();
+  const isOverextended = (vwapThreshold > 0 && vwapRatio > vwapThreshold) || distanceFromPeakPct > -2;
 
   // Buy/sell ratio: use Dex pair if available, else 1 (unknown)
   let buySellRatio5m = 1;

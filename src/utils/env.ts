@@ -263,6 +263,12 @@ export function getPaVetoNoBars(): boolean {
   return env.PA_VETO_NO_BARS === "true" || env.PA_VETO_NO_BARS === "1";
 }
 
+// Phase 14C: VWAP ratio overextended defer threshold. 0 disables the ratio defer.
+export function getPaVwapDeferRatio(): number {
+  const raw = parseFloat(env.PA_VWAP_DEFER_RATIO);
+  return Number.isFinite(raw) ? raw : 0;
+}
+
 // Phase 12I: peak-drop hard veto threshold (pct, negative).
 export function getPaMaxPeakDropPct(): number {
   const raw = parseFloat(env.PA_MAX_PEAK_DROP_PCT);

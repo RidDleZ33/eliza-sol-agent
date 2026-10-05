@@ -19,7 +19,7 @@ export interface PAMetrics {
   buySellRatio5m: number; // e.g. 1.80 = 80% more buys than sells
   distanceFromPeakPct: number; // e.g. -18.5 = 18.5% pullback off peak
   emaTrend: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
-  isOverextended?: boolean; // true if vwapRatio > 1.25 OR distanceFromPeakPct > -2.0
+  isOverextended?: boolean; // true if vwapRatio > threshold (PA_VWAP_DEFER_RATIO) OR distanceFromPeakPct > -2.0
   source?: 'dex' | 'birdeye'; // data source: dex (pair) or birdeye (OHLCV, optional)
   features?: CandleFeatures | null; // derived from candles, observe-only
   interval?: "1m" | "5m" | null; // bar interval used, or null if Dex fallback
