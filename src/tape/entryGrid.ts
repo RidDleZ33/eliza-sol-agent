@@ -1,14 +1,11 @@
-// Entry policy grid: replay price-action knobs on 1-minute tape bars
+// Entry clock sweep: replay entry timing on 1-minute tape bars
 // Usage: bun run tape:entry
 // Read-only. Never writes to the tape.
 //
-// Entry: first bar where bar_count >= 21, first tick < 60min after pair creation,
-//        EMA(9) >= EMA(21), liq >= 10000, and sweep skip rules are not hit.
+// Entries: first bar, bar 8, bar 21, first bar >= 21 where EMA(9) >= EMA(21)
 // Exit:  first later close >= 1.3x entry close, else last close.
-//
-// Sweeps 2x2 grid of skip rules:
-//   close within 2% of high so far
-//   close 40%+ under high so far
+// Liquidity >= 10000. First tick under 60 min after pair creation.
+// No peak skips.
 
 import { existsSync } from "fs";
 
@@ -78,9 +75,10 @@ function ema(values: number[], period: number): number[] {
   return out;
 }
 
-// Evaluate one entry policy for a single mint
+// Evaluate entry policy for a single mint
+// clock: 0=first bar, 8=bar 8, 21=bar 21, 99=first bar >= 21 where EMA9>=EMA21
 // Returns return factor (exit_price / entry_price - 1) or null if no entry
-function evalPolicy(mint: string, skipNearHigh: boolean, skipDeepBelow: boolean): number | null {
+function evalClock(mint: string, clock: number): number | null {
   const { bars, first_tick_ms, pair_created_at_ms } = buildBars(mint);
   if (bars.length < 21) return null;
 
@@ -91,35 +89,33 @@ function evalPolicy(mint: string, skipNearHigh: boolean, skipDeepBelow: boolean)
   }
 
   const closes = bars.map((b) => b.close);
-  const ema9Full = ema(closes, 9);
-  const ema21Full = ema(closes, 21);
 
-  // Walk bars forward; at each bar N compute EMA from scratch on bars[0..N]
-  // to avoid peeking at future bars
+  // Determine entry bar index
   let entryBar = -1;
-  for (let n = 20; n < bars.length; n++) {
-    // Recompute EMA(9) and EMA(21) on bars 1..N only
-    const closesSoFar = closes.slice(0, n + 1);
-    const ema9 = ema(closesSoFar, 9)[n];
-    const ema21 = ema(closesSoFar, 21)[n];
-
-    if (ema9 < ema21) continue;
-
-    // Liquidity check on nearest tick (first tick of this bar)
-    const nearestTick = bars[n].ticks[0];
-    if (nearestTick.liq_usd == null || nearestTick.liq_usd < 10000) continue;
-
-    // Sweep skip rules: use bar highs for "high so far"
-    const highsSoFar = bars.slice(0, n + 1).map((b) => b.high);
-    const highSoFar = Math.max(...highsSoFar);
-    if (skipNearHigh && closes[n] >= highSoFar * 0.98) continue;
-    if (skipDeepBelow && closes[n] <= highSoFar * 0.6) continue;
-
-    entryBar = n;
-    break;
+  if (clock === 0) {
+    entryBar = 0;
+  } else if (clock === 8) {
+    entryBar = 7; // bar 8 is index 7
+  } else if (clock === 21) {
+    entryBar = 20; // bar 21 is index 20
+  } else if (clock === 99) {
+    // First bar >= 21 where EMA(9) >= EMA(21), computed only on bars so far
+    for (let n = 20; n < bars.length; n++) {
+      const closesSoFar = closes.slice(0, n + 1);
+      const ema9 = ema(closesSoFar, 9)[n];
+      const ema21 = ema(closesSoFar, 21)[n];
+      if (ema9 >= ema21) {
+        entryBar = n;
+        break;
+      }
+    }
   }
 
-  if (entryBar < 0) return null;
+  if (entryBar < 0 || entryBar >= bars.length) return null;
+
+  // Liquidity check on nearest tick (first tick of entry bar)
+  const nearestTick = bars[entryBar].ticks[0];
+  if (nearestTick.liq_usd == null || nearestTick.liq_usd < 10000) return null;
 
   // Exit: first later close >= 1.3x entry close, else last close
   const entryClose = closes[entryBar];
@@ -158,27 +154,25 @@ const holdoutMints = mintRows.slice(split).map((r) => r.mint);
 
 console.log(`mints: total=${mintRows.length} train=${trainMints.length} holdout=${holdoutMints.length}`);
 
-// Sweep grid
-const configs = [
-  { skipNearHigh: false, skipDeepBelow: false, label: "off/off" },
-  { skipNearHigh: true, skipDeepBelow: false, label: "near_high" },
-  { skipNearHigh: false, skipDeepBelow: true, label: "deep_below" },
-  { skipNearHigh: true, skipDeepBelow: true, label: "both" },
+// Four entry clocks
+const clocks = [
+  { clock: 0, label: "first_bar" },
+  { clock: 8, label: "bar_8" },
+  { clock: 21, label: "bar_21" },
+  { clock: 99, label: "ema_cross_21" },
 ];
 
-let baselineHoldoutMedian = -Infinity;
-
-for (const cfg of configs) {
+for (const cfg of clocks) {
   const trainResults: number[] = [];
   const holdoutResults: number[] = [];
 
   for (const mint of trainMints) {
-    const ret = evalPolicy(mint, cfg.skipNearHigh, cfg.skipDeepBelow);
+    const ret = evalClock(mint, cfg.clock);
     if (ret != null) trainResults.push(ret);
   }
 
   for (const mint of holdoutMints) {
-    const ret = evalPolicy(mint, cfg.skipNearHigh, cfg.skipDeepBelow);
+    const ret = evalClock(mint, cfg.clock);
     if (ret != null) holdoutResults.push(ret);
   }
 
@@ -189,14 +183,6 @@ for (const cfg of configs) {
     `${cfg.label}: train_n=${trainResults.length} train_med=${trainMedian.toFixed(1)}p ` +
     `holdout_n=${holdoutResults.length} holdout_med=${holdoutMedian.toFixed(1)}p`
   );
-
-  if (cfg.skipNearHigh === false && cfg.skipDeepBelow === false) {
-    baselineHoldoutMedian = holdoutMedian;
-  }
 }
-
-// Promotion decision
-console.log(`\nbaseline holdout median: ${baselineHoldoutMedian.toFixed(1)}p`);
-console.log(`PROMOTE: none — baseline already strongest or no 5p edge found`);
 
 db.close();
