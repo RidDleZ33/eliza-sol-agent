@@ -3,7 +3,7 @@
 // Read-only. Never writes to the tape.
 //
 // Entries: first bar, bar 8, bar 21, first bar >= 21 where EMA(9) >= EMA(21)
-// Exit:  first later close >= 1.3x entry close, else last close.
+// Exit:  first later tick >= 1.3x entry tick, else last tick.
 // Liquidity >= 10000. First tick under 60 min after pair creation.
 // No peak skips.
 
@@ -75,10 +75,36 @@ function ema(values: number[], period: number): number[] {
   return out;
 }
 
+// Compute capped and uncensored exits
+// capped: next tick at or above 1.3x entry price, else last tick
+// uncensored: always last tick
+function computeExits(ticks: any[], entryTick: any): { capped: number; uncensored: number; hit: boolean } | null {
+  const entryPrice = entryTick.price_usd;
+  if (entryPrice == null || entryPrice <= 0) return null;
+  const lastTick = ticks[ticks.length - 1];
+  const lastPrice = lastTick.price_usd;
+  if (lastPrice == null) return null;
+  let hit = false;
+  let cappedPrice = lastPrice;
+  for (const t of ticks) {
+    if (t.observed_at_ms <= entryTick.observed_at_ms) continue;
+    if (t.price_usd != null && t.price_usd >= entryPrice * 1.3) {
+      cappedPrice = t.price_usd;
+      hit = true;
+      break;
+    }
+  }
+  return {
+    capped: cappedPrice / entryPrice - 1,
+    uncensored: lastPrice / entryPrice - 1,
+    hit,
+  };
+}
+
 // Evaluate entry policy for a single mint
 // clock: 0=first tick with liq, 8=bar 8, 21=bar 21, 99=first bar >= 21 where EMA9>=EMA21
-// Returns return factor (exit_price / entry_price - 1) or null if no entry
-function evalClock(mint: string, clock: number): number | null {
+// Returns { capped, uncensored, hit } or null if no entry
+function evalClock(mint: string, clock: number): { capped: number; uncensored: number; hit: boolean } | null {
   const ticks = db
     .prepare(
       "SELECT observed_at_ms, price_usd, liq_usd, pair_created_at_ms FROM market_ticks WHERE mint = ? ORDER BY observed_at_ms ASC"
@@ -105,7 +131,7 @@ function evalClock(mint: string, clock: number): number | null {
   if (clock === 0) {
     for (const t of ticks) {
       if (t.liq_usd != null && t.liq_usd >= 10000) {
-        return computeTickExit(ticks, t);
+        return computeExits(ticks, t);
       }
     }
     return null;
@@ -119,7 +145,7 @@ function evalClock(mint: string, clock: number): number | null {
     if (bars.length < 8) return null;
     const entryTick = bars[7].ticks[0];
     if (entryTick.liq_usd == null || entryTick.liq_usd < 10000) return null;
-    return computeTickExit(ticks, entryTick);
+    return computeExits(ticks, entryTick);
   }
 
   // clock 21: first tick of bar 21
@@ -127,7 +153,7 @@ function evalClock(mint: string, clock: number): number | null {
     if (bars.length < 21) return null;
     const entryTick = bars[20].ticks[0];
     if (entryTick.liq_usd == null || entryTick.liq_usd < 10000) return null;
-    return computeTickExit(ticks, entryTick);
+    return computeExits(ticks, entryTick);
   }
 
   // clock 99: first bar >= 21 where EMA(9) >= EMA(21)
@@ -141,28 +167,12 @@ function evalClock(mint: string, clock: number): number | null {
       if (ema9 >= ema21) {
         const entryTick = bars[n].ticks[0];
         if (entryTick.liq_usd == null || entryTick.liq_usd < 10000) continue;
-        return computeTickExit(ticks, entryTick);
+        return computeExits(ticks, entryTick);
       }
     }
   }
 
   return null;
-}
-
-// Compute exit: next tick at or above 1.3x entry price, else last tick
-function computeTickExit(ticks: any[], entryTick: any): number | null {
-  const entryPrice = entryTick.price_usd;
-  if (entryPrice == null || entryPrice <= 0) return null;
-  let exitPrice = ticks[ticks.length - 1].price_usd;
-  if (exitPrice == null) return null;
-  for (const t of ticks) {
-    if (t.observed_at_ms <= entryTick.observed_at_ms) continue;
-    if (t.price_usd != null && t.price_usd >= entryPrice * 1.3) {
-      exitPrice = t.price_usd;
-      break;
-    }
-  }
-  return exitPrice / entryPrice - 1;
 }
 
 // Median of an array
@@ -198,26 +208,27 @@ const clocks = [
 ];
 
 for (const cfg of clocks) {
-  const trainResults: number[] = [];
-  const holdoutResults: number[] = [];
+  console.log(`${cfg.label}:`);
 
-  for (const mint of trainMints) {
-    const ret = evalClock(mint, cfg.clock);
-    if (ret != null) trainResults.push(ret);
+  for (const [splitName, mints] of [["train", trainMints], ["holdout", holdoutMints]] as const) {
+    const results: { capped: number; uncensored: number; hit: boolean }[] = [];
+    for (const mint of mints) {
+      const r = evalClock(mint, cfg.clock);
+      if (r != null) results.push(r);
+    }
+    if (results.length === 0) {
+      console.log(`  ${splitName}: n=0`);
+      continue;
+    }
+    const hitCount = results.filter(r => r.hit).length;
+    const cappedRets = results.map(r => r.capped * 100);
+    const uncensoredRets = results.map(r => r.uncensored * 100);
+    const cappedMedian = median(cappedRets);
+    const uncensoredMedian = median(uncensoredRets);
+    console.log(
+      `  ${splitName}: n=${results.length} hit=${hitCount} capped_med=${cappedMedian.toFixed(1)}p hold_med=${uncensoredMedian.toFixed(1)}p`
+    );
   }
-
-  for (const mint of holdoutMints) {
-    const ret = evalClock(mint, cfg.clock);
-    if (ret != null) holdoutResults.push(ret);
-  }
-
-  const trainMedian = median(trainResults) * 100;
-  const holdoutMedian = median(holdoutResults) * 100;
-
-  console.log(
-    `${cfg.label}: train_n=${trainResults.length} train_med=${trainMedian.toFixed(1)}p ` +
-    `holdout_n=${holdoutResults.length} holdout_med=${holdoutMedian.toFixed(1)}p`
-  );
 }
 
 db.close();
