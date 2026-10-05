@@ -49,6 +49,7 @@ const EnvSchema = z.object({
   PA_MIN_BARS: z.string().default("21"),
   PA_VETO_NO_BARS: z.string().default("true"),
   PA_MAX_PEAK_DROP_PCT: z.string().default("-40"),
+  PA_VWAP_DEFER_RATIO: z.string().default("0"),
   TWITTER_BEARER_TOKEN: z.string().optional(),
   WALLET_MIRROR_INTERVAL_MS: z.string().default("20000"),
   RUGCHECK_API_URL: z.string().default("https://api.rugcheck.xyz/v1/tokens"),

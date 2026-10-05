@@ -1,8 +1,0 @@
-mints: total=2518 train=2014 holdout=504
-off/off: train_n=547 train_med=0.0p holdout_n=133 holdout_med=0.0p
-near_high: train_n=490 train_med=0.0p holdout_n=113 holdout_med=0.0p
-deep_below: train_n=293 train_med=0.0p holdout_n=82 holdout_med=0.0p
-both: train_n=234 train_med=0.0p holdout_n=61 holdout_med=0.0p
-
-baseline holdout median: 0.0p
-PROMOTE: none — baseline already strongest or no 5p edge found
