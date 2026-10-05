@@ -3,6 +3,7 @@
 // Fetches pair data for each Solana mint.
 // Writes market_ticks + discovery_events.
 // Phase 15B: Keep writing pair ticks for 6h after mint leaves the board.
+// Phase 15B2: Persist keepalive set; dedup keepalive fetches vs board pass.
 
 import { normalizeDexScreenerPair } from "../normalize";
 import { shouldRecordFirstSeen, recordDiscoveryEvent, shouldRecordTrendingEnter } from "../discover";
@@ -26,6 +27,22 @@ const keepaliveMints = new Map<string, number>(); // mint -> last board sighting
 export async function pollDexScreener(runId: number): Promise<PollerResult> {
   const db = getDb();
   const result: PollerResult = { ticks: 0, firstSeen: 0, trending: 0, errors: 0 };
+  const thisPollBoardMints = new Set<string>();
+
+  // Load persisted keepalive set from DB on first poll
+  if (keepaliveMints.size === 0) {
+    try {
+      const rows = db.prepare("SELECT mint, last_seen_at_ms FROM keepalive_mints").all();
+      for (const row of rows) {
+        keepaliveMints.set(row.mint, row.last_seen_at_ms);
+      }
+      if (rows.length > 0) {
+        console.log(`[tape] loaded ${rows.length} keepalive mints from DB`);
+      }
+    } catch (err: any) {
+      console.log(`[tape] failed to load keepalive mints: ${err.message}`);
+    }
+  }
 
   try {
     // Step 1: Get latest token profiles
@@ -49,6 +66,7 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
         const now = Date.now();
         for (const m of mints) {
           keepaliveMints.set(m, now);
+          thisPollBoardMints.add(m);
         }
 
         // Step 2: Fetch token details in batches (max 15 at a time)
@@ -56,6 +74,20 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
         for (let i = 0; i < mintArray.length; i += 15) {
           const batch = mintArray.slice(i, i + 15);
           await pollTokenBatch(runId, batch, result, true);
+        }
+
+        // Persist keepalive set to DB
+        try {
+          db.exec("BEGIN TRANSACTION;");
+          db.exec("DELETE FROM keepalive_mints;");
+          const stmt = db.prepare("INSERT INTO keepalive_mints (mint, last_seen_at_ms) VALUES (?, ?);");
+          for (const [m, ts] of keepaliveMints) {
+            stmt.run(m, ts);
+          }
+          stmt.finalize();
+          db.exec("COMMIT;");
+        } catch (err: any) {
+          console.log(`[tape] failed to persist keepalive mints: ${err.message}`);
         }
       }
     }
@@ -78,6 +110,7 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
         for (const b of boosts) {
           if (b.chainId === "solana" && b.tokenAddress) {
             keepaliveMints.set(b.tokenAddress, now);
+            thisPollBoardMints.add(b.tokenAddress);
           }
         }
       }
@@ -88,6 +121,7 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
   }
 
   // Step 4: Keepalive — poll pairs for mints that left the board but are within window
+  // Only poll mints NOT already seen on this poll's board (dedup)
   try {
     const now = Date.now();
     const expired = new Set<string>();
@@ -96,8 +130,8 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
     for (const [mint, lastSeen] of keepaliveMints) {
       if (now - lastSeen > KEEPALIVE_MS) {
         expired.add(mint);
-      } else if (now - lastSeen > 0) {
-        // Still in window but not on current board — keep ticking
+      } else if (now - lastSeen > 0 && !thisPollBoardMints.has(mint)) {
+        // Still in window, not on this poll's board — keep ticking
         keepaliveArray.push(mint);
       }
     }

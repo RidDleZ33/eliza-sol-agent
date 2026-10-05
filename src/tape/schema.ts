@@ -142,8 +142,9 @@ export function createSchema(db: any): void {
   `);
 
   // Phase 15B: decisions table (populated by harness, not Gamma)
+  db.exec(`DROP TABLE IF EXISTS decisions;`);
   db.exec(`
-    CREATE TABLE IF NOT EXISTS decisions (
+    CREATE TABLE decisions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       mint TEXT NOT NULL,
       observed_at TEXT NOT NULL,
@@ -154,13 +155,21 @@ export function createSchema(db: any): void {
       interval TEXT,
       vwap_ratio REAL,
       peak_pct REAL,
-      ema REAL,
+      ema TEXT,
       buy_sell TEXT,
       liq_usd REAL,
       pair_age_min INTEGER
     );
   `);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_decisions_mint_obs ON decisions(mint, observed_at_ms);`);
+
+  // Phase 15B2: persist keepalive set across restarts
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS keepalive_mints (
+      mint TEXT PRIMARY KEY,
+      last_seen_at_ms INTEGER NOT NULL
+    );
+  `);
 
   // Phase 15B: wallet_facts table (empty until later slice fills it)
   db.exec(`
