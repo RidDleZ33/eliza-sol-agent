@@ -165,6 +165,9 @@ export class PositionManagerService {
     const troughForExcursion = this.positionTroughs.get(mint) || currentPrice;
     const exc = excursionSnippet(entryForExcursion, peakForExcursion, troughForExcursion, hv, regime);
 
+    // Phase 14A: trailing stop only arms after peak reaches take-profit threshold
+    const peakPnlPct = ((peakForExcursion - entryForExcursion) / entryForExcursion) * 100;
+
     if (pnlPct >= takeProfitPct) {
       logger.info("POSITIONS", "PositionManager", "TAKE_PROFIT triggered", {
         symbol,
@@ -179,11 +182,12 @@ export class PositionManagerService {
         stopPct,
       });
       await this.exitPosition(mint, symbol, `STOP_LOSS (${pnlPct.toFixed(1)}%) | ${exc}`, currentPrice, pnlPct);
-    } else if (trailingStopDistance >= trailingStopPct && peakPrice > entryPrice) {
+    } else if (peakPnlPct >= takeProfitPct && trailingStopDistance >= trailingStopPct && peakPrice > entryPrice) {
       logger.info("POSITIONS", "PositionManager", "TRAILING_STOP triggered", {
         symbol,
         trailingStopDistance: trailingStopDistance.toFixed(1),
         trailingStopPct,
+        peakPnlPct: peakPnlPct.toFixed(1),
       });
       await this.exitPosition(
         mint,
