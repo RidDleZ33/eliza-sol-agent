@@ -145,7 +145,8 @@ async function evaluateCandidatePipeline(runtime: any) {
           });
         }
       } else if (synthesis.decision === "DEFER") {
-        await watchlistService.deferToken(candidate.mint_address, 10);
+        const delay = synthesis.reasons.some(r => r === "DEFER (PA): no bars, retry") ? 2 : 10;
+        await watchlistService.deferToken(candidate.mint_address, delay);
       } else if (synthesis.decision === "PRUNE") {
         await watchlistService.updateTokenStatus(candidate.mint_address, "GAMMA_REJECTED", 0, synthesis.reasons.join("; "));
         await watchlistService.logTradeJournal({
