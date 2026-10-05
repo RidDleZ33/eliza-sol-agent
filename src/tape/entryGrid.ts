@@ -33,7 +33,7 @@ function buildBars(mint: string): { bars: any[], first_tick_ms: number, pair_cre
       pair_created_at_ms: number | null;
     }[];
 
-  if (ticks.length < 21) return { bars: [], first_tick_ms: ticks[0]?.observed_at_ms || 0, pair_created_at_ms: ticks[0]?.pair_created_at_ms };
+  if (ticks.length < 1) return { bars: [], first_tick_ms: 0, pair_created_at_ms: null };
 
   const first_tick_ms = ticks[0].observed_at_ms;
   const pair_created_at_ms = ticks[0].pair_created_at_ms;
@@ -76,11 +76,24 @@ function ema(values: number[], period: number): number[] {
 }
 
 // Evaluate entry policy for a single mint
-// clock: 0=first bar, 8=bar 8, 21=bar 21, 99=first bar >= 21 where EMA9>=EMA21
+// clock: 0=first tick with liq, 8=bar 8, 21=bar 21, 99=first bar >= 21 where EMA9>=EMA21
 // Returns return factor (exit_price / entry_price - 1) or null if no entry
 function evalClock(mint: string, clock: number): number | null {
-  const { bars, first_tick_ms, pair_created_at_ms } = buildBars(mint);
-  if (bars.length < 21) return null;
+  const ticks = db
+    .prepare(
+      "SELECT observed_at_ms, price_usd, liq_usd, pair_created_at_ms FROM market_ticks WHERE mint = ? ORDER BY observed_at_ms ASC"
+    )
+    .all(mint) as {
+      observed_at_ms: number;
+      price_usd: number | null;
+      liq_usd: number | null;
+      pair_created_at_ms: number | null;
+    }[];
+
+  if (ticks.length < 1) return null;
+
+  const first_tick_ms = ticks[0].observed_at_ms;
+  const pair_created_at_ms = ticks[0].pair_created_at_ms;
 
   // Check first tick within 60 min of pair creation
   if (pair_created_at_ms != null) {
@@ -88,46 +101,68 @@ function evalClock(mint: string, clock: number): number | null {
     if (ageMs >= 60 * 60000) return null;
   }
 
-  const closes = bars.map((b) => b.close);
-
-  // Determine entry bar index
-  let entryBar = -1;
+  // clock 0: first tick with liq >= 10000
   if (clock === 0) {
-    entryBar = 0;
-  } else if (clock === 8) {
-    entryBar = 7; // bar 8 is index 7
-  } else if (clock === 21) {
-    entryBar = 20; // bar 21 is index 20
-  } else if (clock === 99) {
-    // First bar >= 21 where EMA(9) >= EMA(21), computed only on bars so far
+    for (const t of ticks) {
+      if (t.liq_usd != null && t.liq_usd >= 10000) {
+        return computeTickExit(ticks, t);
+      }
+    }
+    return null;
+  }
+
+  // Build bars for bar clocks
+  const { bars } = buildBars(mint);
+
+  // clock 8: first tick of bar 8
+  if (clock === 8) {
+    if (bars.length < 8) return null;
+    const entryTick = bars[7].ticks[0];
+    if (entryTick.liq_usd == null || entryTick.liq_usd < 10000) return null;
+    return computeTickExit(ticks, entryTick);
+  }
+
+  // clock 21: first tick of bar 21
+  if (clock === 21) {
+    if (bars.length < 21) return null;
+    const entryTick = bars[20].ticks[0];
+    if (entryTick.liq_usd == null || entryTick.liq_usd < 10000) return null;
+    return computeTickExit(ticks, entryTick);
+  }
+
+  // clock 99: first bar >= 21 where EMA(9) >= EMA(21)
+  if (clock === 99) {
+    if (bars.length < 21) return null;
+    const closes = bars.map((b) => b.close);
     for (let n = 20; n < bars.length; n++) {
       const closesSoFar = closes.slice(0, n + 1);
       const ema9 = ema(closesSoFar, 9)[n];
       const ema21 = ema(closesSoFar, 21)[n];
       if (ema9 >= ema21) {
-        entryBar = n;
-        break;
+        const entryTick = bars[n].ticks[0];
+        if (entryTick.liq_usd == null || entryTick.liq_usd < 10000) continue;
+        return computeTickExit(ticks, entryTick);
       }
     }
   }
 
-  if (entryBar < 0 || entryBar >= bars.length) return null;
+  return null;
+}
 
-  // Liquidity check on nearest tick (first tick of entry bar)
-  const nearestTick = bars[entryBar].ticks[0];
-  if (nearestTick.liq_usd == null || nearestTick.liq_usd < 10000) return null;
-
-  // Exit: first later close >= 1.3x entry close, else last close
-  const entryClose = closes[entryBar];
-  let exitClose = closes[closes.length - 1];
-  for (let n = entryBar + 1; n < bars.length; n++) {
-    if (closes[n] >= entryClose * 1.3) {
-      exitClose = closes[n];
+// Compute exit: next tick at or above 1.3x entry price, else last tick
+function computeTickExit(ticks: any[], entryTick: any): number | null {
+  const entryPrice = entryTick.price_usd;
+  if (entryPrice == null || entryPrice <= 0) return null;
+  let exitPrice = ticks[ticks.length - 1].price_usd;
+  if (exitPrice == null) return null;
+  for (const t of ticks) {
+    if (t.observed_at_ms <= entryTick.observed_at_ms) continue;
+    if (t.price_usd != null && t.price_usd >= entryPrice * 1.3) {
+      exitPrice = t.price_usd;
       break;
     }
   }
-
-  return exitClose / entryClose - 1;
+  return exitPrice / entryPrice - 1;
 }
 
 // Median of an array
