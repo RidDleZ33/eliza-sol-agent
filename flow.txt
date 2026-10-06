@@ -1,0 +1,25 @@
+mints: total=2836 train=2268 holdout=568
+train liquidity rose >=20%:
+  rose: n=144 hit=144 (100.0%) hold_med=-32.8p
+  flat: n=521 hit=281 (53.9%) hold_med=-36.3p
+holdout liquidity rose >=20%:
+  rose: n=44 hit=44 (100.0%) hold_med=-39.4p
+  flat: n=127 hit=63 (49.6%) hold_med=-28.1p
+train buy share rose:
+  rose: n=365 hit=237 (64.9%) hold_med=-30.2p
+  flat: n=300 hit=188 (62.7%) hold_med=-45.4p
+holdout buy share rose:
+  rose: n=106 hit=66 (62.3%) hold_med=-25.6p
+  flat: n=65 hit=41 (63.1%) hold_med=-42.4p
+train boost_active:
+  yes: n=21 hit=17 (81.0%) hold_med=-61.9p
+  no: n=644 hit=408 (63.4%) hold_med=-34.5p
+train has_socials:
+  yes: n=0
+  no: n=665 hit=425 (63.9%) hold_med=-34.9p
+holdout boost_active:
+  yes: n=1 hit=1 (100.0%) hold_med=-29.7p
+  no: n=170 hit=106 (62.4%) hold_med=-31.6p
+holdout has_socials:
+  yes: n=0
+  no: n=171 hit=107 (62.6%) hold_med=-31.6p

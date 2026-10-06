@@ -20,7 +20,7 @@ export interface PAMetrics {
   distanceFromPeakPct: number; // e.g. -18.5 = 18.5% pullback off peak
   emaTrend: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
   isOverextended?: boolean; // true if vwapRatio > threshold (PA_VWAP_DEFER_RATIO) OR distanceFromPeakPct > -2.0
-  source?: 'dex' | 'birdeye'; // data source: dex (pair) or birdeye (OHLCV, optional)
+  source?: 'dex' | 'birdeye' | 'gmgn'; // data source: dex (pair), birdeye (OHLCV), or gmgn (kline)
   features?: CandleFeatures | null; // derived from candles, observe-only
   interval?: "1m" | "5m" | null; // bar interval used, or null if Dex fallback
 }

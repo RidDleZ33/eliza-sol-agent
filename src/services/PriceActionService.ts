@@ -76,7 +76,7 @@ export class PriceActionService {
     const cached = this.cache.get(mintAddress);
     if (cached && Date.now() - cached.timestamp < this.cacheTtlMs) {
       // If cached from birdeye, or birdeye is off/cooldown, return it
-      if (cached.source === "birdeye" || !getPaBirdeyeOhlcv() || !getBirdeyeApiKey() || this.is429Cooldown()) {
+      if (cached.source === "birdeye" || cached.source === "gmgn" || !getPaBirdeyeOhlcv() || !getBirdeyeApiKey() || this.is429Cooldown()) {
         return cached.metrics;
       }
       // Otherwise try fresh birdeye fetch
@@ -310,7 +310,8 @@ export class PriceActionService {
     interval: "1m" | "5m",
     countLimit: number
   ): Promise<BarsCacheEntry> {
-    const cacheKey = `${mintAddress}:${interval}`;
+    // Separate cache key so GMGN miss doesn't shadow Birdeye
+    const cacheKey = `gmgn:${mintAddress}:${interval}`;
 
     // Check interval-keyed bars cache
     const cached = this.barsCacheByInterval.get(cacheKey);

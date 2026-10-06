@@ -45,7 +45,6 @@ const EnvSchema = z.object({
   SOCIAL_BIRDEYE_LINKS: z.string().default("false"),
   PA_BIRDEYE_OHLCV: z.string().default("false"),
   PA_GMGN_OHLCV: z.string().default("false"),
-  PA_GMGN_OHLCV: z.string().default("false"),
   PA_BAR_AGE_SPLIT_MIN: z.string().default("90"),
   PA_NO_BARS_VETO_PCT: z.string().default("-25"),
   PA_MIN_BARS: z.string().default("21"),
@@ -244,11 +243,6 @@ export function getPaBirdeyeOhlcv(): boolean {
 }
 
 // Phase 14E: GMGN kline OHLCV for PA is opt-in (no API key, saves Birdeye CU)
-export function getPaGmgnOhlcv(): boolean {
-  return env.PA_GMGN_OHLCV === "true" || env.PA_GMGN_OHLCV === "1";
-}
-
-// Phase 14E: GMGN kline candles for PA (no key needed; 12 CU/mint/90s on Birdeye saved)
 export function getPaGmgnOhlcv(): boolean {
   return env.PA_GMGN_OHLCV === "true" || env.PA_GMGN_OHLCV === "1";
 }
