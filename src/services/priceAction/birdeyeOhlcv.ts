@@ -58,7 +58,7 @@ export async function fetchBirdeyeOhlcv(
     if (!response.ok) {
       const bodyText = await response.text().catch(() => "");
       const snippet = bodyText.slice(0, 200).replace(/\n/g, " ");
-      logger(`[birdeye-ohlcv] ${mint} http_${response.status} ${snippet}`);
+      logger.info("PA birdeye http error", { mint, status: response.status, body: snippet });
       return { bars: null, reason: `http_${response.status}` };
     }
 

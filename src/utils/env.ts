@@ -44,6 +44,8 @@ const EnvSchema = z.object({
   INGEST_WALLET_FACTS: z.string().default("false"),
   SOCIAL_BIRDEYE_LINKS: z.string().default("false"),
   PA_BIRDEYE_OHLCV: z.string().default("false"),
+  PA_GMGN_OHLCV: z.string().default("false"),
+  PA_GMGN_OHLCV: z.string().default("false"),
   PA_BAR_AGE_SPLIT_MIN: z.string().default("90"),
   PA_NO_BARS_VETO_PCT: z.string().default("-25"),
   PA_MIN_BARS: z.string().default("21"),
@@ -239,6 +241,16 @@ export function getSocialBirdeyeLinks(): boolean {
 // Phase 11A3: Birdeye OHLCV for PA is opt-in (CU cost on young mints)
 export function getPaBirdeyeOhlcv(): boolean {
   return env.PA_BIRDEYE_OHLCV === "true" || env.PA_BIRDEYE_OHLCV === "1";
+}
+
+// Phase 14E: GMGN kline OHLCV for PA is opt-in (no API key, saves Birdeye CU)
+export function getPaGmgnOhlcv(): boolean {
+  return env.PA_GMGN_OHLCV === "true" || env.PA_GMGN_OHLCV === "1";
+}
+
+// Phase 14E: GMGN kline candles for PA (no key needed; 12 CU/mint/90s on Birdeye saved)
+export function getPaGmgnOhlcv(): boolean {
+  return env.PA_GMGN_OHLCV === "true" || env.PA_GMGN_OHLCV === "1";
 }
 
 // Phase 12D: bar-size split age (minutes). Under this: 1m bars; at/over: 5m bars.

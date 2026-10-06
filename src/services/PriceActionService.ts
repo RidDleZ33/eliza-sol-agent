@@ -3,9 +3,10 @@ import { logger } from "./LoggerService.ts";
 import { PAMetrics, CandleFeatures } from "../types/priceAction.ts";
 
 import { watchlistService } from "./WatchlistService.ts";
-import { getPaBirdeyeOhlcv, getBirdeyeApiKey, getDexscreenerChain, getPaBarAgeSplitMin, getPaNoBarsVetoPct, getPaMinBars, getPaVwapDeferRatio } from "../utils/env.ts";
+import { getPaBirdeyeOhlcv, getPaGmgnOhlcv, getBirdeyeApiKey, getDexscreenerChain, getPaBarAgeSplitMin, getPaNoBarsVetoPct, getPaMinBars, getPaVwapDeferRatio } from "../utils/env.ts";
 import { lastBarFeatures, deadTrim, ema, OhlcvBar } from "./priceAction/candleFeatures.ts";
 import { fetchBirdeyeOhlcv } from "./priceAction/birdeyeOhlcv.ts";
+import { fetchGmgnOhlcv } from "./priceAction/gmgnOhlcv.ts";
 
 // DexScreener pair shape (subset used by PA)
 interface DexPair {
@@ -60,6 +61,7 @@ export class PriceActionService {
   // One-time skip reason logs
   private birdeyeOffLogged = false;
   private birdeyeNoKeyLogged = false;
+  private gmgnOffLogged = false;
 
   // Last raw Dex body per mint (for 24h HV reuse)
   private lastDexBody: Map<string, { body: DexPair; timestamp: number }> = new Map();
@@ -81,7 +83,40 @@ export class PriceActionService {
     }
 
     try {
-      // Step 2: Try Birdeye OHLCV (if enabled + key + no cooldown)
+      // Step 2: Try GMGN kline (if enabled) — no API key, saves Birdeye CU
+      let barsEntry: BarsCacheEntry | null = null;
+      if (getPaGmgnOhlcv()) {
+        const interval = this.chooseInterval(mintAddress);
+        const countLimit = interval === "1m" ? 60 : 48;
+        barsEntry = await this.getGmgnBars(mintAddress, interval, countLimit);
+        if (barsEntry.bars && barsEntry.bars.length >= 3) {
+          const trimmed = deadTrim(barsEntry.bars);
+          const features = lastBarFeatures(trimmed, getPaMinBars(), interval);
+          const dexPair = this.getDexPairForBuySell(mintAddress);
+          const metrics = metricsFromBars(trimmed, features, dexPair, interval);
+          if (metrics) {
+            this.cache.set(mintAddress, { metrics, timestamp: Date.now(), source: "gmgn" });
+            logger.info("PA source=gmgn", {
+              mint: mintAddress,
+              bars: barsEntry.bars.length,
+              trimmed: trimmed.length,
+              interval,
+            });
+            return metrics;
+          }
+        }
+        logger.info("PA gmgn skip", {
+          mint: mintAddress,
+          reason: barsEntry.reason,
+          bars: barsEntry.bars?.length ?? 0,
+          interval,
+        });
+      } else if (!this.gmgnOffLogged) {
+        logger.info("PA gmgn off");
+        this.gmgnOffLogged = true;
+      }
+
+      // Step 3: Try Birdeye OHLCV (if enabled + key + no cooldown)
       if (!getPaBirdeyeOhlcv()) {
         if (!this.birdeyeOffLogged) {
           logger.info("PA birdeye off");
@@ -128,7 +163,7 @@ export class PriceActionService {
         });
       }
 
-      // Step 3: Dex stashed pair (if fresh)
+      // Step 4: Dex stashed pair (if fresh)
       const stashed = watchlistService.getDexPair(mintAddress);
       if (stashed && stashed.at && Date.now() - stashed.at < 120000) {
         try {
@@ -147,7 +182,7 @@ export class PriceActionService {
         }
       }
 
-      // Step 4: Live Dex GET
+      // Step 5: Live Dex GET
       const url = `https://api.dexscreener.com/latest/dex/tokens/${mintAddress}`;
       const response = await fetchWithRetry(url);
       if (!response.ok) {
@@ -253,6 +288,45 @@ export class PriceActionService {
           this.set429Cooldown();
         }
 
+        return { bars: result.bars, atMs: Date.now(), reason: result.reason };
+      } finally {
+        this.inflightByInterval.delete(cacheKey);
+      }
+    })();
+
+    this.inflightByInterval.set(cacheKey, promise);
+    const entry = await promise;
+
+    // Cache result by interval key
+    this.barsCacheByInterval.set(cacheKey, entry);
+    return entry;
+  }
+
+  /**
+   * Get or fetch GMGN kline bars for a mint at a given interval with interval-keyed cache.
+   */
+  private async getGmgnBars(
+    mintAddress: string,
+    interval: "1m" | "5m",
+    countLimit: number
+  ): Promise<BarsCacheEntry> {
+    const cacheKey = `${mintAddress}:${interval}`;
+
+    // Check interval-keyed bars cache
+    const cached = this.barsCacheByInterval.get(cacheKey);
+    if (cached && Date.now() - cached.atMs < this.barsCacheTtlMs) {
+      return cached;
+    }
+
+    // Single-flight: if in-flight, wait for it
+    const existing = this.inflightByInterval.get(cacheKey);
+    if (existing) {
+      return existing;
+    }
+
+    const promise = (async () => {
+      try {
+        const result = await fetchGmgnOhlcv(mintAddress, interval, countLimit);
         return { bars: result.bars, atMs: Date.now(), reason: result.reason };
       } finally {
         this.inflightByInterval.delete(cacheKey);
