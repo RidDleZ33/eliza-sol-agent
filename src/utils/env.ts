@@ -45,6 +45,7 @@ const EnvSchema = z.object({
   SOCIAL_BIRDEYE_LINKS: z.string().default("false"),
   PA_BIRDEYE_OHLCV: z.string().default("false"),
   PA_GMGN_OHLCV: z.string().default("false"),
+  GMGN_API_KEY: z.string().optional(),
   PA_BAR_AGE_SPLIT_MIN: z.string().default("90"),
   PA_NO_BARS_VETO_PCT: z.string().default("-25"),
   PA_MIN_BARS: z.string().default("21"),
@@ -245,6 +246,11 @@ export function getPaBirdeyeOhlcv(): boolean {
 // Phase 14E: GMGN kline OHLCV for PA is opt-in (no API key, saves Birdeye CU)
 export function getPaGmgnOhlcv(): boolean {
   return env.PA_GMGN_OHLCV === "true" || env.PA_GMGN_OHLCV === "1";
+}
+
+// Phase 14F: GMGN OpenAPI kline key (optional)
+export function getGmgnApiKey(): string | undefined {
+  return env.GMGN_API_KEY;
 }
 
 // Phase 12D: bar-size split age (minutes). Under this: 1m bars; at/over: 5m bars.

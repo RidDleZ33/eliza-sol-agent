@@ -7,7 +7,7 @@ afterEach(() => {
   globalThis.fetch = origFetch;
 });
 
-function mockFetch(json: any) {
+function mockFetch(json: any, expectedUrl = "https://openapi.gmgn.ai/v1/market/token_kline") {
   globalThis.fetch = async (url: any, init?: any) => {
     return {
       ok: true,
@@ -19,11 +19,27 @@ function mockFetch(json: any) {
 }
 
 describe("gmgnOhlcv", () => {
-  test("parses kline array to bars", async () => {
+  test("parses kline array to bars (ts in seconds converted to ms)", async () => {
     mockFetch({
       data: [
         [1791000000, 1.0, 1.1, 0.9, 1.05, 1000],
         [1791000060, 1.05, 1.2, 1.0, 1.15, 2000],
+      ],
+    });
+    const result = await fetchGmgnOhlcv("mint", "1m", 60);
+    expect(result.bars).not.toBeNull();
+    expect(result.bars!.length).toBe(2);
+    expect(result.bars![0].t).toBe(1791000000000);
+    expect(result.bars![0].o).toBe(1.0);
+    expect(result.bars![1].c).toBe(1.15);
+    expect(result.reason).toBe("ok");
+  });
+
+  test("parses object-form candles", async () => {
+    mockFetch({
+      data: [
+        { timestamp: 1791000000, open: 1.0, high: 1.1, low: 0.9, close: 1.05, volume: 1000 },
+        { timestamp: 1791000060, open: 1.05, high: 1.2, low: 1.0, close: 1.15, volume: 2000 },
       ],
     });
     const result = await fetchGmgnOhlcv("mint", "1m", 60);

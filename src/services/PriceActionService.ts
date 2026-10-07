@@ -3,7 +3,7 @@ import { logger } from "./LoggerService.ts";
 import { PAMetrics, CandleFeatures } from "../types/priceAction.ts";
 
 import { watchlistService } from "./WatchlistService.ts";
-import { getPaBirdeyeOhlcv, getPaGmgnOhlcv, getBirdeyeApiKey, getDexscreenerChain, getPaBarAgeSplitMin, getPaNoBarsVetoPct, getPaMinBars, getPaVwapDeferRatio } from "../utils/env.ts";
+import { getPaBirdeyeOhlcv, getPaGmgnOhlcv, getGmgnApiKey, getBirdeyeApiKey, getDexscreenerChain, getPaBarAgeSplitMin, getPaNoBarsVetoPct, getPaMinBars, getPaVwapDeferRatio } from "../utils/env.ts";
 import { lastBarFeatures, deadTrim, ema, OhlcvBar } from "./priceAction/candleFeatures.ts";
 import { fetchBirdeyeOhlcv } from "./priceAction/birdeyeOhlcv.ts";
 import { fetchGmgnOhlcv } from "./priceAction/gmgnOhlcv.ts";
@@ -62,6 +62,7 @@ export class PriceActionService {
   private birdeyeOffLogged = false;
   private birdeyeNoKeyLogged = false;
   private gmgnOffLogged = false;
+  private gmgnKeyMissingLogged = false;
 
   // Last raw Dex body per mint (for 24h HV reuse)
   private lastDexBody: Map<string, { body: DexPair; timestamp: number }> = new Map();
@@ -83,34 +84,41 @@ export class PriceActionService {
     }
 
     try {
-      // Step 2: Try GMGN kline (if enabled) — no API key, saves Birdeye CU
+      // Step 2: Try GMGN kline (if enabled) — saves Birdeye CU
       let barsEntry: BarsCacheEntry | null = null;
       if (getPaGmgnOhlcv()) {
-        const interval = this.chooseInterval(mintAddress);
-        const countLimit = interval === "1m" ? 60 : 48;
-        barsEntry = await this.getGmgnBars(mintAddress, interval, countLimit);
-        if (barsEntry.bars && barsEntry.bars.length >= 3) {
-          const trimmed = deadTrim(barsEntry.bars);
-          const features = lastBarFeatures(trimmed, getPaMinBars(), interval);
-          const dexPair = this.getDexPairForBuySell(mintAddress);
-          const metrics = metricsFromBars(trimmed, features, dexPair, interval);
-          if (metrics) {
-            this.cache.set(mintAddress, { metrics, timestamp: Date.now(), source: "gmgn" });
-            logger.info("PA source=gmgn", {
-              mint: mintAddress,
-              bars: barsEntry.bars.length,
-              trimmed: trimmed.length,
-              interval,
-            });
-            return metrics;
-          }
+        const apiKey = getGmgnApiKey();
+        if (!apiKey && !this.gmgnKeyMissingLogged) {
+          logger.info("PA gmgn enabled but GMGN_API_KEY missing, falling through");
+          this.gmgnKeyMissingLogged = true;
         }
-        logger.info("PA gmgn skip", {
-          mint: mintAddress,
-          reason: barsEntry.reason,
-          bars: barsEntry.bars?.length ?? 0,
-          interval,
-        });
+        if (apiKey) {
+          const interval = this.chooseInterval(mintAddress);
+          const countLimit = interval === "1m" ? 60 : 48;
+          barsEntry = await this.getGmgnBars(mintAddress, interval, countLimit);
+          if (barsEntry.bars && barsEntry.bars.length >= 3) {
+            const trimmed = deadTrim(barsEntry.bars);
+            const features = lastBarFeatures(trimmed, getPaMinBars(), interval);
+            const dexPair = this.getDexPairForBuySell(mintAddress);
+            const metrics = metricsFromBars(trimmed, features, dexPair, interval);
+            if (metrics) {
+              this.cache.set(mintAddress, { metrics, timestamp: Date.now(), source: "gmgn" });
+              logger.info("PA source=gmgn", {
+                mint: mintAddress,
+                bars: barsEntry.bars.length,
+                trimmed: trimmed.length,
+                interval,
+              });
+              return metrics;
+            }
+          }
+          logger.info("PA gmgn skip", {
+            mint: mintAddress,
+            reason: barsEntry.reason,
+            bars: barsEntry.bars?.length ?? 0,
+            interval,
+          });
+        }
       } else if (!this.gmgnOffLogged) {
         logger.info("PA gmgn off");
         this.gmgnOffLogged = true;
