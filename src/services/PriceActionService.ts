@@ -102,6 +102,7 @@ export class PriceActionService {
             const dexPair = this.getDexPairForBuySell(mintAddress);
             const metrics = metricsFromBars(trimmed, features, dexPair, interval);
             if (metrics) {
+              metrics.source = "gmgn";
               this.cache.set(mintAddress, { metrics, timestamp: Date.now(), source: "gmgn" });
               logger.info("PA source=gmgn", {
                 mint: mintAddress,
