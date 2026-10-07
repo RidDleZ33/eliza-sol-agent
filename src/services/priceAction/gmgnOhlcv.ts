@@ -87,9 +87,14 @@ export async function fetchGmgnOhlcv(
     }
 
     const body = await response.json();
-    const candles = body?.data;
+    let candles = body?.data;
+    // data may be an object with a list array
+    if (candles && typeof candles === "object" && Array.isArray(candles.list)) {
+      candles = candles.list;
+    }
     if (!Array.isArray(candles) || candles.length === 0) {
-      logger.info("PA gmgn no candles", { mint, reason: "empty_data" });
+      const raw = JSON.stringify(body).slice(0, 200);
+      logger.info("PA gmgn no candles", { mint, reason: "empty_data", body: raw });
       return { bars: null, reason: "empty_data" };
     }
 
@@ -99,7 +104,7 @@ export async function fetchGmgnOhlcv(
       if (Array.isArray(c) && c.length >= 6) {
         // Array form [ts, open, high, low, close, volume]
         let ts = Number(c[0]);
-        if (ts < 1000000000) ts = ts * 1000; // seconds to ms
+        if (ts < 1000000000000) ts = ts * 1000; // seconds to ms (< 1e12)
         const o = Number(c[1]);
         const h = Number(c[2]);
         const l = Number(c[3]);
@@ -110,7 +115,7 @@ export async function fetchGmgnOhlcv(
       } else if (c && typeof c === "object") {
         // Object form with ts/timestamp, open, high, low, close, volume
         let ts = Number(c.ts ?? c.timestamp ?? 0);
-        if (ts < 1000000000) ts = ts * 1000; // seconds to ms
+        if (ts < 1000000000000) ts = ts * 1000; // seconds to ms (< 1e12)
         const o = Number(c.open);
         const h = Number(c.high);
         const l = Number(c.low);
