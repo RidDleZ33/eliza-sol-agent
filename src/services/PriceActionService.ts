@@ -58,6 +58,16 @@ export class PriceActionService {
   private barsCacheByInterval: Map<string, BarsCacheEntry> = new Map();
   private inflightByInterval: Map<string, Promise<BarsCacheEntry>> = new Map();
 
+  // Phase 14G: GMGN kline queue — pace at 2 calls/sec (500ms apart), retry failures once
+  private gmgnQueue: Array<{
+    mint: string;
+    interval: "1m" | "5m";
+    countLimit: number;
+    resolve: (entry: BarsCacheEntry) => void;
+    retryCount: number;
+  }> = [];
+  private gmgnQueueProcessing = false;
+
   // One-time skip reason logs
   private birdeyeOffLogged = false;
   private birdeyeNoKeyLogged = false;
@@ -334,21 +344,58 @@ export class PriceActionService {
       return existing;
     }
 
-    const promise = (async () => {
-      try {
-        const result = await fetchGmgnOhlcv(mintAddress, interval, countLimit);
-        return { bars: result.bars, atMs: Date.now(), reason: result.reason };
-      } finally {
-        this.inflightByInterval.delete(cacheKey);
-      }
-    })();
+    // Queue the request — caller waits for its slot
+    const promise = new Promise<BarsCacheEntry>((resolve) => {
+      this.gmgnQueue.push({
+        mint: mintAddress,
+        interval,
+        countLimit,
+        resolve,
+        retryCount: 0,
+      });
+      this.processGmgnQueue();
+    });
 
     this.inflightByInterval.set(cacheKey, promise);
-    const entry = await promise;
+    try {
+      const entry = await promise;
+      // Cache result by interval key
+      this.barsCacheByInterval.set(cacheKey, entry);
+      return entry;
+    } finally {
+      this.inflightByInterval.delete(cacheKey);
+    }
+  }
 
-    // Cache result by interval key
-    this.barsCacheByInterval.set(cacheKey, entry);
-    return entry;
+  private async processGmgnQueue() {
+    if (this.gmgnQueueProcessing) return;
+    this.gmgnQueueProcessing = true;
+
+    while (this.gmgnQueue.length > 0) {
+      const item = this.gmgnQueue.shift()!;
+
+      const result = await fetchGmgnOhlcv(item.mint, item.interval, item.countLimit);
+
+      // Retry failed calls once (timeout, 429, 5xx) — inspect result reason
+      const isRetryable = item.retryCount < 1 && result.bars === null && (
+        result.reason === "http_429" ||
+        result.reason === "http_500" || result.reason === "http_502" || result.reason === "http_503" || result.reason === "http_504" ||
+        result.reason === "fetch_error" || result.reason === "TimeoutError"
+      );
+
+      if (isRetryable) {
+        this.gmgnQueue.unshift({ ...item, retryCount: 1 });
+      } else {
+        item.resolve({ bars: result.bars, atMs: Date.now(), reason: result.reason });
+      }
+
+      // Pace at 2 calls/sec (500ms apart)
+      if (this.gmgnQueue.length > 0) {
+        await new Promise((r) => setTimeout(r, 500));
+      }
+    }
+
+    this.gmgnQueueProcessing = false;
   }
 
   private is429Cooldown(): boolean {

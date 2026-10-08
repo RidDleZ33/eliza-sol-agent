@@ -13,9 +13,6 @@ export type GmgnOhlcvResult =
   | { bars: OhlcvBar[]; reason: string }
   | { bars: null; reason: string };
 
-// 2 req/sec pacing — skip if called within 500ms of the last request
-let lastRequestTime = 0;
-
 export async function fetchGmgnOhlcv(
   mint: string,
   resolution: "1m" | "5m" = "1m",
