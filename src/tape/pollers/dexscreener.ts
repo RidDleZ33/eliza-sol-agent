@@ -13,6 +13,13 @@ import { appendTickToJsonl } from "../jsonl";
 
 const DS_BASE = "https://api.dexscreener.com";
 const KEEPALIVE_MS = 6 * 60 * 60 * 1000; // 6 hours
+const MIGRATIONS_MAX_AGE_MS = 30 * 60 * 1000; // 30 minutes
+const MIGRATIONS_MAX_PER_POLL = 20;
+
+function migrationsEnabled(): boolean {
+  const v = process.env.TAPE_MIGRATIONS;
+  return v === "1" || v === "true";
+}
 
 interface PollerResult {
   ticks: number;
@@ -158,6 +165,100 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
   } catch (err: any) {
     recordError("dexscreener", "http", `keepalive error: ${err.message}`, null);
     result.errors++;
+  }
+
+  // Step 5: PumpSwap migrations (Phase 17A)
+  if (migrationsEnabled()) {
+    try {
+      const searchUrl = `${DS_BASE}/latest/dex/search?q=pumpswap`;
+      const searchResp = await fetch(searchUrl);
+      if (!searchResp.ok) {
+        recordError("dexscreener", "http", `migrations search: HTTP ${searchResp.status}`, null);
+        result.errors++;
+      } else {
+        const searchData = await searchResp.json();
+        let pairs: any[] = [];
+        if (searchData?.pairs && Array.isArray(searchData.pairs)) {
+          pairs = searchData.pairs;
+        }
+
+        const now = Date.now();
+        const newMigrationMints: string[] = [];
+
+        for (const pair of pairs) {
+          if (newMigrationMints.length >= MIGRATIONS_MAX_PER_POLL) break;
+
+          if (pair.chainId !== "solana") continue;
+          if (pair.dexId !== "pumpswap") continue;
+
+          // Check pair age (within last 30 minutes)
+          const pairAge = now - (pair.pairCreatedAt || 0);
+          if (pairAge > MIGRATIONS_MAX_AGE_MS) continue;
+
+          const mint = pair.baseToken?.address;
+          if (!mint) continue;
+
+          // Skip if already in this poll's board set or keepalive
+          if (thisPollBoardMints.has(mint)) continue;
+
+          // Check if already in migrations table
+          try {
+            const existing = db.prepare("SELECT mint FROM migrations WHERE mint = ?").get(mint);
+            if (existing) continue;
+          } catch (e: any) {
+            recordError("dexscreener", "db", `migrations check: ${e.message}`, JSON.stringify({ mint }));
+            continue;
+          }
+
+          // Insert into migrations table
+          try {
+            const migrationStmt = db.prepare(`
+              INSERT INTO migrations (
+                mint, pair_address, dex_id, quote_mint, observed_at, observed_at_ms,
+                pair_created_at_ms, price_usd, liq_usd, mcap_usd, fdv_usd,
+                tx_5m_buys, tx_5m_sells, vol_5m_usd, raw_json
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `);
+            migrationStmt.run(
+              mint,
+              pair.pairAddress,
+              pair.dexId,
+              pair.quoteToken?.address || null,
+              new Date(now).toISOString(),
+              now,
+              pair.pairCreatedAt || null,
+              pair.priceUsd || null,
+              pair.liquidity?.usd || null,
+              pair.marketCap || null,
+              pair.fdv || null,
+              pair.volume?.h5?.buys || null,
+              pair.volume?.h5?.sells || null,
+              pair.volume?.h5?.usd || null,
+              JSON.stringify(pair)
+            );
+          } catch (e: any) {
+            recordError("dexscreener", "db", `migrations insert: ${e.message}`, JSON.stringify({ mint }));
+            continue;
+          }
+
+          // Add to keepalive so tick gets written
+          keepaliveMints.set(mint, now);
+          newMigrationMints.push(mint);
+        }
+
+        // Poll the new migration mints (triggers tick writes)
+        if (newMigrationMints.length > 0) {
+          console.log(`[tape] found ${newMigrationMints.length} pumpswap migrations`);
+          for (let i = 0; i < newMigrationMints.length; i += 15) {
+            const batch = newMigrationMints.slice(i, i + 15);
+            await pollTokenBatch(runId, batch, result, false);
+          }
+        }
+      }
+    } catch (err: any) {
+      recordError("dexscreener", "http", `migrations error: ${err.message}`, null);
+      result.errors++;
+    }
   }
 
   return result;

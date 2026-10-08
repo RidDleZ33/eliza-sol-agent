@@ -168,6 +168,27 @@ export function createSchema(db: any): void {
     );
   `);
 
+  // Phase 17A: pumpswap migrations table
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS migrations (
+      mint TEXT PRIMARY KEY,
+      pair_address TEXT,
+      dex_id TEXT,
+      quote_mint TEXT,
+      observed_at TEXT,
+      observed_at_ms INTEGER,
+      pair_created_at_ms INTEGER,
+      price_usd REAL,
+      liq_usd REAL,
+      mcap_usd REAL,
+      fdv_usd REAL,
+      tx_5m_buys INTEGER,
+      tx_5m_sells INTEGER,
+      vol_5m_usd REAL,
+      raw_json TEXT
+    );
+  `);
+
   // Phase 15B: wallet_facts table (empty until later slice fills it)
   db.exec(`
     CREATE TABLE IF NOT EXISTS wallet_facts (
