@@ -198,9 +198,6 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
           const mint = pair.baseToken?.address;
           if (!mint) continue;
 
-          // Skip if already in this poll's board set or keepalive
-          if (thisPollBoardMints.has(mint)) continue;
-
           // Check if already in migrations table
           try {
             const existing = db.prepare("SELECT mint FROM migrations WHERE mint = ?").get(mint);
@@ -231,9 +228,9 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
               pair.liquidity?.usd || null,
               pair.marketCap || null,
               pair.fdv || null,
-              pair.volume?.h5?.buys || null,
-              pair.volume?.h5?.sells || null,
-              pair.volume?.h5?.usd || null,
+              typeof pair.txns?.m5?.buys === "number" ? pair.txns.m5.buys : null,
+              typeof pair.txns?.m5?.sells === "number" ? pair.txns.m5.sells : null,
+              typeof pair.volume?.m5 === "number" ? pair.volume.m5 : null,
               JSON.stringify(pair)
             );
           } catch (e: any) {
@@ -241,8 +238,10 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
             continue;
           }
 
-          // Add to keepalive so tick gets written
-          keepaliveMints.set(mint, now);
+          // Add to keepalive if not already present so tick gets written
+          if (!keepaliveMints.has(mint)) {
+            keepaliveMints.set(mint, now);
+          }
           newMigrationMints.push(mint);
         }
 
