@@ -19,12 +19,6 @@ export async function fetchGmgnOhlcv(
   countLimit: number = 60
 ): Promise<GmgnOhlcvResult> {
   const nowMs = Date.now();
-
-  // Pace: if called within 500ms of the last request, skip and fall through
-  if (nowMs - lastRequestTime < 500) {
-    return { bars: null, reason: "paced" };
-  }
-
   const apiKey = getGmgnApiKey();
 
   const barSecs = resolution === "1m" ? 60 : 300;
@@ -49,8 +43,6 @@ export async function fetchGmgnOhlcv(
   url.searchParams.set("to", String(to));
   url.searchParams.set("timestamp", String(timestampSecs));
   url.searchParams.set("client_id", clientId);
-
-  lastRequestTime = nowMs;
 
   try {
     const headers: Record<string, string> = {
