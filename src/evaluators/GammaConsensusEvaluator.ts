@@ -197,7 +197,7 @@ function synthesizeCommitteeSignals(candidate: any, paMetrics?: PAMetrics | null
     const minBars = getPaMinBars();
 
     // Phase 12I2: min-bars → DEFER (bars sources only; dex has no bar count)
-    if (isBarsSource(source) && paMetrics.features && paMetrics.features.barCount < minBars) {
+    if (isBarsSource(source ?? null) && paMetrics.features && paMetrics.features.barCount < minBars) {
       return {
         decision: "DEFER",
         convictionScore: 0,
@@ -225,7 +225,7 @@ function synthesizeCommitteeSignals(candidate: any, paMetrics?: PAMetrics | null
     }
 
     // Phase 12K: bearish EMA hard vetoes even extreme peak drops
-    if (isBarsSource(source) && paMetrics.emaTrend === 'BEARISH') {
+    if (isBarsSource(source ?? null) && paMetrics.emaTrend === 'BEARISH') {
       return {
         decision: "PRUNE",
         convictionScore: 0,
@@ -235,7 +235,7 @@ function synthesizeCommitteeSignals(candidate: any, paMetrics?: PAMetrics | null
 
     // Phase 12I2: peak-drop → DEFER on bars sources (recovered), PRUNE on dex (5m change)
     if (paMetrics.distanceFromPeakPct <= getPaMaxPeakDropPct()) {
-      if (isBarsSource(source)) {
+      if (isBarsSource(source ?? null)) {
         return {
           decision: "DEFER",
           convictionScore: 0,
@@ -268,7 +268,7 @@ function synthesizeCommitteeSignals(candidate: any, paMetrics?: PAMetrics | null
     }
 
     // DEFER: Price overextended (bars sources only; dex uses priceChange.m5 > 25)
-    if (isBarsSource(source) && paMetrics.isOverextended) {
+    if (isBarsSource(source ?? null) && paMetrics.isOverextended) {
       return {
         decision: "DEFER",
         convictionScore: 0,
@@ -289,7 +289,7 @@ function synthesizeCommitteeSignals(candidate: any, paMetrics?: PAMetrics | null
     }
 
     // Log PA context for transparency
-    const srcPrefix = isBarsSource(source) ? "" : "[src=dex] ";
+    const srcPrefix = isBarsSource(source ?? null) ? "" : "[src=dex] ";
     reasons.push(`${srcPrefix}PA: VWAP ratio ${paMetrics.vwapRatio.toFixed(2)}, B/S ${paMetrics.buySellRatio5m.toFixed(2)}, Peak drop ${paMetrics.distanceFromPeakPct.toFixed(1)}%`);
   } else {
     reasons.push("PA unavailable");
@@ -302,7 +302,7 @@ function synthesizeCommitteeSignals(candidate: any, paMetrics?: PAMetrics | null
 
   // Apply PA boost: ideal entry zone (bars sources only; requires real peak distance)
   let finalScore = convictionScore;
-  if (paMetrics && isBarsSource(paMetrics.source)
+  if (paMetrics && isBarsSource(paMetrics.source ?? null)
       && paMetrics.distanceFromPeakPct >= -28 && paMetrics.distanceFromPeakPct <= -12
       && paMetrics.buySellRatio5m > 1.3 && paMetrics.vwapRatio >= 0.95 && paMetrics.vwapRatio <= 1.10) {
     finalScore = Math.min(0.95, finalScore + 0.10);

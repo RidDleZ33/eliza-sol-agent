@@ -1,0 +1,4 @@
+bun test v1.4.2 (744846f84)
+◇ injected env (0) from .env // tip: ⌘ custom filepath { path: '/custom/path/.env' }
+2026-10-06T04:07:53 [INFO ] [PA gmgn no candles] [object Object]: undefined
+2026-10-06T04:07:53 [INFO ] [PA gmgn http error] [object Object]: undefined
