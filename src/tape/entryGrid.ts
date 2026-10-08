@@ -6,32 +6,54 @@
 // Exit:  first later tick >= 1.3x entry tick, else last tick.
 // Liquidity >= 10000. First tick under 60 min after pair creation.
 // No peak skips.
+// Reads all day files in the retention window + legacy file.
 
 import { existsSync } from "fs";
+import { discoverTapeFiles } from "./filelist";
 
-const TAPE_DB = process.env.TAPE_DB_PATH || "data/tape/tape.sqlite";
+const Database = require("better-sqlite3");
 
-if (!existsSync(TAPE_DB)) {
-  console.log("tape not found at " + TAPE_DB + "; run `bun run tape` first");
+const files = discoverTapeFiles(true);
+
+if (files.length === 0) {
+  console.log("no tape files found; run `bun run tape` first");
   process.exit(0);
 }
 
-const Database = require("better-sqlite3");
-const db = new Database(TAPE_DB, { readonly: true });
-db.pragma("cache_size = -64000");
+console.log(`reading ${files.length} tape file(s)`);
+
+// Open all files as readonly
+const dbs = files.map((f) => {
+  const db = new Database(f.path, { readonly: true });
+  db.pragma("cache_size = -64000");
+  return { db, path: f.path };
+});
+
+// Query helper: run a statement across all open DBs, collecting results
+function queryAll<T>(sql: string, params: any[] = []): T[] {
+  const results: T[] = [];
+  for (const { db } of dbs) {
+    try {
+      const rows = db.prepare(sql).all(...params) as T[];
+      results.push(...rows);
+    } catch {
+      // ignore
+    }
+  }
+  return results;
+}
 
 // Build 1-minute bars from ticks for a single mint
 function buildBars(mint: string): { bars: any[], first_tick_ms: number, pair_created_at_ms: number | null } {
-  const ticks = db
-    .prepare(
-      "SELECT observed_at_ms, price_usd, liq_usd, pair_created_at_ms FROM market_ticks WHERE mint = ? ORDER BY observed_at_ms ASC"
-    )
-    .all(mint) as {
-      observed_at_ms: number;
-      price_usd: number | null;
-      liq_usd: number | null;
-      pair_created_at_ms: number | null;
-    }[];
+  const ticks = queryAll<{
+    observed_at_ms: number;
+    price_usd: number | null;
+    liq_usd: number | null;
+    pair_created_at_ms: number | null;
+  }>(
+    "SELECT observed_at_ms, price_usd, liq_usd, pair_created_at_ms FROM market_ticks WHERE mint = ? ORDER BY observed_at_ms ASC",
+    [mint]
+  );
 
   if (ticks.length < 1) return { bars: [], first_tick_ms: 0, pair_created_at_ms: null };
 
@@ -76,8 +98,6 @@ function ema(values: number[], period: number): number[] {
 }
 
 // Compute capped and uncensored exits
-// capped: next tick at or above 1.3x entry price, else last tick
-// uncensored: always last tick
 function computeExits(ticks: any[], entryTick: any): { capped: number; uncensored: number; hit: boolean } | null {
   const entryPrice = entryTick.price_usd;
   if (entryPrice == null || entryPrice <= 0) return null;
@@ -102,19 +122,16 @@ function computeExits(ticks: any[], entryTick: any): { capped: number; uncensore
 }
 
 // Evaluate entry policy for a single mint
-// clock: 0=first tick with liq, 8=bar 8, 21=bar 21, 99=first bar >= 21 where EMA9>=EMA21
-// Returns { capped, uncensored, hit } or null if no entry
 function evalClock(mint: string, clock: number): { capped: number; uncensored: number; hit: boolean } | null {
-  const ticks = db
-    .prepare(
-      "SELECT observed_at_ms, price_usd, liq_usd, pair_created_at_ms FROM market_ticks WHERE mint = ? ORDER BY observed_at_ms ASC"
-    )
-    .all(mint) as {
-      observed_at_ms: number;
-      price_usd: number | null;
-      liq_usd: number | null;
-      pair_created_at_ms: number | null;
-    }[];
+  const ticks = queryAll<{
+    observed_at_ms: number;
+    price_usd: number | null;
+    liq_usd: number | null;
+    pair_created_at_ms: number | null;
+  }>(
+    "SELECT observed_at_ms, price_usd, liq_usd, pair_created_at_ms FROM market_ticks WHERE mint = ? ORDER BY observed_at_ms ASC",
+    [mint]
+  );
 
   if (ticks.length < 1) return null;
 
@@ -184,11 +201,9 @@ function median(arr: number[]): number {
 }
 
 // Collect all mints with their first tick times
-const mintRows = db
-  .prepare(
-    "SELECT mint, MIN(observed_at_ms) as first_tick_ms FROM market_ticks GROUP BY mint"
-  )
-  .all() as { mint: string; first_tick_ms: number }[];
+const mintRows = queryAll<{ mint: string; first_tick_ms: number }>(
+  "SELECT mint, MIN(observed_at_ms) as first_tick_ms FROM market_ticks GROUP BY mint"
+);
 
 mintRows.sort((a, b) => a.first_tick_ms - b.first_tick_ms);
 
@@ -231,4 +246,6 @@ for (const cfg of clocks) {
   }
 }
 
-db.close();
+for (const { db } of dbs) {
+  db.close();
+}

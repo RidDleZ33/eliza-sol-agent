@@ -1,19 +1,55 @@
 // Tape path report: per-mint runup/giveback analysis
 // Usage: bun src/tape/paths.ts
 // Read-only. Never writes to the tape.
+// Reads all day files in the retention window + legacy file.
 
 import { existsSync } from "fs";
+import { discoverTapeFiles } from "./filelist";
 
-const TAPE_DB = process.env.TAPE_DB_PATH || "data/tape/tape.sqlite";
+const Database = require("better-sqlite3");
 
-if (!existsSync(TAPE_DB)) {
-  console.log("tape not found at " + TAPE_DB + "; run `bun run tape` first");
+const files = discoverTapeFiles(true);
+
+if (files.length === 0) {
+  console.log("no tape files found; run `bun run tape` first");
   process.exit(0);
 }
 
-const Database = require("better-sqlite3");
-const db = new Database(TAPE_DB, { readonly: true });
-db.pragma("cache_size = -64000");
+console.log(`reading ${files.length} tape file(s)`);
+
+// Open all files as readonly
+const dbs = files.map((f) => {
+  const db = new Database(f.path, { readonly: true });
+  db.pragma("cache_size = -64000");
+  return { db, path: f.path };
+});
+
+// Query helper: run a statement across all open DBs, collecting results
+function queryAll<T>(sql: string, params: any[] = []): T[] {
+  const results: T[] = [];
+  for (const { db } of dbs) {
+    try {
+      const rows = db.prepare(sql).all(...params) as T[];
+      results.push(...rows);
+    } catch {
+      // ignore
+    }
+  }
+  return results;
+}
+
+// Query one row from any DB that has it (for last price lookup)
+function queryFirst<T>(sql: string, params: any[] = []): T | undefined {
+  for (const { db } of dbs) {
+    try {
+      const row = db.prepare(sql).get(...params) as T | undefined;
+      if (row) return row;
+    } catch {
+      // ignore
+    }
+  }
+  return undefined;
+}
 
 type PathRow = {
   mint: string;
@@ -24,23 +60,31 @@ type PathRow = {
   max_price: number;
 };
 
-// Per-mint path stats: first tick price, peak, pair creation time
-const rows = db
-  .prepare(`
-    SELECT
-      mint,
-      COUNT(*) AS tick_count,
-      MIN(observed_at_ms) AS first_seen_ms,
-      MIN(pair_created_at_ms) AS pair_created_at_ms,
-      (SELECT price_usd FROM market_ticks t2
-       WHERE t2.mint = t1.mint ORDER BY t2.observed_at ASC LIMIT 1) AS first_price,
-      MAX(price_usd) AS max_price
-    FROM market_ticks t1
-    WHERE price_usd > 0
-    GROUP BY mint
-    HAVING tick_count >= 3
-  `)
-  .all() as PathRow[];
+// Collect all per-mint path stats across files
+const allRows = queryAll<PathRow>(`
+  SELECT
+    mint,
+    COUNT(*) AS tick_count,
+    MIN(observed_at_ms) AS first_seen_ms,
+    MIN(pair_created_at_ms) AS pair_created_at_ms,
+    (SELECT price_usd FROM market_ticks t2
+     WHERE t2.mint = t1.mint ORDER BY t2.observed_at ASC LIMIT 1) AS first_price,
+    MAX(price_usd) AS max_price
+  FROM market_ticks t1
+  WHERE price_usd > 0
+  GROUP BY mint
+  HAVING tick_count >= 3
+`);
+
+// Dedup by mint, keeping earliest first_seen_ms
+const byMint = new Map<string, PathRow>();
+for (const row of allRows) {
+  const existing = byMint.get(row.mint);
+  if (!existing || row.first_seen_ms < existing.first_seen_ms) {
+    byMint.set(row.mint, row);
+  }
+}
+const rows = Array.from(byMint.values());
 
 console.log(`path report: ${rows.length} mints`);
 
@@ -65,25 +109,21 @@ function classifyBucket(row: PathRow): Bucket | null {
 }
 
 for (const r of rows) {
-  const first = r.first_price;
-  const peak = r.max_price;
-  const last = db
-    .prepare(
-      "SELECT price_usd FROM market_ticks WHERE mint = ? ORDER BY observed_at DESC LIMIT 1"
-    )
-    .get(r.mint) as { price_usd: number } | undefined;
-  const lastPrice = last ? last.price_usd : peak;
+  const last = queryFirst<{ price_usd: number }>(
+    "SELECT price_usd FROM market_ticks WHERE mint = ? ORDER BY observed_at DESC LIMIT 1",
+    [r.mint]
+  );
+  const lastPrice = last ? last.price_usd : r.max_price;
 
-  const runup = (peak - first) / first;
-  const giveback = (peak - lastPrice) / peak;
+  const runup = (r.max_price - r.first_price) / r.first_price;
+  const giveback = (r.max_price - lastPrice) / r.max_price;
   const isRunner = runup >= 0.5;
-  const isRoundtrip = isRunner && lastPrice <= first * 1.1;
+  const isRoundtrip = isRunner && lastPrice <= r.first_price * 1.1;
 
   if (isRunner) runners++;
   if (isRoundtrip) roundtrips++;
   runups.push(runup);
 
-  // Age bucket
   const bucket = classifyBucket(r);
   if (bucket) {
     bucket.n++;
@@ -97,12 +137,11 @@ for (const r of rows) {
     bucketUnknown.runups.push(runup);
   }
 
-  // Skip mints with no first price
-  if (first <= 0) continue;
+  if (r.first_price <= 0) continue;
 
   if (isRunner || isRoundtrip) {
-    const fStr = first ? `$${first.toPrecision(4)}` : "?";
-    const pStr = peak ? `$${peak.toPrecision(4)}` : "?";
+    const fStr = `$${r.first_price.toPrecision(4)}`;
+    const pStr = `$${r.max_price.toPrecision(4)}`;
     console.log(
       `${r.mint.slice(0, 8)}... ${r.tick_count} ticks ` +
       `first=${fStr} peak=${pStr} ` +
@@ -149,7 +188,6 @@ console.log(
 
 console.log(`\n=== entry factors (first tick, <30m bucket only) ===`);
 
-// Collect first-tick factor values for <30m mints
 type FirstTick = {
   mint: string;
   liq_usd: number | null;
@@ -166,17 +204,16 @@ const youngMints = rows.filter((r) => {
 });
 
 const firstTicks: FirstTick[] = youngMints.map((r) => {
-  const tick = db
-    .prepare(
-      "SELECT price_usd, liq_usd, change_5m_pct, vol_5m_usd, tx_5m_sells FROM market_ticks WHERE mint = ? ORDER BY observed_at ASC LIMIT 1"
-    )
-    .get(r.mint) as {
-      price_usd: number;
-      liq_usd: number | null;
-      change_5m_pct: number | null;
-      vol_5m_usd: number | null;
-      tx_5m_sells: number | null;
-    } | undefined;
+  const tick = queryFirst<{
+    price_usd: number;
+    liq_usd: number | null;
+    change_5m_pct: number | null;
+    vol_5m_usd: number | null;
+    tx_5m_sells: number | null;
+  }>(
+    "SELECT price_usd, liq_usd, change_5m_pct, vol_5m_usd, tx_5m_sells FROM market_ticks WHERE mint = ? ORDER BY observed_at ASC LIMIT 1",
+    [r.mint]
+  );
 
   if (!tick) return null;
 
@@ -193,7 +230,6 @@ const firstTicks: FirstTick[] = youngMints.map((r) => {
 
 console.log(`young mints analyzed: ${firstTicks.length}`);
 
-// Entry factor: liquidity at first tick
 function factorBucket(name: string, ticks: FirstTick[], getValue: (ft: FirstTick) => number | null, buckets: { label: string; test: (v: number) => boolean }[]) {
   console.log(`\nentry factor: ${name}`);
   for (const b of buckets) {
@@ -225,7 +261,6 @@ factorBucket("vol_5m_usd", firstTicks, (ft) => ft.vol_5m_usd, [
   { label: ">=10k", test: (v) => v >= 10000 },
 ]);
 
-// tx_5m_sells: 0 vs >0
 console.log(`\nentry factor: tx_5m_sells`);
 for (const label of ["0", ">0"]) {
   const subset = firstTicks.filter((ft) => {
@@ -242,7 +277,6 @@ for (const label of ["0", ">0"]) {
 
 console.log(`\n=== exit analysis (<30m bucket only) ===`);
 
-// Runup thresholds to check
 const runupLevels = [0.30, 0.50, 1.00, 2.00];
 
 for (const level of runupLevels) {
@@ -255,7 +289,6 @@ for (const level of runupLevels) {
   console.log(`reached ${level * 100}% runup: ${hitCount}/${youngMints.length} (${hitPct.toFixed(1)}%)`);
 }
 
-// Evaluate exit policies: 30% TP, 50% TP, 100% TP, hold
 console.log(`\nexit policy evaluation:`);
 
 type ExitPolicy = { label: string; threshold: number | null };
@@ -270,10 +303,10 @@ for (const policy of policies) {
   const returns: number[] = [];
 
   for (const r of youngMints) {
-    // Walk ticks chronologically to find exit price
-    const ticks = db
-      .prepare("SELECT price_usd FROM market_ticks WHERE mint = ? ORDER BY observed_at ASC")
-      .all(r.mint) as { price_usd: number }[];
+    const ticks = queryAll<{ price_usd: number }>(
+      "SELECT price_usd FROM market_ticks WHERE mint = ? ORDER BY observed_at ASC",
+      [r.mint]
+    );
 
     if (ticks.length === 0) continue;
 
@@ -282,7 +315,6 @@ for (const policy of policies) {
     let exitPrice: number;
 
     if (policy.threshold !== null) {
-      // Find first tick at or above threshold
       let found = false;
       for (const tick of ticks) {
         const runup = (tick.price_usd - firstPrice) / firstPrice;
@@ -293,11 +325,9 @@ for (const policy of policies) {
         }
       }
       if (!found) {
-        // Never hit threshold; exit at last tick
         exitPrice = ticks[ticks.length - 1].price_usd;
       }
     } else {
-      // Hold: exit at last tick
       exitPrice = ticks[ticks.length - 1].price_usd;
     }
 
@@ -310,7 +340,6 @@ for (const policy of policies) {
     continue;
   }
 
-  // How many hit the TP cap (if policy has threshold)
   let hitCap = 0;
   if (policy.threshold !== null) {
     for (const ret of returns) {
@@ -333,13 +362,13 @@ for (const policy of policies) {
 
 console.log(`\n=== scale-out exits (<30m bucket only) ===`);
 
-// Policy 1: sell all at first tick >= 1.3x
 {
   const returns: number[] = [];
   for (const r of youngMints) {
-    const ticks = db
-      .prepare("SELECT price_usd FROM market_ticks WHERE mint = ? ORDER BY observed_at ASC")
-      .all(r.mint) as { price_usd: number }[];
+    const ticks = queryAll<{ price_usd: number }>(
+      "SELECT price_usd FROM market_ticks WHERE mint = ? ORDER BY observed_at ASC",
+      [r.mint]
+    );
     if (ticks.length === 0) continue;
     const firstPrice = ticks[0].price_usd;
     if (firstPrice <= 0) continue;
@@ -358,13 +387,13 @@ console.log(`\n=== scale-out exits (<30m bucket only) ===`);
   console.log(`  sell-all-1.3x: n=${returns.length} median_ret=${(medianRet * 100).toFixed(1)}% sum_ret=${(sumRet * 100).toFixed(1)}%`);
 }
 
-// Policy 2: sell half at 1.3x, half at 2x; unhit remainder at last tick
 {
   const returns: number[] = [];
   for (const r of youngMints) {
-    const ticks = db
-      .prepare("SELECT price_usd FROM market_ticks WHERE mint = ? ORDER BY observed_at ASC")
-      .all(r.mint) as { price_usd: number }[];
+    const ticks = queryAll<{ price_usd: number }>(
+      "SELECT price_usd FROM market_ticks WHERE mint = ? ORDER BY observed_at ASC",
+      [r.mint]
+    );
     if (ticks.length === 0) continue;
     const firstPrice = ticks[0].price_usd;
     if (firstPrice <= 0) continue;
@@ -390,13 +419,13 @@ console.log(`\n=== scale-out exits (<30m bucket only) ===`);
   console.log(`  half-1.3x-half-2x: n=${returns.length} median_ret=${(medianRet * 100).toFixed(1)}% sum_ret=${(sumRet * 100).toFixed(1)}%`);
 }
 
-// Policy 3: sell half at 1.3x, half at 20% under max seen after half sold
 {
   const returns: number[] = [];
   for (const r of youngMints) {
-    const ticks = db
-      .prepare("SELECT price_usd FROM market_ticks WHERE mint = ? ORDER BY observed_at ASC")
-      .all(r.mint) as { price_usd: number }[];
+    const ticks = queryAll<{ price_usd: number }>(
+      "SELECT price_usd FROM market_ticks WHERE mint = ? ORDER BY observed_at ASC",
+      [r.mint]
+    );
     if (ticks.length === 0) continue;
     const firstPrice = ticks[0].price_usd;
     if (firstPrice <= 0) continue;
@@ -428,4 +457,6 @@ console.log(`\n=== scale-out exits (<30m bucket only) ===`);
   console.log(`  half-1.3x-half-20pct-drawdown: n=${returns.length} median_ret=${(medianRet * 100).toFixed(1)}% sum_ret=${(sumRet * 100).toFixed(1)}%`);
 }
 
-db.close();
+for (const { db } of dbs) {
+  db.close();
+}

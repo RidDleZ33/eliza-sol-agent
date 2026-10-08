@@ -1,15 +1,22 @@
 // Main recorder loop
 // Polls DexScreener every TAPE_POLL_MS (default 20s)
 // Polls SOL mark every TAPE_SOL_MARK_MS (default 60s)
-// Uses loop + sleep to prevent overlapping polls
+// Writes daily rolling tape files: data/tape/tape-YYYY-MM-DD.sqlite
+// Prunes day files older than TAPE_RETAIN_DAYS on start and once per day.
+// Legacy tape.sqlite is pruned only when its newest tick is past the window.
 
 import { openDb, closeDb, getDb } from "./db";
 import { SCHEMA_VERSION } from "./schema";
 import { pollDexScreener } from "./pollers/dexscreener";
 import { pollSolMark } from "./pollers/solmark";
 import { initJsonl, isJsonlEnabled } from "./jsonl";
+import { getTapeRetainDays } from "../utils/env";
+import { existsSync, unlinkSync, readdirSync } from "fs";
 
-const dbPath = process.env.TAPE_DB_PATH || "data/tape/tape.sqlite";
+const TAPE_DIR = "data/tape";
+const LEGACY_DB = "data/tape/tape.sqlite";
+const RETAIN_DAYS = getTapeRetainDays();
+
 const pollMs = parseInt(process.env.TAPE_POLL_MS || "20000", 10);
 const solMarkMs = parseInt(process.env.TAPE_SOL_MARK_MS || "60000", 10);
 
@@ -20,7 +27,9 @@ let trendingCount = 0;
 let errorCount = 0;
 let lastSolMark = Date.now();
 let lastPoll = Date.now() - pollMs;
+let lastPrune = Date.now();
 let running = true;
+let todayPath = "";
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -41,19 +50,85 @@ function getGitSha(): string | null {
   return null;
 }
 
-async function start() {
-  openDb(dbPath);
-  const db = getDb();
+function dateFilename(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
 
-  // Get actual journal mode for startup honesty
+function dayFilePath(dateStr: string): string {
+  return `${TAPE_DIR}/tape-${dateStr}.sqlite`;
+}
+
+function ensureDayFile(dateStr: string): string {
+  const path = dayFilePath(dateStr);
+  if (!existsSync(path)) {
+    openDb(path);
+    closeDb();
+    console.log(`[tape] opened day file ${path}`);
+  }
+  return path;
+}
+
+async function pruneDayFiles() {
+  const now = Date.now();
+  const cutoff = new Date(now - RETAIN_DAYS * 86400000);
+  const cutoffStr = dateFilename(cutoff);
+
+  try {
+    const files = readdirSync(TAPE_DIR).filter(
+      (f: string) => f.startsWith("tape-") && f.endsWith(".sqlite")
+    );
+
+    for (const f of files) {
+      const datePart = f.slice(5, 15); // YYYY-MM-DD
+      if (datePart < cutoffStr) {
+        const full = `${TAPE_DIR}/${f}`;
+        try {
+          unlinkSync(full);
+          console.log(`[tape] pruned day file ${full}`);
+        } catch (e: any) {
+          console.log(`[tape] prune failed for ${full}: ${e.message}`);
+        }
+      }
+    }
+  } catch (e: any) {
+    console.log(`[tape] prune list failed: ${e.message}`);
+  }
+
+  // Prune legacy file only when its newest tick is past the window
+  if (existsSync(LEGACY_DB)) {
+    try {
+      const legacy = openDb(LEGACY_DB);
+      const row = legacy.prepare(
+        "SELECT MAX(observed_at_ms) as newest FROM market_ticks"
+      ).get();
+      legacy.close();
+      if (row && row.newest) {
+        const newestDate = new Date(row.newest);
+        if (newestDate < cutoff) {
+          unlinkSync(LEGACY_DB);
+          console.log(`[tape] pruned legacy file ${LEGACY_DB}`);
+        }
+      }
+    } catch (e: any) {
+      console.log(`[tape] legacy prune check failed: ${e.message}`);
+    }
+  }
+}
+
+async function start() {
+  const todayStr = dateFilename(new Date());
+  todayPath = ensureDayFile(todayStr);
+  openDb(todayPath);
+
+  const db = getDb();
   const journalRow = db.prepare("PRAGMA journal_mode").get();
   const actualJournalMode = journalRow.journal_mode;
 
   initJsonl();
 
   console.log(
-    `[tape] schema_version=${SCHEMA_VERSION} db=${dbPath} journal=${actualJournalMode} ` +
-    `jsonl=${isJsonlEnabled() ? "on" : "off"} poll_ms=${pollMs}`
+    `[tape] schema_version=${SCHEMA_VERSION} db=${todayPath} journal=${actualJournalMode} ` +
+    `jsonl=${isJsonlEnabled() ? "on" : "off"} poll_ms=${pollMs} retain_days=${RETAIN_DAYS}`
   );
 
   // Register ingest run
@@ -64,6 +139,7 @@ async function start() {
     sol_mark_ms: solMarkMs,
     jsonl: isJsonlEnabled(),
     dexscreener_host: "api.dexscreener.com",
+    retain_days: RETAIN_DAYS,
   };
 
   const stmt = db.prepare(`
@@ -86,9 +162,45 @@ async function start() {
   await pollSolMark();
   lastSolMark = Date.now();
 
+  // Prune on start
+  await pruneDayFiles();
+
   // Run loop
   while (running) {
     const now2 = Date.now();
+    const currentDayStr = dateFilename(new Date(now2));
+
+    // Daily file roll: if we crossed into a new day, reopen
+    const dbPath = dayFilePath(currentDayStr);
+    if (dbPath !== todayPath) {
+      console.log(`[tape] rolling to day file ${dbPath}`);
+      closeDb();
+      ensureDayFile(currentDayStr);
+      openDb(dbPath);
+      todayPath = dbPath;
+      const newDb = getDb();
+      runId = 0;
+      const now3 = Date.now();
+      const stmt2 = newDb.prepare(`
+        INSERT INTO ingest_runs (started_at, started_at_ms, hostname, git_sha, schema_version, config_json)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `);
+      stmt2.run(
+        new Date(now3).toISOString(),
+        now3,
+        require("os").hostname(),
+        getGitSha(),
+        SCHEMA_VERSION,
+        JSON.stringify(configObj)
+      );
+      runId = newDb.prepare("SELECT last_insert_rowid() as rid").get().rid;
+    }
+
+    // Daily prune
+    if (now2 - lastPrune >= 86400000) {
+      await pruneDayFiles();
+      lastPrune = now2;
+    }
 
     // SOL mark poller (every solMarkMs)
     if (now2 - lastSolMark >= solMarkMs) {
@@ -107,13 +219,6 @@ async function start() {
       errorCount += result.errors;
 
       console.log(`[tape] poll ticks=${result.ticks} firstSeen=${result.firstSeen} trending=${result.trending} errors=${result.errors} totalTicks=${tickCount}`);
-
-      // Self-check after first successful poll
-      if (tickCount === 0 && result.ticks === 0 && now2 - now > pollMs * 3) {
-        console.log("[tape] WARNING: no ticks recorded after 3 polls");
-        const row = db.prepare("SELECT COUNT(*) as cnt FROM market_ticks").get();
-        console.log(`[tape] market_ticks count: ${row.cnt}`);
-      }
     }
 
     // Sleep for a short interval
@@ -122,36 +227,13 @@ async function start() {
 
   // Cleanup
   try {
+    const db = getDb();
     db.prepare("UPDATE ingest_runs SET stopped_at = ? WHERE id = ?").run(
       new Date().toISOString(),
       runId
     );
   } catch {
     // ignore
-  }
-
-  // Backup on shutdown
-  try {
-    const fs = require("fs");
-    const path = require("path");
-
-    // Checkpoint WAL first
-    try {
-      db.exec("PRAGMA wal_checkpoint(TRUNCATE);");
-    } catch {
-      // ignore
-    }
-
-    const backupsDir = "data/tape/backups";
-    if (!fs.existsSync(backupsDir)) {
-      fs.mkdirSync(backupsDir, { recursive: true });
-    }
-
-    const backupPath = path.join(backupsDir, `tape-${new Date().toISOString().split("T")[0]}.sqlite`);
-    fs.copyFileSync(dbPath, backupPath);
-    console.log(`[tape] backup saved to ${backupPath}`);
-  } catch (err: any) {
-    console.log(`[tape] backup failed: ${err.message}`);
   }
 
   closeDb();

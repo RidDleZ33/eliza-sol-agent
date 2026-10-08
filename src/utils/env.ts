@@ -66,6 +66,7 @@ const EnvSchema = z.object({
   TRAILING_STOP_PCT: z.string().default("10"),
   STALE_POSITION_MINUTES: z.string().default("30"),
   POSITION_CHECK_INTERVAL_MS: z.string().default("5000"),
+  TAPE_RETAIN_DAYS: z.string().default("14"),
 });
 
 export const env = EnvSchema.parse(process.env);
@@ -292,4 +293,10 @@ export function getPaMaxPeakDropPct(): number {
 export function getDexscreenerProfilesMaxAgeH(): number {
   const raw = parseInt(env.INGEST_DEXSCREENER_PROFILES_MAX_AGE_H, 10);
   return Number.isFinite(raw) && raw > 0 ? raw : 6;
+}
+
+// Phase 15D: tape file retention in days
+export function getTapeRetainDays(): number {
+  const raw = parseInt(env.TAPE_RETAIN_DAYS, 10);
+  return Number.isFinite(raw) && raw > 0 ? raw : 14;
 }

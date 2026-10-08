@@ -3,41 +3,63 @@
 // Universe: first tick < 60min after pair_created_at_ms, liq_usd >= 10000, price > 0
 // Hit: later tick at or above 1.3x the first price
 // Splits: liq rose >=20% before hit, buy share rose over next 3 ticks, boost_active, has_socials
+// Reads all day files in the retention window + legacy file.
 
 import { existsSync } from "fs";
+import { discoverTapeFiles } from "./filelist";
 
-const TAPE_DB = process.env.TAPE_DB_PATH || "data/tape/tape.sqlite";
+const Database = require("better-sqlite3");
 
-if (!existsSync(TAPE_DB)) {
-  console.log("tape not found at " + TAPE_DB + "; run `bun run tape` first");
+const files = discoverTapeFiles(true);
+
+if (files.length === 0) {
+  console.log("no tape files found; run `bun run tape` first");
   process.exit(0);
 }
 
-const Database = require("better-sqlite3");
-const db = new Database(TAPE_DB, { readonly: true });
-db.pragma("cache_size = -64000");
+console.log(`reading ${files.length} tape file(s)`);
+
+// Open all files as readonly
+const dbs = files.map((f) => {
+  const db = new Database(f.path, { readonly: true });
+  db.pragma("cache_size = -64000");
+  return { db, path: f.path };
+});
+
+// Query helper: run a statement across all open DBs, collecting results
+function queryAll<T>(sql: string, params: any[] = []): T[] {
+  const results: T[] = [];
+  for (const { db } of dbs) {
+    try {
+      const rows = db.prepare(sql).all(...params) as T[];
+      results.push(...rows);
+    } catch {
+      // ignore
+    }
+  }
+  return results;
+}
 
 function getMints() {
-  return db
-    .prepare("SELECT mint, MIN(observed_at_ms) as first_tick_ms FROM market_ticks GROUP BY mint")
-    .all() as { mint: string; first_tick_ms: number }[];
+  return queryAll<{ mint: string; first_tick_ms: number }>(
+    "SELECT mint, MIN(observed_at_ms) as first_tick_ms FROM market_ticks GROUP BY mint"
+  );
 }
 
 function getTicks(mint: string) {
-  return db
-    .prepare(
-      "SELECT observed_at_ms, price_usd, liq_usd, pair_created_at_ms, tx_5m_buys, tx_5m_sells, boost_active, has_socials FROM market_ticks WHERE mint = ? ORDER BY observed_at_ms ASC"
-    )
-    .all(mint) as {
-      observed_at_ms: number;
-      price_usd: number | null;
-      liq_usd: number | null;
-      pair_created_at_ms: number | null;
-      tx_5m_buys: number | null;
-      tx_5m_sells: number | null;
-      boost_active: number | null;
-      has_socials: number | null;
-    }[];
+  return queryAll<{
+    observed_at_ms: number;
+    price_usd: number | null;
+    liq_usd: number | null;
+    pair_created_at_ms: number | null;
+    tx_5m_buys: number | null;
+    tx_5m_sells: number | null;
+    boost_active: number | null;
+    has_socials: number | null;
+  }>(
+    "SELECT observed_at_ms, price_usd, liq_usd, pair_created_at_ms, tx_5m_buys, tx_5m_sells, boost_active, has_socials FROM market_ticks WHERE mint = ? ORDER BY observed_at_ms ASC",
+    [mint]
+  );
 }
 
 function buyShare(buys: number | null, sells: number | null): number | null {
@@ -70,12 +92,10 @@ function evalMint(mint: string) {
 
   // Find hit: later tick at or above 1.3x first price
   let hit = false;
-  let hitPrice = 0;
   let hitIdx = -1;
   for (let i = 1; i < ticks.length; i++) {
     if (ticks[i].price_usd != null && ticks[i].price_usd >= t0.price_usd * 1.3) {
       hit = true;
-      hitPrice = ticks[i].price_usd;
       hitIdx = i;
       break;
     }
@@ -94,14 +114,12 @@ function evalMint(mint: string) {
       }
     }
   } else {
-    // Miss: check liquidity at last tick
     if (lastTick.liq_usd != null && lastTick.liq_usd >= targetLiq) {
       liqRose = true;
     }
   }
 
   // Split 2: buy share rose over next three ticks vs fell/flat
-  // Collect up to 3 subsequent ticks with transactions
   let shares: number[] = [];
   const s0 = buyShare(t0.tx_5m_buys, t0.tx_5m_sells);
   if (s0 != null) shares.push(s0);
@@ -204,4 +222,6 @@ for (const [splitName, mints] of [["train", trainMints], ["holdout", holdoutMint
   report("no", socNo);
 }
 
-db.close();
+for (const { db } of dbs) {
+  db.close();
+}
