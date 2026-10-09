@@ -9,6 +9,7 @@ import { addSessionPnl } from "../execution/risk.ts";
 import { priceActionService } from "./PriceActionService.ts";
 import { volStopPct } from "../execution/volStop.ts";
 import { excursionSnippet } from "../execution/excursion.ts";
+import { getExitClockSec } from "../utils/env.ts";
 
 export class PositionManagerService {
   private runtime: any;
@@ -81,7 +82,9 @@ export class PositionManagerService {
     // Calculate position age first (independent of price)
     const enteredAt = new Date(position.entered_at);
     const ageMinutes = (Date.now() - enteredAt.getTime()) / (1000 * 60);
+    const ageSeconds = (Date.now() - enteredAt.getTime()) / 1000;
     const staleMinutes = configService.getNumber("STALE_POSITION_MINUTES");
+    const exitClockSec = getExitClockSec();
 
     // Fetch current price
     const currentPrice = await this.getTokenPrice(mint);
@@ -196,6 +199,13 @@ export class PositionManagerService {
         currentPrice,
         pnlPct
       );
+    } else if (exitClockSec > 0 && ageSeconds >= exitClockSec) {
+      logger.info("POSITIONS", "PositionManager", "CLOCK triggered", {
+        symbol,
+        ageSeconds: Math.floor(ageSeconds),
+        exitClockSec,
+      });
+      await this.exitPosition(mint, symbol, `CLOCK (${Math.floor(ageSeconds)} sec) | ${exc}`, currentPrice, pnlPct);
     } else if (ageMinutes > staleMinutes && pnlPct < 10) {
       logger.info("POSITIONS", "PositionManager", "STALE_POSITION triggered", {
         symbol,

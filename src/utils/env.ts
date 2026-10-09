@@ -65,6 +65,7 @@ const EnvSchema = z.object({
   EXIT_ATR_K: z.string().default("1.5"),
   TRAILING_STOP_PCT: z.string().default("10"),
   STALE_POSITION_MINUTES: z.string().default("30"),
+  EXIT_CLOCK_SEC: z.string().default("0"),
   POSITION_CHECK_INTERVAL_MS: z.string().default("5000"),
   TAPE_RETAIN_DAYS: z.string().default("14"),
   TAPE_DECISIONS: z.string().default("false"),
@@ -201,6 +202,10 @@ export function getExitAtrK(): number {
 
 export function getPositionCheckIntervalMs(): number {
   return parseInt(env.POSITION_CHECK_INTERVAL_MS);
+}
+
+export function getExitClockSec(): number {
+  return parseInt(env.EXIT_CLOCK_SEC);
 }
 
 // --- Ingestion source flags (phase 6A) ---
