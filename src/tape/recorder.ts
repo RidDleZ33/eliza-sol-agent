@@ -7,6 +7,8 @@
 
 import { openDb, closeDb, getDb } from "./db";
 import { SCHEMA_VERSION } from "./schema";
+
+const Database = require("better-sqlite3");
 import { pollDexScreener } from "./pollers/dexscreener";
 import { pollSolMark } from "./pollers/solmark";
 import { initJsonl, isJsonlEnabled } from "./jsonl";
@@ -88,6 +90,17 @@ async function pruneDayFiles() {
         } catch (e: any) {
           console.log(`[tape] prune failed for ${full}: ${e.message}`);
         }
+        // Unlink sidecar files if they exist
+        for (const ext of ["-wal", "-shm"]) {
+          const sidecar = full.replace(".sqlite", ext);
+          if (existsSync(sidecar)) {
+            try {
+              unlinkSync(sidecar);
+            } catch {
+              // missing sidecar is not an error
+            }
+          }
+        }
       }
     }
   } catch (e: any) {
@@ -95,22 +108,40 @@ async function pruneDayFiles() {
   }
 
   // Prune legacy file only when its newest tick is past the window
+  // Use a separate connection; do not call openDb (which replaces the writer)
   if (existsSync(LEGACY_DB)) {
+    let legacyConn = null;
     try {
-      const legacy = openDb(LEGACY_DB);
-      const row = legacy.prepare(
+      legacyConn = new Database(LEGACY_DB, { readonly: true });
+      const row = legacyConn.prepare(
         "SELECT MAX(observed_at_ms) as newest FROM market_ticks"
       ).get();
-      legacy.close();
       if (row && row.newest) {
         const newestDate = new Date(row.newest);
         if (newestDate < cutoff) {
+          legacyConn.close();
+          legacyConn = null;
           unlinkSync(LEGACY_DB);
           console.log(`[tape] pruned legacy file ${LEGACY_DB}`);
+          // Unlink sidecar files if they exist
+          for (const ext of ["-wal", "-shm"]) {
+            const sidecar = LEGACY_DB.replace(".sqlite", ext);
+            if (existsSync(sidecar)) {
+              try {
+                unlinkSync(sidecar);
+              } catch {
+                // missing sidecar is not an error
+              }
+            }
+          }
         }
       }
     } catch (e: any) {
       console.log(`[tape] legacy prune check failed: ${e.message}`);
+    } finally {
+      if (legacyConn) {
+        legacyConn.close();
+      }
     }
   }
 }
