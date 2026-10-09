@@ -12,6 +12,7 @@ interface ClosedTrip {
   ingest: string;
   symbol: string;
   mint: string;
+  stop_age_bucket: string | null;
 }
 
 function classifyExit(reason: string | null | undefined): string {
@@ -54,6 +55,13 @@ function holdBucket(secs: number): string {
   return ">60m";
 }
 
+function stopAgeBucketFn(secs: number): string {
+  if (secs < 60) return "<1m";
+  if (secs < 600) return "1–10m";
+  if (secs < 3600) return "10–60m";
+  return ">60m";
+}
+
 
 
 export function aggregateTrips(
@@ -89,17 +97,24 @@ export function aggregateTrips(
     if (idx >= 0) list.splice(idx, 1);
     const buyTs = best.created_at < 1e12 ? best.created_at * 1000 : best.created_at;
     const pnl = sell.sol_out - best.sol_in;
+    const exitFam = classifyExit(sell.reason);
+    let stopAgeBucket: string | null = null;
+    if (exitFam === "STOP") {
+      const holdSecs = (sellTs - buyTs) / 1000;
+      stopAgeBucket = stopAgeBucketFn(holdSecs);
+    }
     trips.push({
       buy_at: buyTs,
       sell_at: sellTs,
       sol_in: best.sol_in,
       sol_out: sell.sol_out,
       pnl_sol: pnl,
-      exit_fam: classifyExit(sell.reason),
+      exit_fam: exitFam,
       pa_src: classifyPaSrc(sell.reason, best.reason),
       ingest: classifyIngest(watchedIngest.get(sell.mint) || null),
       symbol: sell.symbol || "",
       mint: sell.mint,
+      stop_age_bucket: stopAgeBucket,
     });
   }
   return trips;
@@ -159,6 +174,27 @@ export function formatBook(trips: ClosedTrip[]): string[] {
     holdBuckets.set(key, b);
   }
   lines.push(...groupLines("hold", holdBuckets));
+
+  // Stop age: how long stops were held (only trips closed by STOP)
+  const stopAgeBuckets = new Map<string, { n: number; pnl: number }>();
+  let stopAgeUnpaired = 0;
+  for (const t of trips) {
+    if (t.exit_fam !== "STOP") continue;
+    if (!t.stop_age_bucket) {
+      stopAgeUnpaired++;
+      continue;
+    }
+    const b = stopAgeBuckets.get(t.stop_age_bucket) || { n: 0, pnl: 0 };
+    b.n++;
+    b.pnl += t.pnl_sol;
+    stopAgeBuckets.set(t.stop_age_bucket, b);
+  }
+  if (stopAgeBuckets.size > 0 || stopAgeUnpaired > 0) {
+    lines.push(...groupLines("stop_age", stopAgeBuckets));
+    if (stopAgeUnpaired > 0) {
+      lines.push(`  age=?  n=${stopAgeUnpaired}  pnl=0.00`);
+    }
+  }
 
   // Insert blank lines between groups
   const result: string[] = [lines[0]];
