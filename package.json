@@ -10,6 +10,7 @@
     "tape": "bun src/tape/index.ts",
     "tape:paths": "bun src/tape/paths.ts",
     "tape:entry": "bun src/tape/entryGrid.ts",
+    "tape:clock": "bun src/tape/clock.ts",
     "tape:flow": "bun src/tape/flow.ts",
     "replay": "bun src/replay/replay.ts",
     "grid": "bun src/replay/grid.ts",
