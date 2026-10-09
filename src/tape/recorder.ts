@@ -90,9 +90,9 @@ async function pruneDayFiles() {
         } catch (e: any) {
           console.log(`[tape] prune failed for ${full}: ${e.message}`);
         }
-        // Unlink sidecar files if they exist
+        // Unlink sidecar files if they exist (SQLite names them tape-YYYY-MM-DD.sqlite-wal)
         for (const ext of ["-wal", "-shm"]) {
-          const sidecar = full.replace(".sqlite", ext);
+          const sidecar = full + ext;
           if (existsSync(sidecar)) {
             try {
               unlinkSync(sidecar);
@@ -123,9 +123,9 @@ async function pruneDayFiles() {
           legacyConn = null;
           unlinkSync(LEGACY_DB);
           console.log(`[tape] pruned legacy file ${LEGACY_DB}`);
-          // Unlink sidecar files if they exist
+          // Unlink sidecar files if they exist (SQLite names them tape.sqlite-wal)
           for (const ext of ["-wal", "-shm"]) {
-            const sidecar = LEGACY_DB.replace(".sqlite", ext);
+            const sidecar = LEGACY_DB + ext;
             if (existsSync(sidecar)) {
               try {
                 unlinkSync(sidecar);
