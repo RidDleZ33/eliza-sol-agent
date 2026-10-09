@@ -94,19 +94,23 @@ async function evaluateCandidatePipeline(runtime: any) {
         regime
       );
 
-      // Phase 15F: persist decision to tape (fire-and-forget)
+      // Phase 15F/15F2: persist decision to tape (fire-and-forget, scheduled)
+      const addedMs = candidate.added_at ? Date.parse(candidate.added_at) : 0;
+      const pairAgeMin = addedMs > 0 ? Math.floor((Date.now() - addedMs) / 60000) : null;
       writeDecision({
         mint: candidate.mint_address,
         observed_at_ms: Date.now(),
         decision: synthesis.decision,
         reason: synthesis.reasons.join("; "),
         conviction: synthesis.convictionScore,
+        source: paMetrics?.source ?? null,
         bar_count: paMetrics?.features?.barCount,
         interval: paMetrics?.interval ?? null,
         vwap_ratio: paMetrics?.vwapRatio,
         peak_pct: paMetrics?.distanceFromPeakPct,
         ema: paMetrics?.emaTrend,
         buy_sell: paMetrics?.buySellRatio5m,
+        pair_age_min: pairAgeMin,
       });
 
       // War room: broadcast consensus decision
