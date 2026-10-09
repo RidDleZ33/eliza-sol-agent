@@ -1,3 +1,4 @@
+import { writeDecision } from "../tape/decisions.ts";
 import { watchlistService } from "../services/WatchlistService.ts";
 import { tradeExecutionService } from "../services/TradeExecutionService.ts";
 import { WAR_ROOM_ID } from "../utils/warRoom.ts";
@@ -92,6 +93,21 @@ async function evaluateCandidatePipeline(runtime: any) {
         hv,
         regime
       );
+
+      // Phase 15F: persist decision to tape (fire-and-forget)
+      writeDecision({
+        mint: candidate.mint_address,
+        observed_at_ms: Date.now(),
+        decision: synthesis.decision,
+        reason: synthesis.reasons.join("; "),
+        conviction: synthesis.convictionScore,
+        bar_count: paMetrics?.features?.barCount,
+        interval: paMetrics?.interval ?? null,
+        vwap_ratio: paMetrics?.vwapRatio,
+        peak_pct: paMetrics?.distanceFromPeakPct,
+        ema: paMetrics?.emaTrend,
+        buy_sell: paMetrics?.buySellRatio5m,
+      });
 
       // War room: broadcast consensus decision
       await postWarRoomMessage("GAMMA", "CONSENSUS_REACHED", {

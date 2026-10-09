@@ -67,6 +67,7 @@ const EnvSchema = z.object({
   STALE_POSITION_MINUTES: z.string().default("30"),
   POSITION_CHECK_INTERVAL_MS: z.string().default("5000"),
   TAPE_RETAIN_DAYS: z.string().default("14"),
+  TAPE_DECISIONS: z.string().default("false"),
 });
 
 export const env = EnvSchema.parse(process.env);
@@ -299,4 +300,9 @@ export function getDexscreenerProfilesMaxAgeH(): number {
 export function getTapeRetainDays(): number {
   const raw = parseInt(env.TAPE_RETAIN_DAYS, 10);
   return Number.isFinite(raw) && raw > 0 ? raw : 14;
+}
+
+// Phase 15F: persist Gamma decisions to tape
+export function getTapeDecisions(): boolean {
+  return env.TAPE_DECISIONS === "true" || env.TAPE_DECISIONS === "1";
 }
