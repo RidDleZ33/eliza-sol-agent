@@ -4,14 +4,14 @@
 //
 // Clock: the migrations row's pair_created_at_ms (earliest across all day files).
 // Entry: first market_ticks row at or after clock + 5 minutes with price_usd > 0.
-// Window: 60 minutes from entry.
+// Window: 60 minutes from the entry tick's observed_at_ms.
 // Policies: sell at +30%, sell at +50%, hold to end.
 // Fee: none.
 //
 // Reads every tape-YYYY-MM-DD.sqlite in data/tape (including outside retain window).
 // Ignores tape.sqlite. Opened read-only.
 
-import { existsSync, readdirSync, statSync } from "fs";
+import { existsSync, readdirSync } from "fs";
 import Database from "better-sqlite3";
 
 const TAPE_DIR = "data/tape";
@@ -37,7 +37,6 @@ interface MigrationRow {
   pair_created_at_ms: number;
 }
 
-// Collect all migration clocks: mint -> earliest pair_created_at_ms across files
 function collectMigrationClocks(): Map<string, number> {
   const clocks = new Map<string, number>();
 
@@ -85,11 +84,9 @@ function collectMigrationClocks(): Map<string, number> {
   return clocks;
 }
 
-// For one mint, find entry tick and ticks within window from all day files
 function getTicksForMint(
   mint: string,
-  clockMs: number,
-  windowMs: number
+  clockMs: number
 ): {
   entry: any;
   ticks: any[];
@@ -99,7 +96,7 @@ function getTicksForMint(
   const files = readdirSync(TAPE_DIR);
   let entryTick: any = null;
   let entryObserved = Infinity;
-  let windowTicks: any[] = [];
+  let allTicks: any[] = [];
 
   for (const f of files) {
     if (f === "tape.sqlite") continue;
@@ -115,9 +112,7 @@ function getTicksForMint(
     }
 
     const entryAfterMs = clockMs + 5 * 60 * 1000;
-    const windowEndMs = entryAfterMs + windowMs;
 
-    // Look for entry tick
     const potentialEntries = db
       .prepare(
         "SELECT mint, price_usd, observed_at_ms, liq_usd, tx_5m_buys, tx_5m_sells FROM market_ticks WHERE mint=? AND observed_at_ms >= ? ORDER BY observed_at_ms ASC LIMIT 1"
@@ -132,16 +127,29 @@ function getTicksForMint(
       }
     }
 
-    // Collect window ticks (after entry)
     const ticks = db
       .prepare(
-        "SELECT mint, price_usd, observed_at_ms FROM market_ticks WHERE mint=? AND observed_at_ms > ? AND observed_at_ms <= ? ORDER BY observed_at_ms ASC"
+        "SELECT mint, price_usd, observed_at_ms FROM market_ticks WHERE mint=? AND observed_at_ms > ? ORDER BY observed_at_ms ASC"
       )
-      .all(mint, entryAfterMs, windowEndMs);
+      .all(mint, entryAfterMs);
 
-    windowTicks = windowTicks.concat(ticks);
+    allTicks = allTicks.concat(ticks);
 
     db.close();
+  }
+
+  allTicks.sort((a, b) => a.observed_at_ms - b.observed_at_ms);
+
+  let windowTicks: any[] = [];
+  if (entryTick !== null) {
+    const windowEnd = entryTick.observed_at_ms + 60 * 60 * 1000;
+    for (const t of allTicks) {
+      if (t.observed_at_ms <= windowEnd) {
+        windowTicks.push(t);
+      } else {
+        break;
+      }
+    }
   }
 
   return { entry: entryTick, ticks: windowTicks };
@@ -157,15 +165,8 @@ function median(values: number[]): number {
   return sorted[mid];
 }
 
-interface PolicyResult {
-  name: string;
-  hits: number;
-  returns: number[];
-}
-
 function runBacktest(mint: string, clockMs: number) {
-  const windowMs = 60 * 60 * 1000;
-  const { entry, ticks } = getTicksForMint(mint, clockMs, windowMs);
+  const { entry, ticks } = getTicksForMint(mint, clockMs);
 
   if (entry === null || ticks.length === 0) {
     return {
@@ -174,11 +175,7 @@ function runBacktest(mint: string, clockMs: number) {
       entryLiq: 0,
       buySellRatio: 0,
       ticksAfterEntry: 0,
-      policies: {
-        p30: null,
-        p50: null,
-        pHold: null,
-      } as any,
+      policies: { p30: null, p50: null, pHold: null } as any,
     };
   }
 
@@ -193,12 +190,10 @@ function runBacktest(mint: string, clockMs: number) {
 
   const p30 = { name: "sell@30%", hits: 0, returns: [] };
   const p50 = { name: "sell@50%", hits: 0, returns: [] };
-  const pHold = { name: "hold", hits: 0, returns: [] };
+  const pHold = { name: "hold", returns: [] };
 
   let p30Exited = false;
   let p50Exited = false;
-  let p30ExitPrice = entryPrice;
-  let p50ExitPrice = entryPrice;
   let lastPrice = entryPrice;
 
   for (const tick of ticks) {
@@ -207,14 +202,12 @@ function runBacktest(mint: string, clockMs: number) {
 
     if (!p30Exited && tick.price_usd >= entryPrice * 1.3) {
       p30Exited = true;
-      p30ExitPrice = tick.price_usd;
       p30.hits = 1;
       p30.returns.push(ret);
     }
 
     if (!p50Exited && tick.price_usd >= entryPrice * 1.5) {
       p50Exited = true;
-      p50ExitPrice = tick.price_usd;
       p50.hits = 1;
       p50.returns.push(ret);
     }
@@ -226,7 +219,6 @@ function runBacktest(mint: string, clockMs: number) {
   if (!p50Exited) {
     p50.returns.push(lastPrice / entryPrice - 1);
   }
-  pHold.hits = 1;
   pHold.returns.push(lastPrice / entryPrice - 1);
 
   return {
@@ -256,9 +248,9 @@ function main() {
   let buySellRatios: number[] = [];
   let entryLiqs: number[] = [];
 
-  const p30: PolicyResult = { name: "sell@30%", hits: 0, returns: [] };
-  const p50: PolicyResult = { name: "sell@50%", hits: 0, returns: [] };
-  const pHold: PolicyResult = { name: "hold", hits: 0, returns: [] };
+  const p30 = { name: "sell@30%", hits: 0, returns: [] };
+  const p50 = { name: "sell@50%", hits: 0, returns: [] };
+  const pHold = { name: "hold", returns: [] };
 
   let i = 0;
   for (const [mint, clockMs] of clocks.entries()) {
@@ -295,7 +287,6 @@ function main() {
     p50.returns.push(...r50.returns);
 
     const rHold = result.policies.pHold;
-    pHold.hits += rHold.hits;
     pHold.returns.push(...rHold.returns);
   }
 
@@ -315,8 +306,7 @@ function main() {
     console.log(`  Mints with >= 3 ticks after entry: ${mintsWith3plus}`);
 
     console.log("\nPolicy results:");
-    const policies = [p30, p50, pHold];
-    for (const p of policies) {
+    for (const p of [p30, p50]) {
       const hitRate = scored > 0 ? ((p.hits / scored) * 100).toFixed(1) : "0.0";
       const avgRet =
         p.returns.length > 0
@@ -330,6 +320,17 @@ function main() {
         ).toFixed(1)}%`
       );
     }
+    const holdAvgRet =
+      pHold.returns.length > 0
+        ? (pHold.returns.reduce((a, b) => a + b, 0) / pHold.returns.length) * 100
+        : 0;
+    console.log(
+      `  ${pHold.name}: avg return=${holdAvgRet.toFixed(1)}%, median return=${(
+        median(pHold.returns) * 100
+      ).toFixed(1)}%, sum return=${(
+        pHold.returns.reduce((a, b) => a + b, 0) * 100
+      ).toFixed(1)}%`
+    );
   }
 }
 
