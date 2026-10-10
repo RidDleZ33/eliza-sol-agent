@@ -183,7 +183,14 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
         const now = Date.now();
         const newMigrationMints: string[] = [];
 
-        const resp = await fetch("https://openapi.gmgn.ai/v1/trenches", {
+        const nowMs = Date.now();
+        const timestampSecs = Math.floor(nowMs / 1000);
+        const clientId = `${Math.random().toString(36).slice(2, 14)}-${Math.random().toString(36).slice(2, 10)}`;
+        const trenchesUrl = new URL("https://openapi.gmgn.ai/v1/trenches");
+        trenchesUrl.searchParams.set("timestamp", String(timestampSecs));
+        trenchesUrl.searchParams.set("client_id", clientId);
+
+        const resp = await fetch(trenchesUrl.toString(), {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -199,7 +206,14 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
         }
 
         if (!resp.ok) {
-          recordError("gmgn", "http", `completed feed: HTTP ${resp.status}`, null);
+          let bodySnippet = "";
+          try {
+            const bodyText = await resp.text();
+            bodySnippet = bodyText.slice(0, 200).replace(/\n/g, " ").trim();
+          } catch {
+            // ignore
+          }
+          recordError("gmgn", "http", `completed feed: HTTP ${resp.status} ${bodySnippet}`, null);
           result.errors++;
           return result;
         }
