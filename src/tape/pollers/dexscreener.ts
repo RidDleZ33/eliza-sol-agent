@@ -10,6 +10,7 @@ import { shouldRecordFirstSeen, recordDiscoveryEvent, shouldRecordTrendingEnter 
 import { getDb } from "../db";
 import { SCHEMA_VERSION } from "../schema";
 import { appendTickToJsonl } from "../jsonl";
+import { getGmgnApiKey } from "../../utils/env";
 
 const DS_BASE = "https://api.dexscreener.com";
 const KEEPALIVE_MS = 6 * 60 * 60 * 1000; // 6 hours
@@ -167,47 +168,81 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
     result.errors++;
   }
 
-  // Step 5: PumpSwap migrations (Phase 17A)
+  // Step 5: PumpSwap migrations from GMGN (Phase 17C)
   if (migrationsEnabled()) {
     try {
-      const searchUrl = `${DS_BASE}/latest/dex/search?q=pumpswap`;
-      const searchResp = await fetch(searchUrl);
-      if (!searchResp.ok) {
-        recordError("dexscreener", "http", `migrations search: HTTP ${searchResp.status}`, null);
-        result.errors++;
+      const gmgnApiKey = getGmgnApiKey();
+      if (!gmgnApiKey) {
+        console.log("[tape] GMGN key missing, skipping migrations");
       } else {
-        const searchData = await searchResp.json();
-        let pairs: any[] = [];
-        if (searchData?.pairs && Array.isArray(searchData.pairs)) {
-          pairs = searchData.pairs;
-        }
-
         const now = Date.now();
         const newMigrationMints: string[] = [];
 
-        for (const pair of pairs) {
+        const resp = await fetch("https://openapi.gmgn.ai/v1/trenches", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-APIKEY": gmgnApiKey,
+          },
+          body: JSON.stringify({ chain: "sol", type: "completed", platform: "pump.fun", limit: 50 }),
+        });
+
+        if (resp.status === 429) {
+          recordError("gmgn", "rate_limit", "429 on completed feed", null);
+          result.errors++;
+          return result;
+        }
+
+        if (!resp.ok) {
+          recordError("gmgn", "http", `completed feed: HTTP ${resp.status}`, null);
+          result.errors++;
+          return result;
+        }
+
+        let body: any;
+        try {
+          body = await resp.json();
+        } catch (err: any) {
+          recordError("gmgn", "parse", `completed feed parse: ${err.message}`, null);
+          result.errors++;
+          return result;
+        }
+
+        const list = body?.data?.completed;
+        if (!Array.isArray(list)) {
+          recordError("gmgn", "parse", "completed feed: no data.completed array", null);
+          result.errors++;
+          return result;
+        }
+
+        const MAX_AGE_MS = 6 * 60 * 60 * 1000;
+
+        for (const item of list) {
           if (newMigrationMints.length >= MIGRATIONS_MAX_PER_POLL) break;
 
-          if (pair.chainId !== "solana") continue;
-          if (pair.dexId !== "pumpswap") continue;
-
-          // Check pair age (within last 30 minutes)
-          const pairAge = now - (pair.pairCreatedAt || 0);
-          if (pairAge > MIGRATIONS_MAX_AGE_MS) continue;
-
-          const mint = pair.baseToken?.address;
+          const mint = item?.address;
           if (!mint) continue;
 
-          // Check if already in migrations table
+          // Clock: complete_timestamp if present, else open_timestamp (both unix seconds)
+          let migrateTs: number | null = null;
+          if (typeof item.complete_timestamp === "number") {
+            migrateTs = item.complete_timestamp * 1000;
+          } else if (typeof item.open_timestamp === "number") {
+            migrateTs = item.open_timestamp * 1000;
+          } else {
+            continue;
+          }
+
+          if (now - migrateTs > MAX_AGE_MS) continue;
+
           try {
             const existing = db.prepare("SELECT mint FROM migrations WHERE mint = ?").get(mint);
             if (existing) continue;
           } catch (e: any) {
-            recordError("dexscreener", "db", `migrations check: ${e.message}`, JSON.stringify({ mint }));
+            recordError("gmgn", "db", `migrations check: ${e.message}`, JSON.stringify({ mint }));
             continue;
           }
 
-          // Insert into migrations table
           try {
             const migrationStmt = db.prepare(`
               INSERT INTO migrations (
@@ -218,34 +253,32 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
             `);
             migrationStmt.run(
               mint,
-              pair.pairAddress,
-              pair.dexId,
-              pair.quoteToken?.address || null,
+              item.pair_address || null,
+              "pumpswap",
+              null,
               new Date(now).toISOString(),
               now,
-              pair.pairCreatedAt || null,
-              pair.priceUsd || null,
-              pair.liquidity?.usd || null,
-              pair.marketCap || null,
-              pair.fdv || null,
-              typeof pair.txns?.m5?.buys === "number" ? pair.txns.m5.buys : null,
-              typeof pair.txns?.m5?.sells === "number" ? pair.txns.m5.sells : null,
-              typeof pair.volume?.m5 === "number" ? pair.volume.m5 : null,
-              JSON.stringify(pair)
+              migrateTs,
+              null,
+              item.liq ? parseFloat(item.liq) : null,
+              item.mcap ? parseFloat(item.mcap) : null,
+              null,
+              null,
+              null,
+              null,
+              JSON.stringify(item)
             );
           } catch (e: any) {
-            recordError("dexscreener", "db", `migrations insert: ${e.message}`, JSON.stringify({ mint }));
+            recordError("gmgn", "db", `migrations insert: ${e.message}`, JSON.stringify({ mint }));
             continue;
           }
 
-          // Add to keepalive if not already present so tick gets written
           if (!keepaliveMints.has(mint)) {
             keepaliveMints.set(mint, now);
           }
           newMigrationMints.push(mint);
         }
 
-        // Poll the new migration mints (triggers tick writes)
         if (newMigrationMints.length > 0) {
           console.log(`[tape] found ${newMigrationMints.length} pumpswap migrations`);
           for (let i = 0; i < newMigrationMints.length; i += 15) {
@@ -255,7 +288,7 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
         }
       }
     } catch (err: any) {
-      recordError("dexscreener", "http", `migrations error: ${err.message}`, null);
+      recordError("gmgn", "http", `completed feed error: ${err.message}`, null);
       result.errors++;
     }
   }
