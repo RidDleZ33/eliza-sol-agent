@@ -32,6 +32,8 @@ interface PollerResult {
 // Mints we've seen on any board recently — used to continue ticking after leaving
 const keepaliveMints = new Map<string, number>(); // mint -> last board sighting ms
 
+let gmgnKeyLogged = false;
+
 export async function pollDexScreener(runId: number): Promise<PollerResult> {
   const db = getDb();
   const result: PollerResult = { ticks: 0, firstSeen: 0, trending: 0, errors: 0 };
@@ -173,7 +175,10 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
     try {
       const gmgnApiKey = getGmgnApiKey();
       if (!gmgnApiKey) {
-        console.log("[tape] GMGN key missing, skipping migrations");
+        if (!gmgnKeyLogged) {
+          console.log("[tape] GMGN key missing, skipping migrations");
+          gmgnKeyLogged = true;
+        }
       } else {
         const now = Date.now();
         const newMigrationMints: string[] = [];
@@ -184,7 +189,7 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
             "Content-Type": "application/json",
             "X-APIKEY": gmgnApiKey,
           },
-          body: JSON.stringify({ chain: "sol", type: "completed", platform: "pump.fun", limit: 50 }),
+          body: JSON.stringify({ chain: "sol", type: ["completed"], launchpad_platform: ["Pump.fun"], limit: 50 }),
         });
 
         if (resp.status === 429) {
@@ -260,8 +265,8 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
               now,
               migrateTs,
               null,
-              item.liq ? parseFloat(item.liq) : null,
-              item.mcap ? parseFloat(item.mcap) : null,
+              item.liquidity ? parseFloat(item.liquidity) : null,
+              item.usd_market_cap ? parseFloat(item.usd_market_cap) : null,
               null,
               null,
               null,
