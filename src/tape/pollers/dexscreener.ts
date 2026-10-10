@@ -189,6 +189,7 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
         const trenchesUrl = new URL("https://openapi.gmgn.ai/v1/trenches");
         trenchesUrl.searchParams.set("timestamp", String(timestampSecs));
         trenchesUrl.searchParams.set("client_id", clientId);
+        trenchesUrl.searchParams.set("chain", "sol");
 
         const resp = await fetch(trenchesUrl.toString(), {
           method: "POST",
@@ -213,7 +214,9 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
           } catch {
             // ignore
           }
-          recordError("gmgn", "http", `completed feed: HTTP ${resp.status} ${bodySnippet}`, null);
+          const errMsg = `completed feed: HTTP ${resp.status} ${bodySnippet}`;
+          console.log(`[tape] ${errMsg}`);
+          recordError("gmgn", "http", errMsg, null);
           result.errors++;
           return result;
         }
