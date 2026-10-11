@@ -335,7 +335,7 @@ async function pollTokenBatch(
   const db = getDb();
   try {
     const url = `${DS_BASE}/latest/dex/tokens/${mints.join(",")}`;
-    console.log(`[tape] polling ${mints.length} tokens: ${url.substring(0, 80)}...`);
+
     const resp = await fetch(url);
 
     if (resp.status === 429) {

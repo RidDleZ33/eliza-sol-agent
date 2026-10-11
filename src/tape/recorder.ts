@@ -157,9 +157,11 @@ async function start() {
 
   initJsonl();
 
+  const migrationsOn = process.env.TAPE_MIGRATIONS === "1" || process.env.TAPE_MIGRATIONS === "true";
   console.log(
     `[tape] schema_version=${SCHEMA_VERSION} db=${todayPath} journal=${actualJournalMode} ` +
-    `jsonl=${isJsonlEnabled() ? "on" : "off"} poll_ms=${pollMs} retain_days=${RETAIN_DAYS}`
+    `jsonl=${isJsonlEnabled() ? "on" : "off"} poll_ms=${pollMs} retain_days=${RETAIN_DAYS} ` +
+    `migrations=${migrationsOn ? "on" : "off"}`
   );
 
   // Register ingest run

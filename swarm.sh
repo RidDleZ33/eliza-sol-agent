@@ -7,6 +7,12 @@ LOG_FILE="/home/user/eliza-sol-agent/swarm.log"
 SWARM_DIR="/home/user/eliza-sol-agent"
 BUN="/home/user/.bun/bin/bun"
 
+rotate_log() {
+    if [ -f "$LOG_FILE" ] && [ $(stat -c%s "$LOG_FILE" 2>/dev/null || echo 0) -gt 1048576 ]; then
+        mv -f "$LOG_FILE" "${LOG_FILE}.1"
+    fi
+}
+
 get_pid() {
     if [ -f "$PID_FILE" ]; then
         local pid=$(cat "$PID_FILE")
@@ -25,6 +31,7 @@ start_swarm() {
     fi
 
     echo "Starting swarm..."
+    rotate_log
     cd "$SWARM_DIR"
     $BUN run src/index.ts >> "$LOG_FILE" 2>&1 < /dev/null &
     local pid=$!
