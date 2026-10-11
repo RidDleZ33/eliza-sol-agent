@@ -32,8 +32,6 @@ interface PollerResult {
 // Mints we've seen on any board recently — used to continue ticking after leaving
 const keepaliveMints = new Map<string, number>(); // mint -> last board sighting ms
 
-let gmgnKeyLogged = false;
-
 export async function pollDexScreener(runId: number): Promise<PollerResult> {
   const db = getDb();
   const result: PollerResult = { ticks: 0, firstSeen: 0, trending: 0, errors: 0 };
@@ -171,20 +169,18 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
   }
 
   // Step 5: PumpSwap migrations from GMGN (Phase 17C)
-  if (migrationsEnabled()) {
-    try {
-      const gmgnApiKey = getGmgnApiKey();
-      if (!gmgnApiKey) {
-        if (!gmgnKeyLogged) {
-          console.log("[tape] GMGN key missing, skipping migrations");
-          gmgnKeyLogged = true;
-        }
-      } else {
+  if (!migrationsEnabled()) {
+    console.log("[tape] migrations off");
+  } else {
+    const gmgnApiKey = getGmgnApiKey();
+    if (!gmgnApiKey) {
+      console.log("[tape] migrations key missing");
+    } else {
+      try {
         const now = Date.now();
         const newMigrationMints: string[] = [];
 
-        const nowMs = Date.now();
-        const timestampSecs = Math.floor(nowMs / 1000);
+        const timestampSecs = Math.floor(now / 1000);
         const clientId = `${Math.random().toString(36).slice(2, 14)}-${Math.random().toString(36).slice(2, 10)}`;
         const trenchesUrl = new URL("https://openapi.gmgn.ai/v1/trenches");
         trenchesUrl.searchParams.set("timestamp", String(timestampSecs));
@@ -197,7 +193,16 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
             "Content-Type": "application/json",
             "X-APIKEY": gmgnApiKey,
           },
-          body: JSON.stringify({ chain: "sol", type: ["completed"], launchpad_platform: ["Pump.fun"], limit: 50 }),
+          body: JSON.stringify({
+            version: "v2",
+            completed: {
+              filters: ["offchain", "onchain"],
+              launchpad_platform_v2: true,
+              launchpad_platform: ["Pump.fun"],
+              quote_address_type: [4, 5, 3, 1, 13, 0],
+              limit: 50,
+            },
+          }),
         });
 
         if (resp.status === 429) {
@@ -231,9 +236,11 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
         }
 
         const list = body?.data?.completed;
+        const candidates = Array.isArray(list) ? list.length : 0;
         if (!Array.isArray(list)) {
           recordError("gmgn", "parse", "completed feed: no data.completed array", null);
           result.errors++;
+          console.log(`[tape] migrations candidates=${candidates} new=0`);
           return result;
         }
 
@@ -301,17 +308,18 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
           newMigrationMints.push(mint);
         }
 
+        console.log(`[tape] migrations candidates=${candidates} new=${newMigrationMints.length}`);
+
         if (newMigrationMints.length > 0) {
-          console.log(`[tape] found ${newMigrationMints.length} pumpswap migrations`);
           for (let i = 0; i < newMigrationMints.length; i += 15) {
             const batch = newMigrationMints.slice(i, i + 15);
             await pollTokenBatch(runId, batch, result, false);
           }
         }
+      } catch (err: any) {
+        recordError("gmgn", "http", `completed feed error: ${err.message}`, null);
+        result.errors++;
       }
-    } catch (err: any) {
-      recordError("gmgn", "http", `completed feed error: ${err.message}`, null);
-      result.errors++;
     }
   }
 
