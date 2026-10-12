@@ -20,6 +20,9 @@ interface PendingItem {
   mint: string;
   symbol: string;
   completeTimestamp: number;
+  top10Rate?: number;
+  creatorStatus?: string;
+  liquidity?: number;
 }
 
 export class MigrationEdgeWatcher implements IngestionWatcher {
@@ -56,7 +59,7 @@ export class MigrationEdgeWatcher implements IngestionWatcher {
       logger.debug("INGESTION", this.name, "Polling");
 
       // Re-check items that were too early last poll.
-      this.recheckPending();
+      await this.recheckPending();
 
       const gmgnApiKey = getGmgnApiKey();
       if (!gmgnApiKey) {
@@ -142,9 +145,18 @@ export class MigrationEdgeWatcher implements IngestionWatcher {
         const completeMs = item.complete_timestamp * 1000;
         const elapsed = now - completeMs;
         if (elapsed < COOLDOWN_MS) {
-          // Too early; remember for next poll.
+          // Too early; store item for re-evaluation after cool-off.
           const symbol = item.symbol || mint.slice(0, 6);
-          this.pending.set(mint, { mint, symbol, completeTimestamp: completeMs });
+          let liq = typeof item.liquidity === "number" ? item.liquidity : parseFloat(item.liquidity);
+          if (isNaN(liq)) liq = undefined;
+          this.pending.set(mint, {
+            mint,
+            symbol,
+            completeTimestamp: completeMs,
+            top10Rate: typeof item.top_10_holder_rate === "number" ? item.top_10_holder_rate : undefined,
+            creatorStatus: item.creator_token_status,
+            liquidity: liq,
+          });
           logger.info("INGESTION", this.name, "skip", { mint, reason: "cooloff", elapsedSec: Math.floor(elapsed / 1000) });
           continue;
         }
@@ -184,15 +196,43 @@ export class MigrationEdgeWatcher implements IngestionWatcher {
     }
   }
 
-  private recheckPending() {
+  private async recheckPending() {
     const now = Date.now();
     const toDrop: string[] = [];
 
     for (const [mint, item] of this.pending.entries()) {
       if (now - item.completeTimestamp < COOLDOWN_MS) continue;
-      // Cool-off passed; remove from pending so the live poll can re-evaluate it.
+
+      // Cool-off passed; evaluate stored item through same filters.
+      // Missing top10 is a skip — do not treat as pass.
+      if (item.top10Rate === undefined) {
+        logger.info("INGESTION", this.name, "skip", { mint, reason: "no_top10" });
+        toDrop.push(mint);
+        continue;
+      }
+      if (item.top10Rate >= TOP10_MAX) {
+        logger.info("INGESTION", this.name, "skip", { mint, reason: "top10", rate: item.top10Rate });
+        toDrop.push(mint);
+        continue;
+      }
+      if (item.creatorStatus !== "creator_close") {
+        logger.info("INGESTION", this.name, "skip", { mint, reason: "creator_status", status: item.creatorStatus });
+        toDrop.push(mint);
+        continue;
+      }
+      if (item.liquidity === undefined || item.liquidity < MIN_LIQUIDITY) {
+        logger.info("INGESTION", this.name, "skip", { mint, reason: "thin_liq", liq: item.liquidity });
+        toDrop.push(mint);
+        continue;
+      }
+
+      // Filter passed.
+      const ok = await watchlistService.addDiscoveredToken(mint, item.symbol, 0, SOURCE);
+      if (ok) {
+        logger.info("INGESTION", this.name, "insert", { mint, symbol: item.symbol, liq: item.liquidity, top10: item.top10Rate });
+        this.maybePaperBuy(mint, item.symbol);
+      }
       toDrop.push(mint);
-      logger.debug("INGESTION", this.name, "Cool-off passed, will re-evaluate", { mint });
     }
 
     for (const mint of toDrop) {
