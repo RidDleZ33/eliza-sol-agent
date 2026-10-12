@@ -405,6 +405,8 @@ function main() {
   const mintData: {
     mint: string;
     rawJson: string | null;
+    entryLiq: number | null;
+    entryBuySell: number | null;
     results: Record<string, PolicyResult>;
   }[] = [];
 
@@ -435,7 +437,8 @@ function main() {
       }
     }
 
-    mintData.push({ mint, rawJson: clockInfo.rawJson, results });
+    const entryBuySell = entry.tx_5m_sells > 0 ? entry.tx_5m_buys / entry.tx_5m_sells : null;
+    mintData.push({ mint, rawJson: clockInfo.rawJson, entryLiq: entry.liq_usd, entryBuySell, results });
   }
 
   console.log(`\nScored: ${scored}`);
@@ -490,17 +493,14 @@ function main() {
       const buckets: Record<string, { returns: number[]; hits: number }> = {};
 
       for (const md of mintData) {
-        const parsed = parseMigration(md.rawJson);
-        if (!parsed) continue;
-
         let value: any;
-        if (field === "buySell") {
-          if (parsed.tx_5m_sells > 0) {
-            value = parsed.tx_5m_buys / parsed.tx_5m_sells;
-          } else {
-            continue;
-          }
+        if (field === "liq_usd") {
+          value = md.entryLiq;
+        } else if (field === "buySell") {
+          value = md.entryBuySell;
         } else {
+          const parsed = parseMigration(md.rawJson);
+          if (!parsed) continue;
           value = parsed[field];
         }
 
@@ -541,6 +541,64 @@ function main() {
         }
       }
     }
+  }
+
+  // Cross section: pairs of strong buckets on flat30 only
+  console.log("\n=== Cross buckets (flat30 only) ===");
+  const flags = [
+    { name: "holders500", test: (md: typeof mintData[0]) => {
+      const parsed = parseMigration(md.rawJson);
+      return parsed && parsed.holder_count >= 500;
+    } },
+    { name: "grad5to30", test: (md: typeof mintData[0]) => {
+      const parsed = parseMigration(md.rawJson);
+      return parsed && parsed.complete_cost_time >= 300 && parsed.complete_cost_time < 1800;
+    } },
+    { name: "top10low", test: (md: typeof mintData[0]) => {
+      const parsed = parseMigration(md.rawJson);
+      return parsed && parsed.top_10_holder_rate < 0.2;
+    } },
+    { name: "creatorOut", test: (md: typeof mintData[0]) => {
+      const parsed = parseMigration(md.rawJson);
+      return parsed && parsed.creator_token_status === "creator_close";
+    } },
+    { name: "bundlerMid", test: (md: typeof mintData[0]) => {
+      const parsed = parseMigration(md.rawJson);
+      return parsed && parsed.bundler_trader_amount_rate >= 0.1 && parsed.bundler_trader_amount_rate < 0.3;
+    } },
+    { name: "smart1", test: (md: typeof mintData[0]) => {
+      const parsed = parseMigration(md.rawJson);
+      return parsed && parsed.smart_degen_count >= 1;
+    } },
+  ];
+
+  let bestCross = null;
+  for (let i = 0; i < flags.length; i++) {
+    for (let j = i + 1; j < flags.length; j++) {
+      const returns: number[] = [];
+      let hits = 0;
+      for (const md of mintData) {
+        if (flags[i].test(md) && flags[j].test(md)) {
+          returns.push(md.results["flat30"].return);
+          if (md.results["flat30"].hit) {
+            hits++;
+          }
+        }
+      }
+      if (returns.length < 30) continue;
+      const med = median(returns);
+      const avg = returns.reduce((a, b) => a + b, 0) / returns.length;
+      const hitRate = (hits / returns.length) * 100;
+      console.log(`${flags[i].name} x ${flags[j].name}: n=${returns.length} hit=${hitRate.toFixed(1)}% median=${(med * 100).toFixed(1)}%`);
+      if (!bestCross || med > bestCross.median) {
+        bestCross = { name: `${flags[i].name} x ${flags[j].name}`, n: returns.length, median: med };
+      }
+    }
+  }
+  if (bestCross) {
+    console.log(`best cross: ${bestCross.name} n=${bestCross.n} median=${(bestCross.median * 100).toFixed(1)}%`);
+  } else {
+    console.log("best cross: none");
   }
 
   // Best flat30 bucket summary
