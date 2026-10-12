@@ -73,6 +73,7 @@ export interface PositionMetric {
   trailing_tier: string;
   entered_at: string;
   buy_tx_signature: string;
+  source: string | null;
 }
 
 export interface DashboardMetrics {
@@ -1113,6 +1114,21 @@ class WatchlistService {
     for (const pos of openPositions) {
       totalSolDeployed += pos.amount_sol || 0;
 
+      // Phase 18C: resolve source for this position
+      let source: string | null = null;
+      if (pos.added_by_agent) {
+        source = pos.added_by_agent;
+      } else {
+        try {
+          const wrow = this.db
+            .prepare("SELECT added_by_agent FROM watched_tokens WHERE mint_address = ?")
+            .get(pos.mint_address);
+          if (wrow) source = wrow.added_by_agent;
+        } catch (_) {
+          // ignore lookup failure
+        }
+      }
+
       // Use cached current price from position updates
       let currentPrice = pos.current_price_usd || pos.entry_price_usd || 0;
 
@@ -1155,6 +1171,7 @@ class WatchlistService {
         trailing_tier: trailingTier,
         entered_at: pos.entered_at,
         buy_tx_signature: pos.buy_tx_signature || "N/A",
+        source: source,
       });
     }
 

@@ -1,4 +1,18 @@
 import type { DashboardMetrics } from "../services/WatchlistService.ts";
+import { getExitClockSec, getClockSecMigEdge } from "./env.ts";
+
+function formatClock(clockSec: number, enteredAt: string): string {
+  if (clockSec === 0) return "off";
+  const ageMs = Date.now() - new Date(enteredAt).getTime();
+  const ageSec = ageMs / 1000;
+  const leftSec = Math.floor(Math.max(0, clockSec - ageSec));
+  if (clockSec >= 60) {
+    const clockMin = Math.floor(clockSec / 60);
+    const leftMin = Math.floor(leftSec / 60);
+    return `${clockMin}m left ${leftMin}m`;
+  }
+  return `${clockSec}s left ${leftSec}s`;
+}
 
 /**
  * Escape user/market strings for Telegram HTML.
@@ -48,7 +62,17 @@ export class TelegramDashboardFormatter {
         html += `  • <b>Peak High $:</b> <code>$${pos.peak_price_usd.toFixed(6)}</code>\n`;
         html += `  • <b>PnL:</b> ${posPnlEmoji} <b>${pos.unrealized_pnl_pct >= 0 ? '+' : ''}${pos.unrealized_pnl_pct.toFixed(2)}%</b> (<code>${pos.unrealized_pnl_sol >= 0 ? '+' : ''}${pos.unrealized_pnl_sol.toFixed(4)} SOL</code>)\n`;
         html += `  • <b>Trailing SL:</b> <code>$${pos.trailing_stop_level_usd.toFixed(6)}</code>\n`;
-        html += `  • <b>Tier:</b> <code>${escapeHtml(pos.trailing_tier)}</code>\n\n`;
+        html += `  • <b>Tier:</b> <code>${escapeHtml(pos.trailing_tier)}</code>\n`;
+
+        const source = pos.source ?? "unknown";
+        const globalClockSec = getExitClockSec();
+        let exitClockSec = globalClockSec;
+        if (source === "mig_edge") {
+          const migOverride = getClockSecMigEdge();
+          if (migOverride !== null) exitClockSec = migOverride;
+        }
+        html += `  • <b>Source:</b> <code>${escapeHtml(source)}</code>\n`;
+        html += `  • <b>Clock:</b> <code>${formatClock(exitClockSec, pos.entered_at)}</code>\n\n`;
       });
     }
 
