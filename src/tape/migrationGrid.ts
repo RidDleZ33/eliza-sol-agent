@@ -407,6 +407,7 @@ function main() {
     rawJson: string | null;
     entryLiq: number | null;
     entryBuySell: number | null;
+    runner: number;
     results: Record<string, PolicyResult>;
   }[] = [];
 
@@ -438,7 +439,12 @@ function main() {
     }
 
     const entryBuySell = entry.tx_5m_sells > 0 ? entry.tx_5m_buys / entry.tx_5m_sells : null;
-    mintData.push({ mint, rawJson: clockInfo.rawJson, entryLiq: entry.liq_usd, entryBuySell, results });
+    let peak = entryPrice;
+    for (const t of ticks) {
+      if (t.price_usd > peak) peak = t.price_usd;
+    }
+    const runner = peak / entryPrice - 1;
+    mintData.push({ mint, rawJson: clockInfo.rawJson, entryLiq: entry.liq_usd, entryBuySell, runner, results });
   }
 
   console.log(`\nScored: ${scored}`);
@@ -461,6 +467,15 @@ function main() {
       console.log(`${p.name}: n=${pr.returns.length} hit=${hitRate.toFixed(1)}% median=${(med * 100).toFixed(1)}% avg=${(avg * 100).toFixed(1)}%`);
     }
   }
+
+  // Runner counts
+  let r2 = 0, r10 = 0, r20 = 0;
+  for (const md of mintData) {
+    if (md.runner >= 2) r2++;
+    if (md.runner >= 10) r10++;
+    if (md.runner >= 20) r20++;
+  }
+  console.log(`runners: +200%=${r2} +1000%=${r10} +2000%=${r20} of n=${mintData.length}`);
 
   // Bucketed breakdowns per policy
   const bucketFields = [
@@ -577,19 +592,23 @@ function main() {
     for (let j = i + 1; j < flags.length; j++) {
       const returns: number[] = [];
       let hits = 0;
+      let pair2 = 0, pair10 = 0, pair20 = 0;
       for (const md of mintData) {
         if (flags[i].test(md) && flags[j].test(md)) {
           returns.push(md.results["flat30"].return);
           if (md.results["flat30"].hit) {
             hits++;
           }
+          if (md.runner >= 2) pair2++;
+          if (md.runner >= 10) pair10++;
+          if (md.runner >= 20) pair20++;
         }
       }
       if (returns.length < 30) continue;
       const med = median(returns);
       const avg = returns.reduce((a, b) => a + b, 0) / returns.length;
       const hitRate = (hits / returns.length) * 100;
-      console.log(`${flags[i].name} x ${flags[j].name}: n=${returns.length} hit=${hitRate.toFixed(1)}% median=${(med * 100).toFixed(1)}%`);
+      console.log(`${flags[i].name} x ${flags[j].name}: n=${returns.length} hit=${hitRate.toFixed(1)}% median=${(med * 100).toFixed(1)}% runners: +200%=${pair2} +1000%=${pair10} +2000%=${pair20}`);
       if (!bestCross || med > bestCross.median) {
         bestCross = { name: `${flags[i].name} x ${flags[j].name}`, n: returns.length, median: med };
       }
