@@ -92,6 +92,63 @@ interface Tick {
   tx_5m_sells: number;
 }
 
+function getRunnerForMint(mint: string, clockMs: number): number | null {
+  if (!existsSync(TAPE_DIR)) return null;
+
+  const files = readdirSync(TAPE_DIR);
+  let entryTick: Tick | null = null;
+  let entryObserved = Infinity;
+  let peak = 0;
+
+  for (const f of files) {
+    if (f === "tape.sqlite") continue;
+    const datePart = dateFromFilename(f);
+    if (!datePart) continue;
+
+    const path = `${TAPE_DIR}/${f}`;
+    let db: Database;
+    try {
+      db = openReadOnly(path);
+    } catch {
+      continue;
+    }
+
+    const entryAfterMs = clockMs + 5 * 60 * 1000;
+
+    const potentialEntries: Tick[] = db
+      .prepare(
+        "SELECT mint, price_usd, observed_at_ms, liq_usd, tx_5m_buys, tx_5m_sells FROM market_ticks WHERE mint=? AND observed_at_ms >= ? ORDER BY observed_at_ms ASC LIMIT 1"
+      )
+      .all(mint, entryAfterMs);
+
+    if (potentialEntries.length > 0) {
+      const candidate = potentialEntries[0];
+      if (candidate.price_usd > 0 && candidate.observed_at_ms < entryObserved) {
+        entryObserved = candidate.observed_at_ms;
+        entryTick = candidate;
+      }
+    }
+
+    if (entryTick !== null) {
+      const sixHourEnd = entryTick.observed_at_ms + 6 * 60 * 60 * 1000;
+      const ticks: Tick[] = db
+        .prepare(
+          "SELECT mint, price_usd, observed_at_ms, liq_usd, tx_5m_buys, tx_5m_sells FROM market_ticks WHERE mint=? AND observed_at_ms > ? AND observed_at_ms <= ? ORDER BY observed_at_ms ASC"
+        )
+        .all(mint, entryAfterMs, sixHourEnd);
+
+      for (const t of ticks) {
+        if (t.price_usd > peak) peak = t.price_usd;
+      }
+    }
+
+    db.close();
+  }
+
+  if (entryTick === null) return null;
+  return peak / entryTick.price_usd - 1;
+}
+
 function getTicksForMint(mint: string, clockMs: number) {
   if (!existsSync(TAPE_DIR)) {
     return { entry: null as Tick | null, ticks: [] as Tick[] };
@@ -439,11 +496,7 @@ function main() {
     }
 
     const entryBuySell = entry.tx_5m_sells > 0 ? entry.tx_5m_buys / entry.tx_5m_sells : null;
-    let peak = entryPrice;
-    for (const t of ticks) {
-      if (t.price_usd > peak) peak = t.price_usd;
-    }
-    const runner = peak / entryPrice - 1;
+    const runner = getRunnerForMint(mint, clockInfo.clockMs) ?? 0;
     mintData.push({ mint, rawJson: clockInfo.rawJson, entryLiq: entry.liq_usd, entryBuySell, runner, results });
   }
 
@@ -475,7 +528,7 @@ function main() {
     if (md.runner >= 10) r10++;
     if (md.runner >= 20) r20++;
   }
-  console.log(`runners: +200%=${r2} +1000%=${r10} +2000%=${r20} of n=${mintData.length}`);
+  console.log(`runners 6h: +200%=${r2} +1000%=${r10} +2000%=${r20} of n=${mintData.length}`);
 
   // Bucketed breakdowns per policy
   const bucketFields = [
@@ -608,7 +661,7 @@ function main() {
       const med = median(returns);
       const avg = returns.reduce((a, b) => a + b, 0) / returns.length;
       const hitRate = (hits / returns.length) * 100;
-      console.log(`${flags[i].name} x ${flags[j].name}: n=${returns.length} hit=${hitRate.toFixed(1)}% median=${(med * 100).toFixed(1)}% runners: +200%=${pair2} +1000%=${pair10} +2000%=${pair20}`);
+      console.log(`${flags[i].name} x ${flags[j].name}: n=${returns.length} hit=${hitRate.toFixed(1)}% median=${(med * 100).toFixed(1)}% runners 6h: +200%=${pair2} +1000%=${pair10} +2000%=${pair20}`);
       if (!bestCross || med > bestCross.median) {
         bestCross = { name: `${flags[i].name} x ${flags[j].name}`, n: returns.length, median: med };
       }
