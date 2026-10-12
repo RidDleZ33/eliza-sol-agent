@@ -925,6 +925,115 @@ function main() {
   } else {
     console.log("best trail: none found with n>=30");
   }
+
+  // Rug vs TP: which entry fields belong to names that hit +30% before -50%?
+  console.log("\n=== Rug vs TP ===");
+
+  const rugTpData: {
+    mint: string;
+    rawJson: string | null;
+    entryLiq: number | null;
+    entryBuySell: number | null;
+    outcome: "tp_first" | "rug_first" | "neither";
+  }[] = [];
+
+  for (const md of mintData) {
+    const clockInfo = clocks.get(md.mint);
+    if (!clockInfo) continue;
+    const six = getSixHourTicks(md.mint, clockInfo.clockMs);
+    if (six.entry === null || six.ticks.length === 0) continue;
+
+    const entryPrice = six.entry.price_usd;
+    let tp: Tick | null = null;
+    let rug: Tick | null = null;
+
+    for (const t of six.ticks) {
+      if (tp === null && t.price_usd >= entryPrice * 1.3) {
+        tp = t;
+      }
+      if (rug === null && t.price_usd <= entryPrice * 0.5) {
+        rug = t;
+      }
+      if (tp !== null && rug !== null) break;
+    }
+
+    let outcome: "tp_first" | "rug_first" | "neither";
+    if (tp !== null && (rug === null || tp.observed_at_ms <= rug.observed_at_ms)) {
+      outcome = "tp_first";
+    } else if (rug !== null) {
+      outcome = "rug_first";
+    } else {
+      outcome = "neither";
+    }
+
+    rugTpData.push({
+      mint: md.mint,
+      rawJson: md.rawJson,
+      entryLiq: md.entryLiq,
+      entryBuySell: md.entryBuySell,
+      outcome,
+    });
+  }
+
+  let tpFirstCount = 0;
+  let rugFirstCount = 0;
+  let neitherCount = 0;
+  for (const rt of rugTpData) {
+    if (rt.outcome === "tp_first") tpFirstCount++;
+    else if (rt.outcome === "rug_first") rugFirstCount++;
+    else neitherCount++;
+  }
+  const rugN = rugTpData.length;
+  console.log(
+    `n=${rugN} tp_first=${tpFirstCount} (${((tpFirstCount / rugN) * 100).toFixed(1)}%) rug_first=${rugFirstCount} (${((rugFirstCount / rugN) * 100).toFixed(1)}%) neither=${neitherCount} (${((neitherCount / rugN) * 100).toFixed(1)}%)`
+  );
+
+  const rugTpFields = [
+    "liq_usd",
+    "top_10_holder_rate",
+    "creator_token_status",
+    "holder_count",
+    "bundler_trader_amount_rate",
+    "smart_degen_count",
+    "sniper_count",
+    "buySell",
+    "complete_cost_time",
+  ];
+
+  for (const field of rugTpFields) {
+    const buckets: Record<string, { n: number; tpFirst: number; rugFirst: number }> = {};
+
+    for (const rt of rugTpData) {
+      let value: any;
+      if (field === "liq_usd") {
+        value = rt.entryLiq;
+      } else if (field === "buySell") {
+        value = rt.entryBuySell;
+      } else {
+        const parsed = parseMigration(rt.rawJson);
+        if (!parsed) continue;
+        value = parsed[field];
+      }
+
+      if (value === undefined || value === null) continue;
+
+      const label = bucketLabel(field, value);
+      const key = `${field}:${label}`;
+      if (!buckets[key]) {
+        buckets[key] = { n: 0, tpFirst: 0, rugFirst: 0 };
+      }
+      buckets[key].n++;
+      if (rt.outcome === "tp_first") buckets[key].tpFirst++;
+      else if (rt.outcome === "rug_first") buckets[key].rugFirst++;
+    }
+
+    for (const [key, data] of Object.entries(buckets)) {
+      if (data.n < 30) continue;
+      const tpRate = (data.tpFirst / data.n) * 100;
+      const rugRate = (data.rugFirst / data.n) * 100;
+      console.log(`${key} n=${data.n} tp=${tpRate.toFixed(1)}% rug=${rugRate.toFixed(1)}%`);
+    }
+  }
 }
 
 main();
