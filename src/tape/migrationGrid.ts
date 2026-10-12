@@ -100,10 +100,8 @@ function getSixHourTicks(mint: string, clockMs: number) {
   const files = readdirSync(TAPE_DIR);
   let entryTick: Tick | null = null;
   let entryObserved = Infinity;
-  let peak = 0;
-  let peakMs = 0;
-  let allTicks: Tick[] = [];
 
+  // First pass: find earliest entry tick across all day files
   for (const f of files) {
     if (f === "tape.sqlite") continue;
     const datePart = dateFromFilename(f);
@@ -118,7 +116,6 @@ function getSixHourTicks(mint: string, clockMs: number) {
     }
 
     const entryAfterMs = clockMs + 5 * 60 * 1000;
-
     const potentialEntries: Tick[] = db
       .prepare(
         "SELECT mint, price_usd, observed_at_ms, liq_usd, tx_5m_buys, tx_5m_sells FROM market_ticks WHERE mint=? AND observed_at_ms >= ? ORDER BY observed_at_ms ASC LIMIT 1"
@@ -133,28 +130,49 @@ function getSixHourTicks(mint: string, clockMs: number) {
       }
     }
 
-    if (entryTick !== null) {
-      const sixHourEnd = entryTick.observed_at_ms + 6 * 60 * 60 * 1000;
-      const ticks: Tick[] = db
-        .prepare(
-          "SELECT mint, price_usd, observed_at_ms, liq_usd, tx_5m_buys, tx_5m_sells FROM market_ticks WHERE mint=? AND observed_at_ms > ? AND observed_at_ms <= ? ORDER BY observed_at_ms ASC"
-        )
-        .all(mint, entryAfterMs, sixHourEnd);
+    db.close();
+  }
 
-      allTicks = allTicks.concat(ticks);
+  if (entryTick === null) {
+    return { entry: null, ticks: [], peak: 0, peakMs: 0 };
+  }
+
+  // Second pass: query all day files for ticks from entry to entry + 6 hours
+  const sixHourEnd = entryTick.observed_at_ms + 6 * 60 * 60 * 1000;
+  let allTicks: Tick[] = [entryTick]; // include entry tick itself
+
+  for (const f of files) {
+    if (f === "tape.sqlite") continue;
+    const datePart = dateFromFilename(f);
+    if (!datePart) continue;
+
+    const path = `${TAPE_DIR}/${f}`;
+    let db: Database;
+    try {
+      db = openReadOnly(path);
+    } catch {
+      continue;
     }
 
+    const ticks: Tick[] = db
+      .prepare(
+        "SELECT mint, price_usd, observed_at_ms, liq_usd, tx_5m_buys, tx_5m_sells FROM market_ticks WHERE mint=? AND observed_at_ms >= ? AND observed_at_ms <= ? ORDER BY observed_at_ms ASC"
+      )
+      .all(mint, entryTick.observed_at_ms, sixHourEnd);
+
+    allTicks = allTicks.concat(ticks);
     db.close();
   }
 
   allTicks.sort((a, b) => a.observed_at_ms - b.observed_at_ms);
 
-  if (entryTick !== null) {
-    for (const t of allTicks) {
-      if (t.price_usd > peak) {
-        peak = t.price_usd;
-        peakMs = t.observed_at_ms;
-      }
+  // Find peak
+  let peak = entryTick.price_usd;
+  let peakMs = entryTick.observed_at_ms;
+  for (const t of allTicks) {
+    if (t.price_usd > peak) {
+      peak = t.price_usd;
+      peakMs = t.observed_at_ms;
     }
   }
 
@@ -643,89 +661,109 @@ function main() {
   }
   console.log(`runners 6h: +200%=${r2} +1000%=${r10} +2000%=${r20} of n=${mintData.length}`);
 
-  // Runner peak analysis: time to peak and capture rules on names with peak >= 20x
+  // Runner peak analysis: split wick from path
   console.log("\n=== Runner Peak Grid (peak >= 20x) ===");
   
-  // Time to peak stats
-  if (runners.length > 0) {
+  // Split into wick (peak within 60s of entry) vs path (peak after 60s)
+  const wicks: RunnerInfo[] = [];
+  const paths: RunnerInfo[] = [];
+  for (const r of runners) {
+    const peakLag = r.peakMs - r.entryMs;
+    if (peakLag <= 60 * 1000) {
+      wicks.push(r);
+    } else {
+      paths.push(r);
+    }
+  }
+  
+  console.log(`runners 6h: wick=${wicks.length} path=${paths.length} of n=${runners.length}`);
+  
+  // Path time-to-peak stats
+  if (paths.length > 0) {
     const times: number[] = [];
-    for (const r of runners) {
+    for (const r of paths) {
       const mins = (r.peakMs - r.entryMs) / (60 * 1000);
       times.push(mins);
     }
-    console.log(`runners n=${runners.length} time-to-peak min=${percentile(times, 0).toFixed(1)} p25=${percentile(times, 25).toFixed(1)} median=${percentile(times, 50).toFixed(1)} p75=${percentile(times, 75).toFixed(1)} max=${percentile(times, 100).toFixed(1)}`);
+    console.log(`path time-to-peak min=${percentile(times, 0).toFixed(1)} p25=${percentile(times, 25).toFixed(1)} median=${percentile(times, 50).toFixed(1)} p75=${percentile(times, 75).toFixed(1)} max=${percentile(times, 100).toFixed(1)}`);
+  } else {
+    console.log("path time-to-peak n=0");
   }
   
-  // Capture rules
-  console.log("\n--- Capture rules (exit / peak) ---");
-  
-  // Flat sells
-  const flatLevels = [1.0, 2.0, 5.0, 10.0];
-  for (const level of flatLevels) {
-    const captures: number[] = [];
-    for (const r of runners) {
-      captures.push(scoreCaptureFlat(r.ticks, r.entryPrice, level, r.peak));
-    }
-    const med = percentile(captures, 50);
-    const halfPeak = captures.filter(c => c >= 0.5).length / captures.length * 100;
-    console.log(`flat${Math.round(level * 100)}: n=${runners.length} medianCapture=${(med * 100).toFixed(1)}% halfPeak=${halfPeak.toFixed(1)}%`);
-  }
-  
-  // Trail rules
-  const trailRules = [
-    { name: "arm100-trail20", arm: 1.0, trail: 0.2 },
-    { name: "arm100-trail40", arm: 1.0, trail: 0.4 },
-    { name: "arm200-trail20", arm: 2.0, trail: 0.2 },
-    { name: "arm200-trail30", arm: 2.0, trail: 0.3 },
-    { name: "arm200-trail40", arm: 2.0, trail: 0.4 },
-    { name: "arm500-trail20", arm: 5.0, trail: 0.2 },
-    { name: "arm500-trail40", arm: 5.0, trail: 0.4 },
-  ];
-  for (const rule of trailRules) {
-    const captures: number[] = [];
-    for (const r of runners) {
-      captures.push(scoreCaptureTrail(r.ticks, r.entryPrice, rule.arm, rule.trail, r.peak));
-    }
-    const med = percentile(captures, 50);
-    const halfPeak = captures.filter(c => c >= 0.5).length / captures.length * 100;
-    console.log(`${rule.name}: n=${runners.length} medianCapture=${(med * 100).toFixed(1)}% halfPeak=${halfPeak.toFixed(1)}%`);
-  }
-  
-  // Timed from entry
-  const timedLevels = [30, 60, 120, 240];
-  for (const mins of timedLevels) {
-    const captures: number[] = [];
-    for (const r of runners) {
-      captures.push(scoreCaptureTimed(r.ticks, { observed_at_ms: r.entryMs } as Tick, mins, r.peak));
-    }
-    const med = percentile(captures, 50);
-    const halfPeak = captures.filter(c => c >= 0.5).length / captures.length * 100;
-    console.log(`time${mins}m: n=${runners.length} medianCapture=${(med * 100).toFixed(1)}% halfPeak=${halfPeak.toFixed(1)}%`);
-  }
-  
-  // Timed after arm
-  const timedArmRules = [
-    { name: "arm100-time30", arm: 1.0, mins: 30 },
-    { name: "arm100-time60", arm: 1.0, mins: 60 },
-    { name: "arm200-time30", arm: 2.0, mins: 30 },
-    { name: "arm200-time60", arm: 2.0, mins: 60 },
-  ];
-  for (const rule of timedArmRules) {
-    const captures: number[] = [];
-    let n = 0;
-    for (const r of runners) {
-      const exitTick = scoreCaptureTimedAfterArm(r.ticks, r.entryPrice, rule.arm, rule.mins);
-      if (exitTick !== null) {
-        captures.push(exitTick.price_usd / r.peak);
-        n++;
+  if (paths.length === 0) {
+    // No path names, stop here
+  } else {
+    // Capture rules on path names only
+    console.log("\n--- Capture rules on path names (exit / peak) ---");
+    
+    // Flat sells
+    const flatLevels = [1.0, 2.0, 5.0, 10.0];
+    for (const level of flatLevels) {
+      const captures: number[] = [];
+      for (const r of paths) {
+        captures.push(scoreCaptureFlat(r.ticks, r.entryPrice, level, r.peak));
       }
-    }
-    if (n > 0) {
       const med = percentile(captures, 50);
       const halfPeak = captures.filter(c => c >= 0.5).length / captures.length * 100;
-      console.log(`${rule.name}: n=${n} medianCapture=${(med * 100).toFixed(1)}% halfPeak=${halfPeak.toFixed(1)}%`);
-    } else {
-      console.log(`${rule.name}: n=0`);
+      console.log(`flat${Math.round(level * 100)}: n=${paths.length} medianCapture=${(med * 100).toFixed(1)}% halfPeak=${halfPeak.toFixed(1)}%`);
+    }
+    
+    // Trail rules
+    const trailRules = [
+      { name: "arm100-trail20", arm: 1.0, trail: 0.2 },
+      { name: "arm100-trail40", arm: 1.0, trail: 0.4 },
+      { name: "arm200-trail20", arm: 2.0, trail: 0.2 },
+      { name: "arm200-trail30", arm: 2.0, trail: 0.3 },
+      { name: "arm200-trail40", arm: 2.0, trail: 0.4 },
+      { name: "arm500-trail20", arm: 5.0, trail: 0.2 },
+      { name: "arm500-trail40", arm: 5.0, trail: 0.4 },
+    ];
+    for (const rule of trailRules) {
+      const captures: number[] = [];
+      for (const r of paths) {
+        captures.push(scoreCaptureTrail(r.ticks, r.entryPrice, rule.arm, rule.trail, r.peak));
+      }
+      const med = percentile(captures, 50);
+      const halfPeak = captures.filter(c => c >= 0.5).length / captures.length * 100;
+      console.log(`${rule.name}: n=${paths.length} medianCapture=${(med * 100).toFixed(1)}% halfPeak=${halfPeak.toFixed(1)}%`);
+    }
+    
+    // Timed from entry
+    const timedLevels = [30, 60, 120, 240];
+    for (const mins of timedLevels) {
+      const captures: number[] = [];
+      for (const r of paths) {
+        captures.push(scoreCaptureTimed(r.ticks, { observed_at_ms: r.entryMs } as Tick, mins, r.peak));
+      }
+      const med = percentile(captures, 50);
+      const halfPeak = captures.filter(c => c >= 0.5).length / captures.length * 100;
+      console.log(`time${mins}m: n=${paths.length} medianCapture=${(med * 100).toFixed(1)}% halfPeak=${halfPeak.toFixed(1)}%`);
+    }
+    
+    // Timed after arm
+    const timedArmRules = [
+      { name: "arm100-time30", arm: 1.0, mins: 30 },
+      { name: "arm100-time60", arm: 1.0, mins: 60 },
+      { name: "arm200-time30", arm: 2.0, mins: 30 },
+      { name: "arm200-time60", arm: 2.0, mins: 60 },
+    ];
+    for (const rule of timedArmRules) {
+      const captures: number[] = [];
+      let n = 0;
+      for (const r of paths) {
+        const exitTick = scoreCaptureTimedAfterArm(r.ticks, r.entryPrice, rule.arm, rule.mins);
+        if (exitTick !== null) {
+          captures.push(exitTick.price_usd / r.peak);
+          n++;
+        }
+      }
+      if (n > 0) {
+        const med = percentile(captures, 50);
+        const halfPeak = captures.filter(c => c >= 0.5).length / captures.length * 100;
+        console.log(`${rule.name}: n=${n} medianCapture=${(med * 100).toFixed(1)}% halfPeak=${halfPeak.toFixed(1)}%`);
+      } else {
+        console.log(`${rule.name}: n=0`);
+      }
     }
   }
 
