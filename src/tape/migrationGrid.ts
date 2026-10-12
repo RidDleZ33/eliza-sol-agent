@@ -92,13 +92,17 @@ interface Tick {
   tx_5m_sells: number;
 }
 
-function getRunnerForMint(mint: string, clockMs: number): number | null {
-  if (!existsSync(TAPE_DIR)) return null;
+function getSixHourTicks(mint: string, clockMs: number) {
+  if (!existsSync(TAPE_DIR)) {
+    return { entry: null as Tick | null, ticks: [] as Tick[], peak: 0, peakMs: 0 };
+  }
 
   const files = readdirSync(TAPE_DIR);
   let entryTick: Tick | null = null;
   let entryObserved = Infinity;
   let peak = 0;
+  let peakMs = 0;
+  let allTicks: Tick[] = [];
 
   for (const f of files) {
     if (f === "tape.sqlite") continue;
@@ -137,16 +141,24 @@ function getRunnerForMint(mint: string, clockMs: number): number | null {
         )
         .all(mint, entryAfterMs, sixHourEnd);
 
-      for (const t of ticks) {
-        if (t.price_usd > peak) peak = t.price_usd;
-      }
+      allTicks = allTicks.concat(ticks);
     }
 
     db.close();
   }
 
-  if (entryTick === null) return null;
-  return peak / entryTick.price_usd - 1;
+  allTicks.sort((a, b) => a.observed_at_ms - b.observed_at_ms);
+
+  if (entryTick !== null) {
+    for (const t of allTicks) {
+      if (t.price_usd > peak) {
+        peak = t.price_usd;
+        peakMs = t.observed_at_ms;
+      }
+    }
+  }
+
+  return { entry: entryTick, ticks: allTicks, peak, peakMs };
 }
 
 function getTicksForMint(mint: string, clockMs: number) {
@@ -439,6 +451,80 @@ function bucketLabel(field: string, value: any): string {
   return "unknown";
 }
 
+// Capture scoring for runner names (peak >= 20x entry)
+// Capture = exit price / 6h peak
+
+function scoreCaptureFlat(ticks: Tick[], entryPrice: number, level: number, peak: number) {
+  for (const tick of ticks) {
+    if (tick.price_usd >= entryPrice * (1 + level)) {
+      return tick.price_usd / peak;
+    }
+  }
+  // Never fired: exit at last tick
+  return ticks[ticks.length - 1].price_usd / peak;
+}
+
+function scoreCaptureTrail(ticks: Tick[], entryPrice: number, armLevel: number, trail: number, peak: number) {
+  let armed = false;
+  let trailPeak = entryPrice;
+  for (const tick of ticks) {
+    if (!armed) {
+      if (tick.price_usd >= entryPrice * (1 + armLevel)) {
+        armed = true;
+        trailPeak = tick.price_usd;
+      }
+    } else {
+      if (tick.price_usd > trailPeak) {
+        trailPeak = tick.price_usd;
+      }
+      if (tick.price_usd <= trailPeak * (1 - trail)) {
+        return tick.price_usd / peak;
+      }
+    }
+  }
+  // Never fired: exit at last tick
+  return ticks[ticks.length - 1].price_usd / peak;
+}
+
+function scoreCaptureTimed(ticks: Tick[], entryTick: Tick, minutes: number, peak: number) {
+  const clockMs = entryTick.observed_at_ms + minutes * 60 * 1000;
+  let lastBefore = ticks[0];
+  for (const tick of ticks) {
+    if (tick.observed_at_ms >= clockMs) {
+      break;
+    }
+    lastBefore = tick;
+  }
+  return lastBefore.price_usd / peak;
+}
+
+function scoreCaptureTimedAfterArm(ticks: Tick[], entryPrice: number, armLevel: number, minutes: number) {
+  const armMs = ticks.reduce((best: number, t: Tick) => {
+    if (best === 0 && t.price_usd >= entryPrice * (1 + armLevel)) {
+      return t.observed_at_ms;
+    }
+    return best;
+  }, 0);
+  
+  if (armMs === 0) return null; // never armed
+  
+  const clockMs = armMs + minutes * 60 * 1000;
+  let lastBefore = ticks[0];
+  for (const tick of ticks) {
+    if (tick.observed_at_ms >= clockMs) {
+      break;
+    }
+    lastBefore = tick;
+  }
+  return lastBefore;
+}
+
+function percentile(values: number[], p: number): number {
+  const sorted = [...values].sort((a, b) => a - b);
+  const idx = Math.floor((p / 100) * (sorted.length - 1));
+  return sorted[idx];
+}
+
 function main() {
   console.log("[migration-grid] collecting migration clocks...");
   const clocks = collectMigrationClocks();
@@ -466,7 +552,19 @@ function main() {
     entryBuySell: number | null;
     runner: number;
     results: Record<string, PolicyResult>;
+    sixHour?: any;
   }[] = [];
+
+  // Runner peak data collected during main loop
+  interface RunnerInfo {
+    entryPrice: number;
+    peak: number;
+    peakMs: number;
+    entryMs: number;
+    ticks: Tick[];
+    runner: number;
+  }
+  const runners: RunnerInfo[] = [];
 
   let i = 0;
   for (const [mint, clockInfo] of clocks.entries()) {
@@ -496,7 +594,22 @@ function main() {
     }
 
     const entryBuySell = entry.tx_5m_sells > 0 ? entry.tx_5m_buys / entry.tx_5m_sells : null;
-    const runner = getRunnerForMint(mint, clockInfo.clockMs) ?? 0;
+    // Compute 6h runner for this mint
+    const six = getSixHourTicks(mint, clockInfo.clockMs);
+    let runner = 0;
+    if (six.entry !== null && six.peak > 0) {
+      runner = six.peak / six.entry.price_usd - 1;
+      if (runner >= 20) {
+        runners.push({
+          entryPrice: six.entry.price_usd,
+          peak: six.peak,
+          peakMs: six.peakMs,
+          entryMs: six.entry.observed_at_ms,
+          ticks: six.ticks,
+          runner,
+        });
+      }
+    }
     mintData.push({ mint, rawJson: clockInfo.rawJson, entryLiq: entry.liq_usd, entryBuySell, runner, results });
   }
 
@@ -529,6 +642,92 @@ function main() {
     if (md.runner >= 20) r20++;
   }
   console.log(`runners 6h: +200%=${r2} +1000%=${r10} +2000%=${r20} of n=${mintData.length}`);
+
+  // Runner peak analysis: time to peak and capture rules on names with peak >= 20x
+  console.log("\n=== Runner Peak Grid (peak >= 20x) ===");
+  
+  // Time to peak stats
+  if (runners.length > 0) {
+    const times: number[] = [];
+    for (const r of runners) {
+      const mins = (r.peakMs - r.entryMs) / (60 * 1000);
+      times.push(mins);
+    }
+    console.log(`runners n=${runners.length} time-to-peak min=${percentile(times, 0).toFixed(1)} p25=${percentile(times, 25).toFixed(1)} median=${percentile(times, 50).toFixed(1)} p75=${percentile(times, 75).toFixed(1)} max=${percentile(times, 100).toFixed(1)}`);
+  }
+  
+  // Capture rules
+  console.log("\n--- Capture rules (exit / peak) ---");
+  
+  // Flat sells
+  const flatLevels = [1.0, 2.0, 5.0, 10.0];
+  for (const level of flatLevels) {
+    const captures: number[] = [];
+    for (const r of runners) {
+      captures.push(scoreCaptureFlat(r.ticks, r.entryPrice, level, r.peak));
+    }
+    const med = percentile(captures, 50);
+    const halfPeak = captures.filter(c => c >= 0.5).length / captures.length * 100;
+    console.log(`flat${Math.round(level * 100)}: n=${runners.length} medianCapture=${(med * 100).toFixed(1)}% halfPeak=${halfPeak.toFixed(1)}%`);
+  }
+  
+  // Trail rules
+  const trailRules = [
+    { name: "arm100-trail20", arm: 1.0, trail: 0.2 },
+    { name: "arm100-trail40", arm: 1.0, trail: 0.4 },
+    { name: "arm200-trail20", arm: 2.0, trail: 0.2 },
+    { name: "arm200-trail30", arm: 2.0, trail: 0.3 },
+    { name: "arm200-trail40", arm: 2.0, trail: 0.4 },
+    { name: "arm500-trail20", arm: 5.0, trail: 0.2 },
+    { name: "arm500-trail40", arm: 5.0, trail: 0.4 },
+  ];
+  for (const rule of trailRules) {
+    const captures: number[] = [];
+    for (const r of runners) {
+      captures.push(scoreCaptureTrail(r.ticks, r.entryPrice, rule.arm, rule.trail, r.peak));
+    }
+    const med = percentile(captures, 50);
+    const halfPeak = captures.filter(c => c >= 0.5).length / captures.length * 100;
+    console.log(`${rule.name}: n=${runners.length} medianCapture=${(med * 100).toFixed(1)}% halfPeak=${halfPeak.toFixed(1)}%`);
+  }
+  
+  // Timed from entry
+  const timedLevels = [30, 60, 120, 240];
+  for (const mins of timedLevels) {
+    const captures: number[] = [];
+    for (const r of runners) {
+      captures.push(scoreCaptureTimed(r.ticks, { observed_at_ms: r.entryMs } as Tick, mins, r.peak));
+    }
+    const med = percentile(captures, 50);
+    const halfPeak = captures.filter(c => c >= 0.5).length / captures.length * 100;
+    console.log(`time${mins}m: n=${runners.length} medianCapture=${(med * 100).toFixed(1)}% halfPeak=${halfPeak.toFixed(1)}%`);
+  }
+  
+  // Timed after arm
+  const timedArmRules = [
+    { name: "arm100-time30", arm: 1.0, mins: 30 },
+    { name: "arm100-time60", arm: 1.0, mins: 60 },
+    { name: "arm200-time30", arm: 2.0, mins: 30 },
+    { name: "arm200-time60", arm: 2.0, mins: 60 },
+  ];
+  for (const rule of timedArmRules) {
+    const captures: number[] = [];
+    let n = 0;
+    for (const r of runners) {
+      const exitTick = scoreCaptureTimedAfterArm(r.ticks, r.entryPrice, rule.arm, rule.mins);
+      if (exitTick !== null) {
+        captures.push(exitTick.price_usd / r.peak);
+        n++;
+      }
+    }
+    if (n > 0) {
+      const med = percentile(captures, 50);
+      const halfPeak = captures.filter(c => c >= 0.5).length / captures.length * 100;
+      console.log(`${rule.name}: n=${n} medianCapture=${(med * 100).toFixed(1)}% halfPeak=${halfPeak.toFixed(1)}%`);
+    } else {
+      console.log(`${rule.name}: n=0`);
+    }
+  }
 
   // Bucketed breakdowns per policy
   const bucketFields = [
