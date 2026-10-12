@@ -479,8 +479,9 @@ function main() {
     "rug_ratio",
   ];
 
-  // Track best buckets for summary
-  const bestByField: Record<string, { name: string; policy: string; n: number; median: number }> = {};
+  // Track best bucket for summary
+  let bestFlat30Bucket = null;
+  let bestTrailBucket = null;
 
   for (const policy of POLICIES) {
     console.log(`\n--- ${policy.name} buckets ---`);
@@ -532,8 +533,11 @@ function main() {
         }
 
         // Track best for summary
-        if (!bestByField[field] || med > bestByField[field].median) {
-          bestByField[field] = { name: key, policy: policy.name, n: data.returns.length, median: med };
+        if (policy.name === "flat30" && (!bestFlat30Bucket || med > bestFlat30Bucket.median)) {
+          bestFlat30Bucket = { name: key, n: data.returns.length, median: med };
+        }
+        if ((policy.name.startsWith("trail") || policy.name.startsWith("half")) && (!bestTrailBucket || med > bestTrailBucket.median)) {
+          bestTrailBucket = { name: key, n: data.returns.length, median: med };
         }
       }
     }
@@ -541,32 +545,16 @@ function main() {
 
   // Best flat30 bucket summary
   console.log("\n=== Best flat30 bucket ===");
-  let bestFlat30 = null;
-  for (const [key, data] of Object.entries(bestByField)) {
-    if (data.policy === "flat30") {
-      if (!bestFlat30 || data.median > bestFlat30.median) {
-        bestFlat30 = data;
-      }
-    }
-  }
-  if (bestFlat30) {
-    console.log(`best flat30 bucket: ${bestFlat30.name} n=${bestFlat30.n} median=${(bestFlat30.median * 100).toFixed(1)}%`);
+  if (bestFlat30Bucket) {
+    console.log(`best flat30 bucket: ${bestFlat30Bucket.name} n=${bestFlat30Bucket.n} median=${(bestFlat30Bucket.median * 100).toFixed(1)}%`);
   } else {
     console.log("best flat30 bucket: none found with n>=30");
   }
 
   // Best trail bucket summary
   console.log("\n=== Best trail bucket ===");
-  let bestTrail = null;
-  for (const [key, data] of Object.entries(bestByField)) {
-    if (data.policy.startsWith("trail") || data.policy.startsWith("half")) {
-      if (!bestTrail || data.median > bestTrail.median) {
-        bestTrail = data;
-      }
-    }
-  }
-  if (bestTrail) {
-    console.log(`best trail: ${bestTrail.name} n=${bestTrail.n} median=${(bestTrail.median * 100).toFixed(1)}%`);
+  if (bestTrailBucket) {
+    console.log(`best trail: ${bestTrailBucket.name} n=${bestTrailBucket.n} median=${(bestTrailBucket.median * 100).toFixed(1)}%`);
   } else {
     console.log("best trail: none found with n>=30");
   }
