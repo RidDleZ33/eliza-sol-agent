@@ -13,6 +13,7 @@
     "tape:clock": "bun src/tape/clock.ts",
     "tape:flow": "bun src/tape/flow.ts",
     "tape:migrations": "bun src/tape/migrations.ts",
+    "tape:grid": "bun src/tape/migrationGrid.ts",
     "replay": "bun src/replay/replay.ts",
     "grid": "bun src/replay/grid.ts",
     "test": "bun test"
