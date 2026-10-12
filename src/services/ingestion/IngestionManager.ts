@@ -9,6 +9,7 @@ import { birdeyeTopTradersSource } from "./TopTraderWatcher.ts";
 import { phantomTrendingSource } from "./PhantomTrendingWatcher.ts";
 import { dexScreenerBoostsSource } from "./DexScreenerBoostsWatcher.ts";
 import { dexScreenerProfilesSource } from "./DexScreenerProfilesWatcher.ts";
+import { migrationEdgeSource } from "./MigrationEdgeWatcher.ts";
 
 // Phase 12A: ingestion source registry.
 // Each watcher file exports a spec; this list is the single place that
@@ -23,6 +24,7 @@ const SOURCE_REGISTRY = [
   phantomTrendingSource,
   dexScreenerBoostsSource,
   dexScreenerProfilesSource,
+  migrationEdgeSource,
 ];
 
 export class IngestionManager {
