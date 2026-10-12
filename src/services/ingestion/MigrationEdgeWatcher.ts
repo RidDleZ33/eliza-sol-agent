@@ -161,7 +161,11 @@ export class MigrationEdgeWatcher implements IngestionWatcher {
           continue;
         }
 
-        if (typeof item.top_10_holder_rate === "number" && item.top_10_holder_rate >= TOP10_MAX) {
+        if (typeof item.top_10_holder_rate !== "number") {
+          logger.info("INGESTION", this.name, "skip", { mint, reason: "no_top10" });
+          continue;
+        }
+        if (item.top_10_holder_rate >= TOP10_MAX) {
           logger.info("INGESTION", this.name, "skip", { mint, reason: "top10", rate: item.top_10_holder_rate });
           continue;
         }
