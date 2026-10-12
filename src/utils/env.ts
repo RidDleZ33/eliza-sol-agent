@@ -69,6 +69,7 @@ const EnvSchema = z.object({
   POSITION_CHECK_INTERVAL_MS: z.string().default("5000"),
   TAPE_RETAIN_DAYS: z.string().default("14"),
   TAPE_DECISIONS: z.string().default("false"),
+  CLOCK_SEC_MIG_EDGE: z.string().optional(),
 });
 
 export const env = EnvSchema.parse(process.env);
@@ -206,6 +207,12 @@ export function getPositionCheckIntervalMs(): number {
 
 export function getExitClockSec(): number {
   return parseInt(env.EXIT_CLOCK_SEC);
+}
+
+export function getClockSecMigEdge(): number | null {
+  if (env.CLOCK_SEC_MIG_EDGE === undefined) return null;
+  const v = parseInt(env.CLOCK_SEC_MIG_EDGE);
+  return Number.isFinite(v) && v > 0 ? v : null;
 }
 
 // --- Ingestion source flags (phase 6A) ---

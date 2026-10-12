@@ -9,7 +9,7 @@ import { addSessionPnl } from "../execution/risk.ts";
 import { priceActionService } from "./PriceActionService.ts";
 import { volStopPct } from "../execution/volStop.ts";
 import { excursionSnippet } from "../execution/excursion.ts";
-import { getExitClockSec } from "../utils/env.ts";
+import { getExitClockSec, getClockSecMigEdge } from "../utils/env.ts";
 
 export class PositionManagerService {
   private runtime: any;
@@ -84,7 +84,19 @@ export class PositionManagerService {
     const ageMinutes = (Date.now() - enteredAt.getTime()) / (1000 * 60);
     const ageSeconds = (Date.now() - enteredAt.getTime()) / 1000;
     const staleMinutes = configService.getNumber("STALE_POSITION_MINUTES");
-    const exitClockSec = getExitClockSec();
+
+    // Determine exit clock: per-source override if set, else global
+    const globalClockSec = getExitClockSec();
+    let source = position.added_by_agent;
+    // Position row may not carry added_by_agent; look it up from watchlist
+    if (!source) {
+      source = watchlistService.getAddedByAgent(mint);
+    }
+    let exitClockSec = globalClockSec;
+    if (source === "mig_edge") {
+      const migOverride = getClockSecMigEdge();
+      if (migOverride !== null) exitClockSec = migOverride;
+    }
 
     // Fetch current price
     const currentPrice = await this.getTokenPrice(mint);

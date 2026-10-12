@@ -740,6 +740,27 @@ class WatchlistService {
   }
 
   /**
+   * Phase 18B: Get the source (added_by_agent) for a mint from the watchlist.
+   * Used by PositionManager to determine per-source exit clock overrides.
+   */
+  getAddedByAgent(mint: string): string | null {
+    try {
+      const row = this.db
+        .prepare(
+          "SELECT added_by_agent FROM watched_tokens WHERE mint_address = ?"
+        )
+        .get(mint);
+      return row ? row.added_by_agent : null;
+    } catch (e: any) {
+      logger.debug("WATCHLIST", "getAddedByAgent", "Failed to get added_by_agent", {
+        mint,
+        error: e.message,
+      });
+      return null;
+    }
+  }
+
+  /**
    * Phase 11A: List recent gamma snapshots for /gamma command.
    */
   listGammaSnapshots(limit = 8): any[] {
