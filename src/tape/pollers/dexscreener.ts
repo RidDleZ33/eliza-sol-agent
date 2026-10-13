@@ -299,39 +299,6 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
               JSON.stringify(item),
               null, null, null, null, null
             );
-
-            // After insert: compute nuke snapshot using stored pumpswap tick data
-            try {
-              const tickRows = db.prepare(`
-                SELECT price_native, liq_quote, pair_address, pair_created_at_ms FROM market_ticks
-                WHERE mint = ? AND dex_id = 'pumpswap' AND pair_created_at_ms IS NOT NULL
-                ORDER BY ABS(pair_created_at_ms - ?) ASC
-                LIMIT 1
-              `).all(mint, migrateTs);
-
-              if (tickRows.length > 0) {
-                const tickRow = tickRows[0];
-                const nuke = await getNukeSnapshot(
-                  mint,
-                  tickRow.pair_address || null,
-                  tickRow.price_native || 0,
-                  tickRow.liq_quote || 0
-                );
-                const updateStmt = db.prepare(`
-                  UPDATE migrations SET top_holder_sol=?, pool_sol=?, nuke_ratio=?, unique_buyers_5m=?, same_slot_buyers=? WHERE mint=?
-                `);
-                updateStmt.run(
-                  nuke.top_holder_sol,
-                  nuke.pool_sol,
-                  nuke.nuke_ratio,
-                  nuke.unique_buyers_5m,
-                  nuke.same_slot_buyers,
-                  mint
-                );
-              }
-            } catch (e: any) {
-              recordError("gmgn", "nuke_snapshot", `nuke snapshot failed: ${e.message}`, JSON.stringify({ mint }));
-            }
           } catch (e: any) {
             recordError("gmgn", "db", `migrations insert: ${e.message}`, JSON.stringify({ mint }));
             continue;
@@ -349,6 +316,96 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
           for (let i = 0; i < newMigrationMints.length; i += 15) {
             const batch = newMigrationMints.slice(i, i + 15);
             await pollTokenBatch(runId, batch, result, false);
+          }
+
+          // Now compute nuke snapshots for the new migrations (ticks exist after pollTokenBatch)
+          for (const mint of newMigrationMints) {
+            try {
+              const row = db.prepare("SELECT pair_created_at_ms FROM migrations WHERE mint = ?").get(mint);
+              if (!row) continue;
+
+              const tickRows = db.prepare(`
+                SELECT price_native, liq_quote, pair_address FROM market_ticks
+                WHERE mint = ? AND dex_id = 'pumpswap' AND pair_created_at_ms IS NOT NULL
+                ORDER BY ABS(pair_created_at_ms - ?) ASC
+                LIMIT 1
+              `).all(mint, row.pair_created_at_ms);
+
+              if (tickRows.length > 0) {
+                const tickRow = tickRows[0];
+                const nuke = await getNukeSnapshot(
+                  mint,
+                  tickRow.pair_address,
+                  tickRow.price_native || 0,
+                  tickRow.liq_quote || 0
+                );
+                if (nuke.nuke_ratio !== null) {
+                  const updateStmt = db.prepare(`
+                    UPDATE migrations SET top_holder_sol=?, pool_sol=?, nuke_ratio=?, unique_buyers_5m=?, same_slot_buyers=? WHERE mint=?
+                  `);
+                  updateStmt.run(
+                    nuke.top_holder_sol,
+                    nuke.pool_sol,
+                    nuke.nuke_ratio,
+                    nuke.unique_buyers_5m,
+                    nuke.same_slot_buyers,
+                    mint
+                  );
+                  console.log(`[tape] nuke mint=${mint} ratio=${nuke.nuke_ratio.toFixed(2)}`);
+                }
+              }
+            } catch (e: any) {
+              recordError("gmgn", "nuke_snapshot", `nuke snapshot failed: ${e.message}`, JSON.stringify({ mint }));
+            }
+          }
+
+          // Fill null nuke_ratio for up to 5 older rows that now have ticks
+          try {
+            const pending = db.prepare(`
+              SELECT mint, pair_created_at_ms FROM migrations
+              WHERE nuke_ratio IS NULL AND pair_created_at_ms IS NOT NULL
+              ORDER BY observed_at_ms ASC
+              LIMIT 5
+            `).all();
+
+            for (const p of pending) {
+              try {
+                const tickRows = db.prepare(`
+                  SELECT price_native, liq_quote, pair_address FROM market_ticks
+                  WHERE mint = ? AND dex_id = 'pumpswap' AND pair_created_at_ms IS NOT NULL
+                  ORDER BY ABS(pair_created_at_ms - ?) ASC
+                  LIMIT 1
+                `).all(p.mint, p.pair_created_at_ms);
+
+                if (tickRows.length > 0) {
+                  const tickRow = tickRows[0];
+                  const nuke = await getNukeSnapshot(
+                    p.mint,
+                    tickRow.pair_address,
+                    tickRow.price_native || 0,
+                    tickRow.liq_quote || 0
+                  );
+                  if (nuke.nuke_ratio !== null) {
+                    const updateStmt = db.prepare(`
+                      UPDATE migrations SET top_holder_sol=?, pool_sol=?, nuke_ratio=?, unique_buyers_5m=?, same_slot_buyers=? WHERE mint=?
+                    `);
+                    updateStmt.run(
+                      nuke.top_holder_sol,
+                      nuke.pool_sol,
+                      nuke.nuke_ratio,
+                      nuke.unique_buyers_5m,
+                      nuke.same_slot_buyers,
+                      p.mint
+                    );
+                    console.log(`[tape] nuke mint=${p.mint} ratio=${nuke.nuke_ratio.toFixed(2)}`);
+                  }
+                }
+              } catch (e: any) {
+                recordError("gmgn", "nuke_backfill", `nuke backfill failed: ${e.message}`, JSON.stringify({ mint: p.mint }));
+              }
+            }
+          } catch (e: any) {
+            recordError("gmgn", "nuke_backfill", `backfill query failed: ${e.message}`, null);
           }
         }
       } catch (err: any) {

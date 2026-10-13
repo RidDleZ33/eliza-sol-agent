@@ -21,27 +21,6 @@ function dateFromFilename(name: string): string | null {
   return null;
 }
 
-function hasColumn(db: Database, table: string, col: string): boolean {
-  try {
-    db.prepare(`SELECT ${col} FROM ${table} LIMIT 0`).get();
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function ensureMigrationColumns(db: Database) {
-  if (!hasColumn(db, "migrations", "top_holder_sol")) db.exec("ALTER TABLE migrations ADD COLUMN top_holder_sol REAL;");
-  if (!hasColumn(db, "migrations", "pool_sol")) db.exec("ALTER TABLE migrations ADD COLUMN pool_sol REAL;");
-  if (!hasColumn(db, "migrations", "nuke_ratio")) db.exec("ALTER TABLE migrations ADD COLUMN nuke_ratio REAL;");
-  if (!hasColumn(db, "migrations", "unique_buyers_5m")) db.exec("ALTER TABLE migrations ADD COLUMN unique_buyers_5m INTEGER;");
-  if (!hasColumn(db, "migrations", "same_slot_buyers")) db.exec("ALTER TABLE migrations ADD COLUMN same_slot_buyers INTEGER;");
-}
-
-function openReadWrite(path: string) {
-  return new Database(path);
-}
-
 function openReadOnly(path: string) {
   return new Database(path, { readonly: true });
 }
@@ -72,12 +51,6 @@ function collectMigrationClocks(): Map<string, MigrationClockInfo> {
     let db: Database;
     let needsColumns = false;
     try {
-      // Try to check if columns exist by querying
-      const checkDb = openReadOnly(path);
-      checkDb.close();
-      db = openReadWrite(path);
-      ensureMigrationColumns(db);
-      db.close();
       db = openReadOnly(path);
     } catch (e: any) {
       console.log(`[migration-grid] cannot open ${f}: ${e.message}`);
