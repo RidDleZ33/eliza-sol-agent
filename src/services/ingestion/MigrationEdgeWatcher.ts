@@ -8,10 +8,9 @@ import { tradeExecutionService } from "../TradeExecutionService.ts";
 const SOURCE = "mig_edge";
 const ENDPOINT = "https://openapi.gmgn.ai/v1/trenches";
 const COOLDOWN_MS = 5 * 60 * 1000;
-const MAX_LIQUIDITY = 25000;
-const SMART_DEGEN_MIN = 1;
-const GRAD_TIME_MIN = 300;
-const GRAD_TIME_MAX = 1800;
+const MIN_LIQUIDITY = 25000;
+const MAX_LIQUIDITY = 100000;
+const MIN_HOLDERS = 500;
 const TOP10_MAX = 0.2;
 
 // Phase 18A: Paper forward test of the majority-migration edge.
@@ -26,8 +25,7 @@ interface PendingItem {
   top10Rate?: number;
   creatorStatus?: string;
   liquidity?: number;
-  smartDegenCount?: number;
-  completeCostTime?: number;
+  holderCount?: number;
 }
 
 export class MigrationEdgeWatcher implements IngestionWatcher {
@@ -161,8 +159,7 @@ export class MigrationEdgeWatcher implements IngestionWatcher {
             top10Rate: typeof item.top_10_holder_rate === "number" ? item.top_10_holder_rate : undefined,
             creatorStatus: item.creator_token_status,
             liquidity: liq,
-            smartDegenCount: typeof item.smart_degen_count === "number" ? item.smart_degen_count : undefined,
-            completeCostTime: typeof item.complete_cost_time === "number" ? item.complete_cost_time : undefined,
+            holderCount: typeof item.holder_count === "number" ? item.holder_count : undefined,
           });
           logger.info("INGESTION", this.name, "skip", { mint, reason: "cooloff", elapsedSec: Math.floor(elapsed / 1000) });
           continue;
@@ -177,6 +174,10 @@ export class MigrationEdgeWatcher implements IngestionWatcher {
           continue;
         }
 
+        if (!item.creator_token_status) {
+          logger.info("INGESTION", this.name, "skip", { mint, reason: "no_creator" });
+          continue;
+        }
         if (item.creator_token_status !== "creator_close") {
           logger.info("INGESTION", this.name, "skip", { mint, reason: "creator_status", status: item.creator_token_status });
           continue;
@@ -187,26 +188,21 @@ export class MigrationEdgeWatcher implements IngestionWatcher {
           logger.info("INGESTION", this.name, "skip", { mint, reason: "no_liq" });
           continue;
         }
-        if (liq > MAX_LIQUIDITY) {
+        if (liq < MIN_LIQUIDITY) {
+          logger.info("INGESTION", this.name, "skip", { mint, reason: "thin_liq", liq });
+          continue;
+        }
+        if (liq >= MAX_LIQUIDITY) {
           logger.info("INGESTION", this.name, "skip", { mint, reason: "fat_liq", liq });
           continue;
         }
 
-        if (typeof item.smart_degen_count !== "number") {
-          logger.info("INGESTION", this.name, "skip", { mint, reason: "no_smart" });
+        if (typeof item.holder_count !== "number") {
+          logger.info("INGESTION", this.name, "skip", { mint, reason: "low_holders" });
           continue;
         }
-        if (item.smart_degen_count < SMART_DEGEN_MIN) {
-          logger.info("INGESTION", this.name, "skip", { mint, reason: "no_smart", count: item.smart_degen_count });
-          continue;
-        }
-
-        if (typeof item.complete_cost_time !== "number") {
-          logger.info("INGESTION", this.name, "skip", { mint, reason: "no_grad_time" });
-          continue;
-        }
-        if (item.complete_cost_time < GRAD_TIME_MIN || item.complete_cost_time >= GRAD_TIME_MAX) {
-          logger.info("INGESTION", this.name, "skip", { mint, reason: "grad_time", time: item.complete_cost_time });
+        if (item.holder_count < MIN_HOLDERS) {
+          logger.info("INGESTION", this.name, "skip", { mint, reason: "low_holders", count: item.holder_count });
           continue;
         }
 
@@ -237,7 +233,7 @@ export class MigrationEdgeWatcher implements IngestionWatcher {
       if (now - item.completeTimestamp < COOLDOWN_MS) continue;
 
       // Cool-off passed; evaluate stored item through same filters.
-      // Missing top10 is a skip — do not treat as pass.
+      // Missing field is a skip.
       if (item.top10Rate === undefined) {
         logger.info("INGESTION", this.name, "skip", { mint, reason: "no_top10" });
         toDrop.push(mint);
@@ -245,6 +241,11 @@ export class MigrationEdgeWatcher implements IngestionWatcher {
       }
       if (item.top10Rate >= TOP10_MAX) {
         logger.info("INGESTION", this.name, "skip", { mint, reason: "top10", rate: item.top10Rate });
+        toDrop.push(mint);
+        continue;
+      }
+      if (!item.creatorStatus) {
+        logger.info("INGESTION", this.name, "skip", { mint, reason: "no_creator" });
         toDrop.push(mint);
         continue;
       }
@@ -258,28 +259,23 @@ export class MigrationEdgeWatcher implements IngestionWatcher {
         toDrop.push(mint);
         continue;
       }
-      if (item.liquidity > MAX_LIQUIDITY) {
+      if (item.liquidity < MIN_LIQUIDITY) {
+        logger.info("INGESTION", this.name, "skip", { mint, reason: "thin_liq", liq: item.liquidity });
+        toDrop.push(mint);
+        continue;
+      }
+      if (item.liquidity >= MAX_LIQUIDITY) {
         logger.info("INGESTION", this.name, "skip", { mint, reason: "fat_liq", liq: item.liquidity });
         toDrop.push(mint);
         continue;
       }
-      if (item.smartDegenCount === undefined) {
-        logger.info("INGESTION", this.name, "skip", { mint, reason: "no_smart" });
+      if (item.holderCount === undefined) {
+        logger.info("INGESTION", this.name, "skip", { mint, reason: "low_holders" });
         toDrop.push(mint);
         continue;
       }
-      if (item.smartDegenCount < SMART_DEGEN_MIN) {
-        logger.info("INGESTION", this.name, "skip", { mint, reason: "no_smart", count: item.smartDegenCount });
-        toDrop.push(mint);
-        continue;
-      }
-      if (item.completeCostTime === undefined) {
-        logger.info("INGESTION", this.name, "skip", { mint, reason: "no_grad_time" });
-        toDrop.push(mint);
-        continue;
-      }
-      if (item.completeCostTime < GRAD_TIME_MIN || item.completeCostTime >= GRAD_TIME_MAX) {
-        logger.info("INGESTION", this.name, "skip", { mint, reason: "grad_time", time: item.completeCostTime });
+      if (item.holderCount < MIN_HOLDERS) {
+        logger.info("INGESTION", this.name, "skip", { mint, reason: "low_holders", count: item.holderCount });
         toDrop.push(mint);
         continue;
       }
