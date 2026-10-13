@@ -11,7 +11,6 @@ const COOLDOWN_MS = 5 * 60 * 1000;
 const MIN_LIQUIDITY = 25000;
 const MAX_LIQUIDITY = 100000;
 const MIN_HOLDERS = 500;
-const TOP10_MAX = 0.2;
 
 // Phase 18A: Paper forward test of the majority-migration edge.
 // Filter: top 10 < 20%, creator already closed, book thick enough.
@@ -169,17 +168,9 @@ export class MigrationEdgeWatcher implements IngestionWatcher {
           logger.info("INGESTION", this.name, "skip", { mint, reason: "no_top10" });
           continue;
         }
-        if (item.top_10_holder_rate >= TOP10_MAX) {
-          logger.info("INGESTION", this.name, "skip", { mint, reason: "top10", rate: item.top_10_holder_rate });
-          continue;
-        }
 
         if (!item.creator_token_status) {
           logger.info("INGESTION", this.name, "skip", { mint, reason: "no_creator" });
-          continue;
-        }
-        if (item.creator_token_status !== "creator_close") {
-          logger.info("INGESTION", this.name, "skip", { mint, reason: "creator_status", status: item.creator_token_status });
           continue;
         }
 
@@ -239,18 +230,8 @@ export class MigrationEdgeWatcher implements IngestionWatcher {
         toDrop.push(mint);
         continue;
       }
-      if (item.top10Rate >= TOP10_MAX) {
-        logger.info("INGESTION", this.name, "skip", { mint, reason: "top10", rate: item.top10Rate });
-        toDrop.push(mint);
-        continue;
-      }
       if (!item.creatorStatus) {
         logger.info("INGESTION", this.name, "skip", { mint, reason: "no_creator" });
-        toDrop.push(mint);
-        continue;
-      }
-      if (item.creatorStatus !== "creator_close") {
-        logger.info("INGESTION", this.name, "skip", { mint, reason: "creator_status", status: item.creatorStatus });
         toDrop.push(mint);
         continue;
       }
