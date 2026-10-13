@@ -37,8 +37,8 @@ interface MigrationRow {
   pair_created_at_ms: number;
 }
 
-function collectMigrationClocks(): Map<string, number> {
-  const clocks = new Map<string, number>();
+function collectMigrationClocks(): Map<string, { clockMs: number; pairAddress: string }> {
+  const clocks = new Map<string, { clockMs: number; pairAddress: string }>();
 
   if (!existsSync(TAPE_DIR)) {
     console.log("data/tape not found");
@@ -69,9 +69,10 @@ function collectMigrationClocks(): Map<string, number> {
         .all();
       for (const row of rows) {
         if (row.pair_created_at_ms == null) continue;
+        if (row.pair_address == null || row.pair_address === "") continue;
         const existing = clocks.get(row.mint);
-        if (existing === undefined || row.pair_created_at_ms < existing) {
-          clocks.set(row.mint, row.pair_created_at_ms);
+        if (existing === undefined || row.pair_created_at_ms < existing.clockMs) {
+          clocks.set(row.mint, { clockMs: row.pair_created_at_ms, pairAddress: row.pair_address });
         }
       }
     } catch (e: any) {
@@ -86,7 +87,8 @@ function collectMigrationClocks(): Map<string, number> {
 
 function getTicksForMint(
   mint: string,
-  clockMs: number
+  clockMs: number,
+  pairAddress: string
 ): {
   entry: any;
   ticks: any[];
@@ -115,9 +117,9 @@ function getTicksForMint(
 
     const potentialEntries = db
       .prepare(
-        "SELECT mint, price_usd, observed_at_ms, liq_usd, tx_5m_buys, tx_5m_sells FROM market_ticks WHERE mint=? AND observed_at_ms >= ? ORDER BY observed_at_ms ASC LIMIT 1"
+        "SELECT mint, price_usd, observed_at_ms, liq_usd, tx_5m_buys, tx_5m_sells FROM market_ticks WHERE mint=? AND pair_address=? AND observed_at_ms >= ? ORDER BY observed_at_ms ASC LIMIT 1"
       )
-      .all(mint, entryAfterMs);
+      .all(mint, pairAddress, entryAfterMs);
 
     if (potentialEntries.length > 0) {
       const candidate = potentialEntries[0];
@@ -129,9 +131,9 @@ function getTicksForMint(
 
     const ticks = db
       .prepare(
-        "SELECT mint, price_usd, observed_at_ms FROM market_ticks WHERE mint=? AND observed_at_ms > ? ORDER BY observed_at_ms ASC"
+        "SELECT mint, price_usd, observed_at_ms FROM market_ticks WHERE mint=? AND pair_address=? AND observed_at_ms > ? ORDER BY observed_at_ms ASC"
       )
-      .all(mint, entryAfterMs);
+      .all(mint, pairAddress, entryAfterMs);
 
     allTicks = allTicks.concat(ticks);
 
@@ -165,8 +167,8 @@ function median(values: number[]): number {
   return sorted[mid];
 }
 
-function runBacktest(mint: string, clockMs: number) {
-  const { entry, ticks } = getTicksForMint(mint, clockMs);
+function runBacktest(mint: string, clockMs: number, pairAddress: string) {
+  const { entry, ticks } = getTicksForMint(mint, clockMs, pairAddress);
 
   if (entry === null || ticks.length === 0) {
     return {
@@ -253,13 +255,13 @@ function main() {
   const pHold = { name: "hold", returns: [] };
 
   let i = 0;
-  for (const [mint, clockMs] of clocks.entries()) {
+  for (const [mint, clockInfo] of clocks.entries()) {
     i++;
     if (i % 50 === 0) {
       console.log(`[migrations] ${i}/${clocks.size}...`);
     }
 
-    const result = runBacktest(mint, clockMs);
+    const result = runBacktest(mint, clockInfo.clockMs, clockInfo.pairAddress);
 
     if (!result.scored) {
       unscored++;

@@ -27,6 +27,7 @@ function openReadOnly(path: string) {
 
 interface MigrationClockInfo {
   clockMs: number;
+  pairAddress: string;
   rawJson: string | null;
 }
 
@@ -62,6 +63,7 @@ function collectMigrationClocks(): Map<string, MigrationClockInfo> {
         .all();
       for (const row of rows) {
         if (row.pair_created_at_ms == null) continue;
+        if (row.pair_address == null || row.pair_address === "") continue;
         const existing = clocks.get(row.mint);
         if (
           existing === undefined ||
@@ -69,6 +71,7 @@ function collectMigrationClocks(): Map<string, MigrationClockInfo> {
         ) {
           clocks.set(row.mint, {
             clockMs: row.pair_created_at_ms,
+            pairAddress: row.pair_address,
             rawJson: row.raw_json,
           });
         }
@@ -92,7 +95,7 @@ interface Tick {
   tx_5m_sells: number;
 }
 
-function getSixHourTicks(mint: string, clockMs: number) {
+function getSixHourTicks(mint: string, clockMs: number, pairAddress: string) {
   if (!existsSync(TAPE_DIR)) {
     return { entry: null as Tick | null, ticks: [] as Tick[], peak: 0, peakMs: 0 };
   }
@@ -118,9 +121,9 @@ function getSixHourTicks(mint: string, clockMs: number) {
     const entryAfterMs = clockMs + 5 * 60 * 1000;
     const potentialEntries: Tick[] = db
       .prepare(
-        "SELECT mint, price_usd, observed_at_ms, liq_usd, tx_5m_buys, tx_5m_sells FROM market_ticks WHERE mint=? AND observed_at_ms >= ? ORDER BY observed_at_ms ASC LIMIT 1"
+        "SELECT mint, price_usd, observed_at_ms, liq_usd, tx_5m_buys, tx_5m_sells FROM market_ticks WHERE mint=? AND pair_address=? AND observed_at_ms >= ? ORDER BY observed_at_ms ASC LIMIT 1"
       )
-      .all(mint, entryAfterMs);
+      .all(mint, pairAddress, entryAfterMs);
 
     if (potentialEntries.length > 0) {
       const candidate = potentialEntries[0];
@@ -156,9 +159,9 @@ function getSixHourTicks(mint: string, clockMs: number) {
 
     const ticks: Tick[] = db
       .prepare(
-        "SELECT mint, price_usd, observed_at_ms, liq_usd, tx_5m_buys, tx_5m_sells FROM market_ticks WHERE mint=? AND observed_at_ms >= ? AND observed_at_ms <= ? ORDER BY observed_at_ms ASC"
+        "SELECT mint, price_usd, observed_at_ms, liq_usd, tx_5m_buys, tx_5m_sells FROM market_ticks WHERE mint=? AND pair_address=? AND observed_at_ms >= ? AND observed_at_ms <= ? ORDER BY observed_at_ms ASC"
       )
-      .all(mint, entryTick.observed_at_ms, sixHourEnd);
+      .all(mint, pairAddress, entryTick.observed_at_ms, sixHourEnd);
 
     allTicks = allTicks.concat(ticks);
     db.close();
@@ -179,7 +182,7 @@ function getSixHourTicks(mint: string, clockMs: number) {
   return { entry: entryTick, ticks: allTicks, peak, peakMs };
 }
 
-function getTicksForMint(mint: string, clockMs: number) {
+function getTicksForMint(mint: string, clockMs: number, pairAddress: string) {
   if (!existsSync(TAPE_DIR)) {
     return { entry: null as Tick | null, ticks: [] as Tick[] };
   }
@@ -206,9 +209,9 @@ function getTicksForMint(mint: string, clockMs: number) {
 
     const potentialEntries: Tick[] = db
       .prepare(
-        "SELECT mint, price_usd, observed_at_ms, liq_usd, tx_5m_buys, tx_5m_sells FROM market_ticks WHERE mint=? AND observed_at_ms >= ? ORDER BY observed_at_ms ASC LIMIT 1"
+        "SELECT mint, price_usd, observed_at_ms, liq_usd, tx_5m_buys, tx_5m_sells FROM market_ticks WHERE mint=? AND pair_address=? AND observed_at_ms >= ? ORDER BY observed_at_ms ASC LIMIT 1"
       )
-      .all(mint, entryAfterMs);
+      .all(mint, pairAddress, entryAfterMs);
 
     if (potentialEntries.length > 0) {
       const candidate = potentialEntries[0];
@@ -220,9 +223,9 @@ function getTicksForMint(mint: string, clockMs: number) {
 
     const ticks: Tick[] = db
       .prepare(
-        "SELECT mint, price_usd, observed_at_ms, liq_usd, tx_5m_buys, tx_5m_sells FROM market_ticks WHERE mint=? AND observed_at_ms > ? ORDER BY observed_at_ms ASC"
+        "SELECT mint, price_usd, observed_at_ms, liq_usd, tx_5m_buys, tx_5m_sells FROM market_ticks WHERE mint=? AND pair_address=? AND observed_at_ms > ? ORDER BY observed_at_ms ASC"
       )
-      .all(mint, entryAfterMs);
+      .all(mint, pairAddress, entryAfterMs);
 
     allTicks = allTicks.concat(ticks);
 
@@ -591,7 +594,7 @@ function main() {
       console.log(`[migration-grid] ${i}/${clocks.size}...`);
     }
 
-    const { entry, ticks } = getTicksForMint(mint, clockInfo.clockMs);
+    const { entry, ticks } = getTicksForMint(mint, clockInfo.clockMs, clockInfo.pairAddress);
 
     if (entry === null || ticks.length === 0) {
       unscored++;
@@ -613,7 +616,7 @@ function main() {
 
     const entryBuySell = entry.tx_5m_sells > 0 ? entry.tx_5m_buys / entry.tx_5m_sells : null;
     // Compute 6h runner for this mint
-    const six = getSixHourTicks(mint, clockInfo.clockMs);
+    const six = getSixHourTicks(mint, clockInfo.clockMs, clockInfo.pairAddress);
     let runner = 0;
     if (six.entry !== null && six.peak > 0) {
       runner = six.peak / six.entry.price_usd - 1;
@@ -940,7 +943,7 @@ function main() {
   for (const md of mintData) {
     const clockInfo = clocks.get(md.mint);
     if (!clockInfo) continue;
-    const six = getSixHourTicks(md.mint, clockInfo.clockMs);
+    const six = getSixHourTicks(md.mint, clockInfo.clockMs, clockInfo.pairAddress);
     if (six.entry === null || six.ticks.length === 0) continue;
 
     const entryPrice = six.entry.price_usd;
@@ -1045,7 +1048,7 @@ function main() {
     if (rt.outcome !== "rug_first") continue;
     const clockInfo = clocks.get(rt.mint);
     if (!clockInfo) continue;
-    const six = getSixHourTicks(rt.mint, clockInfo.clockMs);
+    const six = getSixHourTicks(rt.mint, clockInfo.clockMs, clockInfo.pairAddress);
     if (six.entry === null) continue;
     const entryPrice = six.entry.price_usd;
     let timeToRug: number | null = null;
@@ -1102,7 +1105,7 @@ function main() {
     if (fatCount >= 8) break;
     const clockInfo = clocks.get(rt.mint);
     if (!clockInfo) continue;
-    const six = getSixHourTicks(rt.mint, clockInfo.clockMs);
+    const six = getSixHourTicks(rt.mint, clockInfo.clockMs, clockInfo.pairAddress);
     if (six.entry === null) continue;
     const entryPrice = six.entry.price_usd;
     let minPrice = entryPrice;
@@ -1129,7 +1132,7 @@ function main() {
     if (thinCount >= 8) break;
     const clockInfo = clocks.get(rt.mint);
     if (!clockInfo) continue;
-    const six = getSixHourTicks(rt.mint, clockInfo.clockMs);
+    const six = getSixHourTicks(rt.mint, clockInfo.clockMs, clockInfo.pairAddress);
     if (six.entry === null) continue;
     const entryPrice = six.entry.price_usd;
     let minPrice = entryPrice;
