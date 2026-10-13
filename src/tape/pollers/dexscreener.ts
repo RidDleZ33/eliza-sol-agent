@@ -358,55 +358,55 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
               recordError("gmgn", "nuke_snapshot", `nuke snapshot failed: ${e.message}`, JSON.stringify({ mint }));
             }
           }
+        }
 
-          // Fill null nuke_ratio for up to 5 older rows that now have ticks
-          try {
-            const pending = db.prepare(`
-              SELECT mint, pair_created_at_ms FROM migrations
-              WHERE nuke_ratio IS NULL AND pair_created_at_ms IS NOT NULL
-              ORDER BY observed_at_ms ASC
-              LIMIT 5
-            `).all();
+        // Fill null nuke_ratio for up to 5 older rows that now have ticks (every poll)
+        try {
+          const pending = db.prepare(`
+            SELECT mint, pair_created_at_ms FROM migrations
+            WHERE nuke_ratio IS NULL AND pair_created_at_ms IS NOT NULL
+            ORDER BY observed_at_ms ASC
+            LIMIT 5
+          `).all();
 
-            for (const p of pending) {
-              try {
-                const tickRows = db.prepare(`
-                  SELECT price_native, liq_quote, pair_address FROM market_ticks
-                  WHERE mint = ? AND dex_id = 'pumpswap' AND pair_created_at_ms IS NOT NULL
-                  ORDER BY ABS(pair_created_at_ms - ?) ASC
-                  LIMIT 1
-                `).all(p.mint, p.pair_created_at_ms);
+          for (const p of pending) {
+            try {
+              const tickRows = db.prepare(`
+                SELECT price_native, liq_quote, pair_address FROM market_ticks
+                WHERE mint = ? AND dex_id = 'pumpswap' AND pair_created_at_ms IS NOT NULL
+                ORDER BY ABS(pair_created_at_ms - ?) ASC
+                LIMIT 1
+              `).all(p.mint, p.pair_created_at_ms);
 
-                if (tickRows.length > 0) {
-                  const tickRow = tickRows[0];
-                  const nuke = await getNukeSnapshot(
-                    p.mint,
-                    tickRow.pair_address,
-                    tickRow.price_native || 0,
-                    tickRow.liq_quote || 0
+              if (tickRows.length > 0) {
+                const tickRow = tickRows[0];
+                const nuke = await getNukeSnapshot(
+                  p.mint,
+                  tickRow.pair_address,
+                  tickRow.price_native || 0,
+                  tickRow.liq_quote || 0
+                );
+                if (nuke.nuke_ratio !== null) {
+                  const updateStmt = db.prepare(`
+                    UPDATE migrations SET top_holder_sol=?, pool_sol=?, nuke_ratio=?, unique_buyers_5m=?, same_slot_buyers=? WHERE mint=?
+                  `);
+                  updateStmt.run(
+                    nuke.top_holder_sol,
+                    nuke.pool_sol,
+                    nuke.nuke_ratio,
+                    nuke.unique_buyers_5m,
+                    nuke.same_slot_buyers,
+                    p.mint
                   );
-                  if (nuke.nuke_ratio !== null) {
-                    const updateStmt = db.prepare(`
-                      UPDATE migrations SET top_holder_sol=?, pool_sol=?, nuke_ratio=?, unique_buyers_5m=?, same_slot_buyers=? WHERE mint=?
-                    `);
-                    updateStmt.run(
-                      nuke.top_holder_sol,
-                      nuke.pool_sol,
-                      nuke.nuke_ratio,
-                      nuke.unique_buyers_5m,
-                      nuke.same_slot_buyers,
-                      p.mint
-                    );
-                    console.log(`[tape] nuke mint=${p.mint} ratio=${nuke.nuke_ratio.toFixed(2)}`);
-                  }
+                  console.log(`[tape] nuke mint=${p.mint} ratio=${nuke.nuke_ratio.toFixed(2)}`);
                 }
-              } catch (e: any) {
-                recordError("gmgn", "nuke_backfill", `nuke backfill failed: ${e.message}`, JSON.stringify({ mint: p.mint }));
               }
+            } catch (e: any) {
+              recordError("gmgn", "nuke_backfill", `nuke backfill failed: ${e.message}`, JSON.stringify({ mint: p.mint }));
             }
-          } catch (e: any) {
-            recordError("gmgn", "nuke_backfill", `backfill query failed: ${e.message}`, null);
           }
+        } catch (e: any) {
+          recordError("gmgn", "nuke_backfill", `backfill query failed: ${e.message}`, null);
         }
       } catch (err: any) {
         recordError("gmgn", "http", `completed feed error: ${err.message}`, null);
@@ -440,6 +440,21 @@ async function getNukeSnapshot(
     unique_buyers_5m: null,
     same_slot_buyers: null,
   };
+
+  if (liq_quote_sol <= 0) {
+    console.log(`[tape] nuke skip mint=${mint} reason=no_pool_sol`);
+    return result;
+  }
+
+  if (price_native <= 0) {
+    console.log(`[tape] nuke skip mint=${mint} reason=no_price`);
+    return result;
+  }
+
+  if (!rpcUrl) {
+    console.log(`[tape] nuke skip mint=${mint} reason=no_rpc`);
+    return result;
+  }
 
   try {
     // Get total supply to determine >50% threshold
@@ -479,12 +494,14 @@ async function getNukeSnapshot(
     });
 
     if (!resp.ok) {
+      console.log(`[tape] nuke skip mint=${mint} reason=rpc_error status=${resp.status}`);
       return result;
     }
 
     const data = await resp.json();
     const accounts = data?.result?.value;
     if (!Array.isArray(accounts) || accounts.length === 0) {
+      console.log(`[tape] nuke skip mint=${mint} reason=no_accounts`);
       return result;
     }
 
@@ -508,6 +525,11 @@ async function getNukeSnapshot(
         result.nuke_ratio = result.top_holder_sol / result.pool_sol;
       }
       break;
+    }
+
+    if (result.nuke_ratio === null) {
+      console.log(`[tape] nuke skip mint=${mint} reason=all_half_supply`);
+    }
     }
   } catch {
     // RPC failed, leave fields null
