@@ -1034,6 +1034,64 @@ function main() {
       console.log(`${key} n=${data.n} tp=${tpRate.toFixed(1)}% rug=${rugRate.toFixed(1)}%`);
     }
   }
+
+  // Time to rug for names that got raged: first tick at or below 50% entry price
+  console.log("\n=== Time to rug ===");
+  const allRugTimes: number[] = [];
+  const gradRugTimes: number[] = [];
+  const fatSmartRugTimes: number[] = [];
+
+  for (const rt of rugTpData) {
+    if (rt.outcome !== "rug_first") continue;
+    const clockInfo = clocks.get(rt.mint);
+    if (!clockInfo) continue;
+    const six = getSixHourTicks(rt.mint, clockInfo.clockMs);
+    if (six.entry === null) continue;
+    const entryPrice = six.entry.price_usd;
+    let timeToRug: number | null = null;
+    for (const t of six.ticks) {
+      if (t.price_usd <= entryPrice * 0.5) {
+        timeToRug = (t.observed_at_ms - six.entry.observed_at_ms) / (60 * 1000);
+        break;
+      }
+    }
+    if (timeToRug === null) continue;
+
+    allRugTimes.push(timeToRug);
+
+    const parsed = parseMigration(rt.rawJson);
+    if (parsed === null) continue;
+    const grad5to30 = parsed.complete_cost_time >= 300 && parsed.complete_cost_time < 1800;
+
+    if (grad5to30) {
+      gradRugTimes.push(timeToRug);
+    }
+
+    if (
+      grad5to30 &&
+      rt.entryLiq != null &&
+      rt.entryLiq < 25000 &&
+      parsed.smart_degen_count >= 1 &&
+      parsed.top_10_holder_rate < 0.2 &&
+      parsed.creator_token_status === "creator_close"
+    ) {
+      fatSmartRugTimes.push(timeToRug);
+    }
+  }
+
+  if (allRugTimes.length > 0) {
+    console.log(`rug time-to-hit min=${percentile(allRugTimes, 0).toFixed(1)} p25=${percentile(allRugTimes, 25).toFixed(1)} median=${percentile(allRugTimes, 50).toFixed(1)} p75=${percentile(allRugTimes, 75).toFixed(1)} max=${percentile(allRugTimes, 100).toFixed(1)} n=${allRugTimes.length}`);
+  } else {
+    console.log("rug time-to-hit n=0");
+  }
+
+  if (gradRugTimes.length >= 30) {
+    console.log(`grad 5-30m rug time-to-hit min=${percentile(gradRugTimes, 0).toFixed(1)} p25=${percentile(gradRugTimes, 25).toFixed(1)} median=${percentile(gradRugTimes, 50).toFixed(1)} p75=${percentile(gradRugTimes, 75).toFixed(1)} max=${percentile(gradRugTimes, 100).toFixed(1)} n=${gradRugTimes.length}`);
+  }
+
+  if (fatSmartRugTimes.length >= 30) {
+    console.log(`fat+smart+top10low+creatorout rug time-to-hit min=${percentile(fatSmartRugTimes, 0).toFixed(1)} p25=${percentile(fatSmartRugTimes, 25).toFixed(1)} median=${percentile(fatSmartRugTimes, 50).toFixed(1)} p75=${percentile(fatSmartRugTimes, 75).toFixed(1)} max=${percentile(fatSmartRugTimes, 100).toFixed(1)} n=${fatSmartRugTimes.length}`);
+  }
 }
 
 main();
