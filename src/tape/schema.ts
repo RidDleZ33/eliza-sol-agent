@@ -219,8 +219,19 @@ export function ensurePhase19Columns(db: any): void {
     { name: "unique_buyers_5m", type: "INTEGER" },
     { name: "same_slot_buyers", type: "INTEGER" },
   ];
+
+  // Check existing columns via PRAGMA table_info
+  const info = db.prepare("PRAGMA table_info(migrations)").all();
+  const existing = new Set<string>();
+  for (const row of info) {
+    existing.add(row.name);
+  }
+
   for (const col of cols) {
-    db.exec(`ALTER TABLE migrations ADD COLUMN IF NOT EXISTS ${col.name} ${col.type};`);
+    if (existing.has(col.name)) {
+      continue;
+    }
+    db.exec(`ALTER TABLE migrations ADD COLUMN ${col.name} ${col.type};`);
   }
 }
 
