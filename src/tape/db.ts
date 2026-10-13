@@ -1,4 +1,4 @@
-import { SCHEMA_VERSION, createSchema, seedSchemaMeta } from "./schema";
+import { SCHEMA_VERSION, createSchema, seedSchemaMeta, ensurePhase19Columns } from "./schema";
 
 const Database = require("better-sqlite3");
 const fs = require("fs");
@@ -17,6 +17,7 @@ export function openDb(dbPath: string) {
   db.exec("BEGIN");
   createSchema(db);
   seedSchemaMeta(db);
+  ensurePhase19Columns(db);
   db.exec("COMMIT");
   return db;
 }

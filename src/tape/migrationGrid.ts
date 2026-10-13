@@ -21,6 +21,31 @@ function dateFromFilename(name: string): string | null {
   return null;
 }
 
+function hasColumn(db: Database, table: string, col: string): boolean {
+  try {
+    db.prepare(`SELECT ${col} FROM ${table} LIMIT 0`).get();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function ensureMigrationColumns(db: Database) {
+  if (!hasColumn(db, "migrations", "top_holder_sol")) db.exec("ALTER TABLE migrations ADD COLUMN top_holder_sol REAL;");
+  if (!hasColumn(db, "migrations", "pool_sol")) db.exec("ALTER TABLE migrations ADD COLUMN pool_sol REAL;");
+  if (!hasColumn(db, "migrations", "nuke_ratio")) db.exec("ALTER TABLE migrations ADD COLUMN nuke_ratio REAL;");
+  if (!hasColumn(db, "migrations", "unique_buyers_5m")) db.exec("ALTER TABLE migrations ADD COLUMN unique_buyers_5m INTEGER;");
+  if (!hasColumn(db, "migrations", "same_slot_buyers")) db.exec("ALTER TABLE migrations ADD COLUMN same_slot_buyers INTEGER;");
+}
+
+function openReadWrite(path: string) {
+  return new Database(path);
+}
+
+function openReadWrite(path: string) {
+  return new Database(path);
+}
+
 function openReadOnly(path: string) {
   return new Database(path, { readonly: true });
 }
@@ -29,6 +54,7 @@ interface MigrationClockInfo {
   clockMs: number;
   pairAddress: string | null;
   rawJson: string | null;
+  nukeRatio: number | null;
 }
 
 function collectMigrationClocks(): Map<string, MigrationClockInfo> {
@@ -48,7 +74,14 @@ function collectMigrationClocks(): Map<string, MigrationClockInfo> {
 
     const path = `${TAPE_DIR}/${f}`;
     let db: Database;
+    let needsColumns = false;
     try {
+      // Try to check if columns exist by querying
+      const checkDb = openReadOnly(path);
+      checkDb.close();
+      db = openReadWrite(path);
+      ensureMigrationColumns(db);
+      db.close();
       db = openReadOnly(path);
     } catch (e: any) {
       console.log(`[migration-grid] cannot open ${f}: ${e.message}`);
@@ -56,11 +89,17 @@ function collectMigrationClocks(): Map<string, MigrationClockInfo> {
     }
 
     try {
-      const rows: any[] = db
-        .prepare(
-          "SELECT mint, pair_address, pair_created_at_ms, raw_json FROM migrations ORDER BY observed_at_ms ASC"
-        )
-        .all();
+      let query = "SELECT mint, pair_address, pair_created_at_ms, raw_json";
+      // Check if nuke_ratio column exists on this day file
+      try {
+        db.prepare("SELECT nuke_ratio FROM migrations LIMIT 0").get();
+        query += ", nuke_ratio";
+      } catch {
+        // column doesn't exist on this day file
+      }
+      query += " FROM migrations ORDER BY observed_at_ms ASC";
+
+      const rows: any[] = db.prepare(query).all();
       for (const row of rows) {
         if (row.pair_created_at_ms == null) continue;
         const existing = clocks.get(row.mint);
@@ -72,6 +111,7 @@ function collectMigrationClocks(): Map<string, MigrationClockInfo> {
             clockMs: row.pair_created_at_ms,
             pairAddress: row.pair_address || null,
             rawJson: row.raw_json,
+            nukeRatio: row.nuke_ratio,
           });
         }
       }
@@ -512,6 +552,11 @@ function bucketLabel(field: string, value: any): string {
     if (value < 0.3) return "<0.3";
     return ">=0.3";
   }
+  if (field === "nuke_ratio") {
+    if (value < 0.3) return "<0.3";
+    if (value < 1.0) return "0.3-1";
+    return ">=1";
+  }
   return "unknown";
 }
 
@@ -641,6 +686,7 @@ function main() {
     runner: number;
     results: Record<string, PolicyResult>;
     sixHour?: any;
+    nukeRatio: number | null;
   }[] = [];
 
   // Runner peak data collected during main loop
@@ -698,7 +744,7 @@ function main() {
         });
       }
     }
-    mintData.push({ mint, rawJson: clockInfo.rawJson, entryLiq: entry.liq_usd, entryBuySell, runner, results });
+    mintData.push({ mint, rawJson: clockInfo.rawJson, entryLiq: entry.liq_usd, entryBuySell, runner, results, nukeRatio: clockInfo.nukeRatio });
   }
 
   console.log(`\nScored: ${scored}`);
@@ -855,6 +901,7 @@ function main() {
     "has_at_least_one_social",
     "is_wash_trading",
     "rug_ratio",
+    "nuke_ratio",
   ];
 
   // Track best bucket for summary
@@ -873,6 +920,8 @@ function main() {
           value = md.entryLiq;
         } else if (field === "buySell") {
           value = md.entryBuySell;
+        } else if (field === "nuke_ratio") {
+          value = md.nukeRatio;
         } else {
           const parsed = parseMigration(md.rawJson);
           if (!parsed) continue;
@@ -1068,6 +1117,7 @@ function main() {
     "sniper_count",
     "buySell",
     "complete_cost_time",
+    "nuke_ratio",
   ];
 
   for (const field of rugTpFields) {
@@ -1079,6 +1129,10 @@ function main() {
         value = rt.entryLiq;
       } else if (field === "buySell") {
         value = rt.entryBuySell;
+      } else if (field === "nuke_ratio") {
+        const clockInfo = clocks.get(rt.mint);
+        if (!clockInfo) continue;
+        value = clockInfo.nukeRatio;
       } else {
         const parsed = parseMigration(rt.rawJson);
         if (!parsed) continue;

@@ -10,7 +10,7 @@ import { shouldRecordFirstSeen, recordDiscoveryEvent, shouldRecordTrendingEnter 
 import { getDb } from "../db";
 import { SCHEMA_VERSION } from "../schema";
 import { appendTickToJsonl } from "../jsonl";
-import { getGmgnApiKey } from "../../utils/env";
+import { getGmgnApiKey, getSolanaRpcUrl } from "../../utils/env";
 
 const DS_BASE = "https://api.dexscreener.com";
 const KEEPALIVE_MS = 6 * 60 * 60 * 1000; // 6 hours
@@ -277,8 +277,9 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
               INSERT INTO migrations (
                 mint, pair_address, dex_id, quote_mint, observed_at, observed_at_ms,
                 pair_created_at_ms, price_usd, liq_usd, mcap_usd, fdv_usd,
-                tx_5m_buys, tx_5m_sells, vol_5m_usd, raw_json
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                tx_5m_buys, tx_5m_sells, vol_5m_usd, raw_json,
+                top_holder_sol, pool_sol, nuke_ratio, unique_buyers_5m, same_slot_buyers
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `);
             migrationStmt.run(
               mint,
@@ -295,8 +296,36 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
               null,
               null,
               null,
-              JSON.stringify(item)
+              JSON.stringify(item),
+              null, null, null, null, null
             );
+
+            // After insert: compute nuke snapshot using the pair's price_native and liq_quote
+            try {
+              const pairUrl = `${DS_BASE}/latest/dex/pairs/${item.pair_address}`;
+              const pairResp = await fetch(pairUrl);
+              if (pairResp.ok) {
+                const pairData = await pairResp.json();
+                const pair = pairData?.pairs?.[0];
+                if (pair) {
+                  const tick = normalizeDexScreenerPair(pair, `/latest/dex/pairs/${item.pair_address}`);
+                  const nuke = await getNukeSnapshot(mint, tick.price_native || 0, tick.liq_quote || 0);
+                  const updateStmt = db.prepare(`
+                    UPDATE migrations SET top_holder_sol=?, pool_sol=?, nuke_ratio=?, unique_buyers_5m=?, same_slot_buyers=? WHERE mint=?
+                  `);
+                  updateStmt.run(
+                    nuke.top_holder_sol,
+                    nuke.pool_sol,
+                    nuke.nuke_ratio,
+                    nuke.unique_buyers_5m,
+                    nuke.same_slot_buyers,
+                    mint
+                  );
+                }
+              }
+            } catch (e: any) {
+              recordError("gmgn", "nuke_snapshot", `nuke snapshot failed: ${e.message}`, JSON.stringify({ mint }));
+            }
           } catch (e: any) {
             recordError("gmgn", "db", `migrations insert: ${e.message}`, JSON.stringify({ mint }));
             continue;
@@ -321,6 +350,71 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
         result.errors++;
       }
     }
+  }
+
+  return result;
+}
+
+interface NukeSnapshot {
+  top_holder_sol: number | null;
+  pool_sol: number | null;
+  nuke_ratio: number | null;
+  unique_buyers_5m: number | null;
+  same_slot_buyers: number | null;
+}
+
+async function getNukeSnapshot(
+  mint: string,
+  price_native: number,
+  liq_quote_sol: number
+): Promise<NukeSnapshot> {
+  const rpcUrl = getSolanaRpcUrl();
+  const result: NukeSnapshot = {
+    top_holder_sol: null,
+    pool_sol: null,
+    nuke_ratio: null,
+    unique_buyers_5m: null,
+    same_slot_buyers: null,
+  };
+
+  try {
+    const resp = await fetch(rpcUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "getTokenLargestAccounts",
+        params: [mint],
+      }),
+    });
+
+    if (!resp.ok) {
+      return result;
+    }
+
+    const data = await resp.json();
+    const accounts = data?.result?.value;
+    if (!Array.isArray(accounts) || accounts.length === 0) {
+      return result;
+    }
+
+    // First largest account (should not be the pool itself in most cases)
+    // Token-2022 has amount as string, classic SPL has amount as number
+    let topAmount = 0;
+    if (typeof accounts[0].amount === "string") {
+      topAmount = parseFloat(accounts[0].amount) / Math.pow(10, accounts[0].decimals);
+    } else {
+      topAmount = accounts[0].amount / Math.pow(10, accounts[0].decimals);
+    }
+
+    result.top_holder_sol = topAmount * price_native;
+    result.pool_sol = liq_quote_sol;
+    if (liq_quote_sol > 0) {
+      result.nuke_ratio = result.top_holder_sol / result.pool_sol;
+    }
+  } catch {
+    // RPC failed, leave fields null
   }
 
   return result;

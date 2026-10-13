@@ -185,7 +185,12 @@ export function createSchema(db: any): void {
       tx_5m_buys INTEGER,
       tx_5m_sells INTEGER,
       vol_5m_usd REAL,
-      raw_json TEXT
+      raw_json TEXT,
+      top_holder_sol REAL,
+      pool_sol REAL,
+      nuke_ratio REAL,
+      unique_buyers_5m INTEGER,
+      same_slot_buyers INTEGER
     );
   `);
 
@@ -203,6 +208,20 @@ export function createSchema(db: any): void {
     );
   `);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_wallet_facts_mint_obs ON wallet_facts(mint, observed_at_ms);`);
+}
+
+// Add Phase 19A columns to existing DBs that predate them
+export function ensurePhase19Columns(db: any): void {
+  const cols = [
+    { name: "top_holder_sol", type: "REAL" },
+    { name: "pool_sol", type: "REAL" },
+    { name: "nuke_ratio", type: "REAL" },
+    { name: "unique_buyers_5m", type: "INTEGER" },
+    { name: "same_slot_buyers", type: "INTEGER" },
+  ];
+  for (const col of cols) {
+    db.exec(`ALTER TABLE migrations ADD COLUMN IF NOT EXISTS ${col.name} ${col.type};`);
+  }
 }
 
 export function seedSchemaMeta(db: any): void {
