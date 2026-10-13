@@ -1090,8 +1090,58 @@ function main() {
   }
 
   if (fatSmartRugTimes.length >= 30) {
-    console.log(`fat+smart+top10low+creatorout rug time-to-hit min=${percentile(fatSmartRugTimes, 0).toFixed(1)} p25=${percentile(fatSmartRugTimes, 25).toFixed(1)} median=${percentile(fatSmartRugTimes, 50).toFixed(1)} p75=${percentile(fatSmartRugTimes, 75).toFixed(1)} max=${percentile(fatSmartRugTimes, 100).toFixed(1)} n=${fatSmartRugTimes.length}`);
+    console.log(`cross rug time-to-hit min=${percentile(fatSmartRugTimes, 0).toFixed(1)} p25=${percentile(fatSmartRugTimes, 25).toFixed(1)} median=${percentile(fatSmartRugTimes, 50).toFixed(1)} p75=${percentile(fatSmartRugTimes, 75).toFixed(1)} max=${percentile(fatSmartRugTimes, 100).toFixed(1)} n=${fatSmartRugTimes.length}`);
   }
+
+  // Sample of high-liquidity rug-first names
+  console.log("\n=== Fat book rug sample (>=100k, rug_first) ===");
+  let fatCount = 0;
+  for (const rt of rugTpData) {
+    if (rt.outcome !== "rug_first") continue;
+    if (rt.entryLiq == null || rt.entryLiq < 100000) continue;
+    if (fatCount >= 8) break;
+    const clockInfo = clocks.get(rt.mint);
+    if (!clockInfo) continue;
+    const six = getSixHourTicks(rt.mint, clockInfo.clockMs);
+    if (six.entry === null) continue;
+    const entryPrice = six.entry.price_usd;
+    let minPrice = entryPrice;
+    let maxPrice = entryPrice;
+    let timeToRug: number | null = null;
+    for (const t of six.ticks) {
+      if (t.price_usd < minPrice) minPrice = t.price_usd;
+      if (t.price_usd > maxPrice) maxPrice = t.price_usd;
+      if (timeToRug === null && t.price_usd <= entryPrice * 0.5) {
+        timeToRug = (t.observed_at_ms - six.entry.observed_at_ms) / (60 * 1000);
+      }
+    }
+    console.log(`FAT mint=${rt.mint.slice(0, 8)}.. liq=${Math.round(rt.entryLiq).toLocaleString()} entry=${entryPrice.toFixed(6)} min=${minPrice.toFixed(6)} max=${maxPrice.toFixed(6)} rugMin=${timeToRug != null ? timeToRug.toFixed(1) : "-"}`);
+    fatCount++;
+  }
+  console.log(`fat sample shown=${fatCount}`);
+
+  // Sample of low-liquidity tp-first names
+  console.log("\n=== Thin book tp sample (<25k, tp_first) ===");
+  let thinCount = 0;
+  for (const rt of rugTpData) {
+    if (rt.outcome !== "tp_first") continue;
+    if (rt.entryLiq == null || rt.entryLiq >= 25000) continue;
+    if (thinCount >= 8) break;
+    const clockInfo = clocks.get(rt.mint);
+    if (!clockInfo) continue;
+    const six = getSixHourTicks(rt.mint, clockInfo.clockMs);
+    if (six.entry === null) continue;
+    const entryPrice = six.entry.price_usd;
+    let minPrice = entryPrice;
+    let maxPrice = entryPrice;
+    for (const t of six.ticks) {
+      if (t.price_usd < minPrice) minPrice = t.price_usd;
+      if (t.price_usd > maxPrice) maxPrice = t.price_usd;
+    }
+    console.log(`THIN mint=${rt.mint.slice(0, 8)}.. liq=${Math.round(rt.entryLiq).toLocaleString()} entry=${entryPrice.toFixed(6)} min=${minPrice.toFixed(6)} max=${maxPrice.toFixed(6)}`);
+    thinCount++;
+  }
+  console.log(`thin sample shown=${thinCount}`);
 }
 
 main();
