@@ -530,7 +530,6 @@ async function getNukeSnapshot(
     if (result.nuke_ratio === null) {
       console.log(`[tape] nuke skip mint=${mint} reason=all_half_supply`);
     }
-    }
   } catch {
     // RPC failed, leave fields null
   }
