@@ -307,7 +307,7 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
                 WHERE mint = ? AND dex_id = 'pumpswap' AND pair_created_at_ms IS NOT NULL
                 ORDER BY ABS(pair_created_at_ms - ?) ASC
                 LIMIT 1
-              `).all(mint, clockInfo.clockMs);
+              `).all(mint, migrateTs);
 
               if (tickRows.length > 0) {
                 const tickRow = tickRows[0];
@@ -394,7 +394,7 @@ async function getNukeSnapshot(
         body: JSON.stringify({
           jsonrpc: "2.0",
           id: 2,
-          method: "getSupply",
+          method: "getTokenSupply",
           params: [mint],
         }),
       });
@@ -431,13 +431,9 @@ async function getNukeSnapshot(
       return result;
     }
 
-    // Skip pool address and >50% supply holders, use first valid account
+    // Drop any account holding >50% of supply, use the next largest
     const halfSupply = supplyInTokens * 0.5;
     for (const account of accounts) {
-      if (pair_address && account.address === pair_address) {
-        continue;
-      }
-
       let amount = 0;
       if (typeof account.amount === "string") {
         amount = parseFloat(account.amount) / Math.pow(10, account.decimals);
@@ -479,6 +475,9 @@ async function getNukeSnapshot(
 
         if (Array.isArray(signatures) && signatures.length > 0) {
           const allSigners = new Set<string>();
+          const otherSigners = new Set<string>();
+          // First transaction is the oldest (last in the list, newest first ordering)
+          const firstTxIndex = signatures.length - 1;
           const firstTxSigners = new Set<string>();
 
           for (let i = 0; i < signatures.length; i++) {
@@ -499,8 +498,10 @@ async function getNukeSnapshot(
               if (Array.isArray(txSignatures)) {
                 for (const signer of txSignatures) {
                   allSigners.add(signer);
-                  if (i === 0) {
+                  if (i === firstTxIndex) {
                     firstTxSigners.add(signer);
+                  } else {
+                    otherSigners.add(signer);
                   }
                 }
               }
@@ -509,9 +510,10 @@ async function getNukeSnapshot(
 
           result.unique_buyers_5m = allSigners.size;
 
+          // Count signers of the first (oldest) tx who also appear in other txs
           let sameSlotCount = 0;
-          for (const signer of allSigners) {
-            if (firstTxSigners.has(signer)) {
+          for (const signer of firstTxSigners) {
+            if (otherSigners.has(signer)) {
               sameSlotCount++;
             }
           }
