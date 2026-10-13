@@ -12,8 +12,9 @@ const MIN_LIQUIDITY = 25000;
 const MAX_LIQUIDITY = 100000;
 const MIN_HOLDERS = 500;
 
+
 // Phase 18A: Paper forward test of the majority-migration edge.
-// Filter: top 10 < 20%, creator already closed, book thick enough.
+// Filter: top 10 and creator status present, liquidity $25k-$100k, 500+ holders.
 // Inserted into watchlist but not routed through Alpha narrative gate.
 // Paper buy only when dry-run is on; live buys are deferred to operator.
 
