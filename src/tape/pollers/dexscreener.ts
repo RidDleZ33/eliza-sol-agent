@@ -300,28 +300,34 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
               null, null, null, null, null
             );
 
-            // After insert: compute nuke snapshot using the pair's price_native and liq_quote
+            // After insert: compute nuke snapshot using stored pumpswap tick data
             try {
-              const pairUrl = `${DS_BASE}/latest/dex/pairs/${item.pair_address}`;
-              const pairResp = await fetch(pairUrl);
-              if (pairResp.ok) {
-                const pairData = await pairResp.json();
-                const pair = pairData?.pairs?.[0];
-                if (pair) {
-                  const tick = normalizeDexScreenerPair(pair, `/latest/dex/pairs/${item.pair_address}`);
-                  const nuke = await getNukeSnapshot(mint, tick.price_native || 0, tick.liq_quote || 0);
-                  const updateStmt = db.prepare(`
-                    UPDATE migrations SET top_holder_sol=?, pool_sol=?, nuke_ratio=?, unique_buyers_5m=?, same_slot_buyers=? WHERE mint=?
-                  `);
-                  updateStmt.run(
-                    nuke.top_holder_sol,
-                    nuke.pool_sol,
-                    nuke.nuke_ratio,
-                    nuke.unique_buyers_5m,
-                    nuke.same_slot_buyers,
-                    mint
-                  );
-                }
+              const tickRows = db.prepare(`
+                SELECT price_native, liq_quote, pair_address, pair_created_at_ms FROM market_ticks
+                WHERE mint = ? AND dex_id = 'pumpswap' AND pair_created_at_ms IS NOT NULL
+                ORDER BY ABS(pair_created_at_ms - ?) ASC
+                LIMIT 1
+              `).all(mint, clockInfo.clockMs);
+
+              if (tickRows.length > 0) {
+                const tickRow = tickRows[0];
+                const nuke = await getNukeSnapshot(
+                  mint,
+                  tickRow.pair_address || null,
+                  tickRow.price_native || 0,
+                  tickRow.liq_quote || 0
+                );
+                const updateStmt = db.prepare(`
+                  UPDATE migrations SET top_holder_sol=?, pool_sol=?, nuke_ratio=?, unique_buyers_5m=?, same_slot_buyers=? WHERE mint=?
+                `);
+                updateStmt.run(
+                  nuke.top_holder_sol,
+                  nuke.pool_sol,
+                  nuke.nuke_ratio,
+                  nuke.unique_buyers_5m,
+                  nuke.same_slot_buyers,
+                  mint
+                );
               }
             } catch (e: any) {
               recordError("gmgn", "nuke_snapshot", `nuke snapshot failed: ${e.message}`, JSON.stringify({ mint }));
@@ -365,6 +371,7 @@ interface NukeSnapshot {
 
 async function getNukeSnapshot(
   mint: string,
+  pair_address: string | null,
   price_native: number,
   liq_quote_sol: number
 ): Promise<NukeSnapshot> {
@@ -378,6 +385,31 @@ async function getNukeSnapshot(
   };
 
   try {
+    // Get total supply to determine >50% threshold
+    let supplyInTokens = 0;
+    try {
+      const supplyResp = await fetch(rpcUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 2,
+          method: "getSupply",
+          params: [mint],
+        }),
+      });
+      if (supplyResp.ok) {
+        const supplyData = await supplyResp.json();
+        const supplyAmount = supplyData?.result?.value?.amount;
+        const decimals = supplyData?.result?.value?.decimals || 0;
+        if (supplyAmount) {
+          supplyInTokens = supplyAmount / Math.pow(10, decimals);
+        }
+      }
+    } catch {
+      // Supply fetch failed, continue without >50% filter
+    }
+
     const resp = await fetch(rpcUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -399,22 +431,96 @@ async function getNukeSnapshot(
       return result;
     }
 
-    // First largest account (should not be the pool itself in most cases)
-    // Token-2022 has amount as string, classic SPL has amount as number
-    let topAmount = 0;
-    if (typeof accounts[0].amount === "string") {
-      topAmount = parseFloat(accounts[0].amount) / Math.pow(10, accounts[0].decimals);
-    } else {
-      topAmount = accounts[0].amount / Math.pow(10, accounts[0].decimals);
-    }
+    // Skip pool address and >50% supply holders, use first valid account
+    const halfSupply = supplyInTokens * 0.5;
+    for (const account of accounts) {
+      if (pair_address && account.address === pair_address) {
+        continue;
+      }
 
-    result.top_holder_sol = topAmount * price_native;
-    result.pool_sol = liq_quote_sol;
-    if (liq_quote_sol > 0) {
-      result.nuke_ratio = result.top_holder_sol / result.pool_sol;
+      let amount = 0;
+      if (typeof account.amount === "string") {
+        amount = parseFloat(account.amount) / Math.pow(10, account.decimals);
+      } else {
+        amount = account.amount / Math.pow(10, account.decimals);
+      }
+
+      if (supplyInTokens > 0 && amount > halfSupply) {
+        continue;
+      }
+
+      result.top_holder_sol = amount * price_native;
+      result.pool_sol = liq_quote_sol;
+      if (liq_quote_sol > 0) {
+        result.nuke_ratio = result.top_holder_sol / result.pool_sol;
+      }
+      break;
     }
   } catch {
     // RPC failed, leave fields null
+  }
+
+  // Compute unique_buyers_5m and same_slot_buyers from last 20 transactions
+  try {
+    if (pair_address) {
+      const sigResp = await fetch(rpcUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 3,
+          method: "getSignaturesForAddress",
+          params: [pair_address, { limit: 20 }],
+        }),
+      });
+      if (sigResp.ok) {
+        const sigData = await sigResp.json();
+        const signatures = sigData?.result;
+
+        if (Array.isArray(signatures) && signatures.length > 0) {
+          const allSigners = new Set<string>();
+          const firstTxSigners = new Set<string>();
+
+          for (let i = 0; i < signatures.length; i++) {
+            const sig = signatures[i];
+            const txResp = await fetch(rpcUrl, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                jsonrpc: "2.0",
+                id: 100 + i,
+                method: "getTransaction",
+                params: [sig.signature, { encoding: "json", commitment: "confirmed" }],
+              }),
+            });
+            if (txResp.ok) {
+              const txData = await txResp.json();
+              const txSignatures = txData?.result?.transaction?.signatures;
+              if (Array.isArray(txSignatures)) {
+                for (const signer of txSignatures) {
+                  allSigners.add(signer);
+                  if (i === 0) {
+                    firstTxSigners.add(signer);
+                  }
+                }
+              }
+            }
+          }
+
+          result.unique_buyers_5m = allSigners.size;
+
+          let sameSlotCount = 0;
+          for (const signer of allSigners) {
+            if (firstTxSigners.has(signer)) {
+              sameSlotCount++;
+            }
+          }
+          result.same_slot_buyers = sameSlotCount;
+        }
+      }
+    }
+  } catch {
+    // Leave unique_buyers_5m and same_slot_buyers null
   }
 
   return result;

@@ -42,10 +42,6 @@ function openReadWrite(path: string) {
   return new Database(path);
 }
 
-function openReadWrite(path: string) {
-  return new Database(path);
-}
-
 function openReadOnly(path: string) {
   return new Database(path, { readonly: true });
 }
