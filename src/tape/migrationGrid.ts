@@ -27,7 +27,7 @@ function openReadOnly(path: string) {
 
 interface MigrationClockInfo {
   clockMs: number;
-  pairAddress: string;
+  pairAddress: string | null;
   rawJson: string | null;
 }
 
@@ -63,7 +63,6 @@ function collectMigrationClocks(): Map<string, MigrationClockInfo> {
         .all();
       for (const row of rows) {
         if (row.pair_created_at_ms == null) continue;
-        if (row.pair_address == null || row.pair_address === "") continue;
         const existing = clocks.get(row.mint);
         if (
           existing === undefined ||
@@ -71,7 +70,7 @@ function collectMigrationClocks(): Map<string, MigrationClockInfo> {
         ) {
           clocks.set(row.mint, {
             clockMs: row.pair_created_at_ms,
-            pairAddress: row.pair_address,
+            pairAddress: row.pair_address || null,
             rawJson: row.raw_json,
           });
         }
@@ -93,6 +92,50 @@ interface Tick {
   liq_usd: number;
   tx_5m_buys: number;
   tx_5m_sells: number;
+}
+
+function findClosestPumpswapPair(mint: string, clockMs: number): string | null {
+  if (!existsSync(TAPE_DIR)) {
+    return null;
+  }
+
+  const files = readdirSync(TAPE_DIR);
+  let bestPairAddress = null;
+  let bestDiff = Infinity;
+  const TEN_MINUTES_MS = 10 * 60 * 1000;
+
+  for (const f of files) {
+    if (f === "tape.sqlite") continue;
+    const datePart = dateFromFilename(f);
+    if (!datePart) continue;
+
+    const path = `${TAPE_DIR}/${f}`;
+    let db: Database;
+    try {
+      db = openReadOnly(path);
+    } catch {
+      continue;
+    }
+
+    const ticks: any[] = db.prepare(`
+      SELECT pair_address, pair_created_at_ms FROM market_ticks
+      WHERE mint = ? AND dex_id = 'pumpswap'
+      AND pair_created_at_ms IS NOT NULL
+      ORDER BY pair_created_at_ms ASC
+    `).all(mint);
+
+    for (const tick of ticks) {
+      const diff = Math.abs(tick.pair_created_at_ms - clockMs);
+      if (diff < TEN_MINUTES_MS && diff < bestDiff) {
+        bestDiff = diff;
+        bestPairAddress = tick.pair_address;
+      }
+    }
+
+    db.close();
+  }
+
+  return bestPairAddress;
 }
 
 function getSixHourTicks(mint: string, clockMs: number, pairAddress: string) {
@@ -555,6 +598,30 @@ function main() {
     console.log("[migration-grid] no migration data found");
     return;
   }
+
+  // Resolve pair addresses for migrations that don't have one
+  let resolved = 0;
+  let fromRow = 0;
+  let fromTick = 0;
+  let none = 0;
+
+  for (const [mint, info] of clocks.entries()) {
+    resolved++;
+    if (info.pairAddress !== null) {
+      fromRow++;
+      continue;
+    }
+
+    const bestPair = findClosestPumpswapPair(mint, info.clockMs);
+    if (bestPair) {
+      info.pairAddress = bestPair;
+      fromTick++;
+    } else {
+      none++;
+    }
+  }
+
+  console.log(`pairs resolved=${resolved} fromRow=${fromRow} fromTick=${fromTick} none=${none}`);
 
   // Score every mint on every policy
   const policyResults: Record<string, { returns: number[]; hits: number }> = {};
