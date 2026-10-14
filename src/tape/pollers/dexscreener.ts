@@ -27,13 +27,13 @@ function passesLiveFilter(item: any): boolean {
   return true;
 }
 
-// Phase 19AN7: pace RPC at one call per second
+// Phase 19AN8: pace RPC at one call per second
 let lastRpcCallMs = 0;
-function paceRpc() {
+async function paceRpc() {
   const now = Date.now();
   const elapsed = now - lastRpcCallMs;
   if (elapsed < 1000) {
-    Bun.sleep(1000 - elapsed);
+    await Bun.sleep(1000 - elapsed);
   }
   lastRpcCallMs = Date.now();
 }
@@ -366,7 +366,7 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
 
               if (tickRows.length > 0) {
                 const tickRow = tickRows[0];
-                paceRpc();
+                await paceRpc();
                 const nuke = await getNukeSnapshot(
                   mint,
                   tickRow.pair_address,
@@ -394,18 +394,19 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
           }
         }
 
-        // Phase 19AN7: backfill null nuke_ratio for up to 5 older rows that pass the live filter
+        // Phase 19AN8: backfill null nuke_ratio for up to 5 passing rows that have ticks
         try {
           const pending = db.prepare(`
             SELECT mint, pair_created_at_ms, raw_json FROM migrations
             WHERE nuke_ratio IS NULL AND pair_created_at_ms IS NOT NULL
             ORDER BY observed_at_ms ASC
-            LIMIT 5
+            LIMIT 50
           `).all();
 
+          let backfilled = 0;
           for (const p of pending) {
+            if (backfilled >= 5) break;
             try {
-              // Only retry passing rows
               let raw: any = null;
               try {
                 raw = JSON.parse(p.raw_json);
@@ -413,7 +414,6 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
                 continue;
               }
               if (!passesLiveFilter(raw)) {
-                console.log(`[tape] nuke backfill skip mint=${p.mint} reason=fail_live_filter`);
                 continue;
               }
 
@@ -426,7 +426,7 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
 
               if (tickRows.length > 0) {
                 const tickRow = tickRows[0];
-                paceRpc();
+                await paceRpc();
                 const nuke = await getNukeSnapshot(
                   p.mint,
                   tickRow.pair_address,
@@ -446,6 +446,7 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
                     p.mint
                   );
                   console.log(`[tape] nuke mint=${p.mint} ratio=${nuke.nuke_ratio.toFixed(2)}`);
+                  backfilled++;
                 }
               }
             } catch (e: any) {
