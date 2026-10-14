@@ -17,16 +17,6 @@ const KEEPALIVE_MS = 6 * 60 * 60 * 1000; // 6 hours
 const MIGRATIONS_MAX_AGE_MS = 30 * 60 * 1000; // 30 minutes
 const MIGRATIONS_MAX_PER_POLL = 20;
 
-// Phase 19AN7: live filter — only snapshot rows that would pass
-function passesLiveFilter(item: any): boolean {
-  if (typeof item.holder_count !== "number" || item.holder_count < 500) return false;
-  const liq = typeof item.liquidity === "number" ? item.liquidity : parseFloat(item.liquidity);
-  if (isNaN(liq) || liq < 25000 || liq >= 100000) return false;
-  if (typeof item.top_10_holder_rate !== "number") return false;
-  if (!item.creator_token_status) return false;
-  return true;
-}
-
 // Phase 19B: 429 backoff — one holders call per snapshot, 10 min per mint on 429
 const holdersBackoff = new Map<string, number>(); // mint -> backoff until ms
 const GMGN_HOLDERS_BASE = "https://openapi.gmgn.ai/v1/market/token_top_holders";
@@ -333,86 +323,22 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
             await pollTokenBatch(runId, batch, result, false);
           }
 
-          // Phase 19AN7: only snapshot rows that pass the live filter
-          for (const mint of newMigrationMints) {
-            try {
-              const row = db.prepare("SELECT pair_created_at_ms, raw_json FROM migrations WHERE mint = ?").get(mint);
-              if (!row) continue;
-
-              let raw: any = null;
-              try {
-                raw = JSON.parse(row.raw_json);
-              } catch {
-                // unparsable raw — skip snapshot
-                continue;
-              }
-              if (!passesLiveFilter(raw)) {
-                console.log(`[tape] nuke skip mint=${mint} reason=fail_live_filter`);
-                continue;
-              }
-
-              const tickRows = db.prepare(`
-                SELECT price_native, liq_quote, pair_address FROM market_ticks
-                WHERE mint = ? AND dex_id = 'pumpswap' AND pair_created_at_ms IS NOT NULL
-                ORDER BY ABS(pair_created_at_ms - ?) ASC
-                LIMIT 1
-              `).all(mint, row.pair_created_at_ms);
-
-              if (tickRows.length > 0) {
-                const tickRow = tickRows[0];
-                await paceRpc();
-                const nuke = await getNukeSnapshot(
-                  mint,
-                  tickRow.pair_address,
-                  tickRow.price_native || 0,
-                  tickRow.liq_quote || 0
-                );
-                if (nuke.nuke_ratio !== null) {
-                  const updateStmt = db.prepare(`
-                    UPDATE migrations SET top_holder_sol=?, pool_sol=?, nuke_ratio=?, unique_buyers_5m=?, same_slot_buyers=?, top_holder_pct=?, top_holder_tag=? WHERE mint=?
-                  `);
-                  updateStmt.run(
-                    nuke.top_holder_sol,
-                    nuke.pool_sol,
-                    nuke.nuke_ratio,
-                    nuke.unique_buyers_5m,
-                    nuke.same_slot_buyers,
-                    nuke.top_holder_pct,
-                    nuke.top_holder_tag,
-                    mint
-                  );
-                  console.log(`[tape] nuke mint=${mint} ratio=${nuke.nuke_ratio.toFixed(2)} pct=${nuke.top_holder_pct ?? "null"}`);
-                }
-              }
-            } catch (e: any) {
-              recordError("gmgn", "nuke_snapshot", `nuke snapshot failed: ${e.message}`, JSON.stringify({ mint }));
-            }
-          }
         }
 
-        // Phase 19AN8: backfill null nuke_ratio for up to 5 passing rows that have ticks
+        // Phase 19C: snapshot at clock + 5 minutes, not at insert time.
+        // Up to 3 eligible rows per poll; no live filter.
         try {
+          const snapshotDueMs = now - 5 * 60 * 1000;
           const pending = db.prepare(`
-            SELECT mint, pair_created_at_ms, raw_json FROM migrations
+            SELECT mint, pair_created_at_ms FROM migrations
             WHERE nuke_ratio IS NULL AND pair_created_at_ms IS NOT NULL
-            ORDER BY observed_at_ms ASC
-            LIMIT 50
-          `).all();
+              AND pair_created_at_ms <= ?
+            ORDER BY pair_created_at_ms ASC
+            LIMIT 3
+          `).all(snapshotDueMs);
 
-          let backfilled = 0;
           for (const p of pending) {
-            if (backfilled >= 5) break;
             try {
-              let raw: any = null;
-              try {
-                raw = JSON.parse(p.raw_json);
-              } catch {
-                continue;
-              }
-              if (!passesLiveFilter(raw)) {
-                continue;
-              }
-
               const tickRows = db.prepare(`
                 SELECT price_native, liq_quote, pair_address FROM market_ticks
                 WHERE mint = ? AND dex_id = 'pumpswap' AND pair_created_at_ms IS NOT NULL
@@ -444,15 +370,14 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
                     p.mint
                   );
                   console.log(`[tape] nuke mint=${p.mint} ratio=${nuke.nuke_ratio.toFixed(2)} pct=${nuke.top_holder_pct ?? "null"}`);
-                  backfilled++;
                 }
               }
             } catch (e: any) {
-              recordError("gmgn", "nuke_backfill", `nuke backfill failed: ${e.message}`, JSON.stringify({ mint: p.mint }));
+              recordError("gmgn", "nuke_snapshot", `nuke snapshot failed: ${e.message}`, JSON.stringify({ mint: p.mint }));
             }
           }
         } catch (e: any) {
-          recordError("gmgn", "nuke_backfill", `backfill query failed: ${e.message}`, null);
+          recordError("gmgn", "nuke_snapshot", `snapshot query failed: ${e.message}`, null);
         }
       } catch (err: any) {
         recordError("gmgn", "http", `completed feed error: ${err.message}`, null);
