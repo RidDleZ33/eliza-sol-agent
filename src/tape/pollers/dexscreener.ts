@@ -10,7 +10,7 @@ import { shouldRecordFirstSeen, recordDiscoveryEvent, shouldRecordTrendingEnter 
 import { getDb } from "../db";
 import { SCHEMA_VERSION } from "../schema";
 import { appendTickToJsonl } from "../jsonl";
-import { getGmgnApiKey, getSolanaRpcUrl } from "../../utils/env";
+import { getGmgnApiKey } from "../../utils/env";
 
 const DS_BASE = "https://api.dexscreener.com";
 const KEEPALIVE_MS = 6 * 60 * 60 * 1000; // 6 hours
@@ -27,16 +27,9 @@ function passesLiveFilter(item: any): boolean {
   return true;
 }
 
-// Phase 19AN8: pace RPC at one call per second
-let lastRpcCallMs = 0;
-async function paceRpc() {
-  const now = Date.now();
-  const elapsed = now - lastRpcCallMs;
-  if (elapsed < 1000) {
-    await Bun.sleep(1000 - elapsed);
-  }
-  lastRpcCallMs = Date.now();
-}
+// Phase 19B: 429 backoff — one holders call per snapshot, 10 min per mint on 429
+const holdersBackoff = new Map<string, number>(); // mint -> backoff until ms
+const GMGN_HOLDERS_BASE = "https://openapi.gmgn.ai/v1/market/token_top_holders";
 
 function migrationsEnabled(): boolean {
   const v = process.env.TAPE_MIGRATIONS;
@@ -299,8 +292,9 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
                 mint, pair_address, dex_id, quote_mint, observed_at, observed_at_ms,
                 pair_created_at_ms, price_usd, liq_usd, mcap_usd, fdv_usd,
                 tx_5m_buys, tx_5m_sells, vol_5m_usd, raw_json,
-                top_holder_sol, pool_sol, nuke_ratio, unique_buyers_5m, same_slot_buyers
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                top_holder_sol, pool_sol, nuke_ratio, unique_buyers_5m, same_slot_buyers,
+                top_holder_pct, top_holder_tag
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `);
             migrationStmt.run(
               mint,
@@ -318,7 +312,7 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
               null,
               null,
               JSON.stringify(item),
-              null, null, null, null, null
+              null, null, null, null, null, null, null
             );
           } catch (e: any) {
             recordError("gmgn", "db", `migrations insert: ${e.message}`, JSON.stringify({ mint }));
@@ -375,7 +369,7 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
                 );
                 if (nuke.nuke_ratio !== null) {
                   const updateStmt = db.prepare(`
-                    UPDATE migrations SET top_holder_sol=?, pool_sol=?, nuke_ratio=?, unique_buyers_5m=?, same_slot_buyers=? WHERE mint=?
+                    UPDATE migrations SET top_holder_sol=?, pool_sol=?, nuke_ratio=?, unique_buyers_5m=?, same_slot_buyers=?, top_holder_pct=?, top_holder_tag=? WHERE mint=?
                   `);
                   updateStmt.run(
                     nuke.top_holder_sol,
@@ -383,9 +377,11 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
                     nuke.nuke_ratio,
                     nuke.unique_buyers_5m,
                     nuke.same_slot_buyers,
+                    nuke.top_holder_pct,
+                    nuke.top_holder_tag,
                     mint
                   );
-                  console.log(`[tape] nuke mint=${mint} ratio=${nuke.nuke_ratio.toFixed(2)}`);
+                  console.log(`[tape] nuke mint=${mint} ratio=${nuke.nuke_ratio.toFixed(2)} pct=${nuke.top_holder_pct ?? "null"}`);
                 }
               }
             } catch (e: any) {
@@ -435,7 +431,7 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
                 );
                 if (nuke.nuke_ratio !== null) {
                   const updateStmt = db.prepare(`
-                    UPDATE migrations SET top_holder_sol=?, pool_sol=?, nuke_ratio=?, unique_buyers_5m=?, same_slot_buyers=? WHERE mint=?
+                    UPDATE migrations SET top_holder_sol=?, pool_sol=?, nuke_ratio=?, unique_buyers_5m=?, same_slot_buyers=?, top_holder_pct=?, top_holder_tag=? WHERE mint=?
                   `);
                   updateStmt.run(
                     nuke.top_holder_sol,
@@ -443,9 +439,11 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
                     nuke.nuke_ratio,
                     nuke.unique_buyers_5m,
                     nuke.same_slot_buyers,
+                    nuke.top_holder_pct,
+                    nuke.top_holder_tag,
                     p.mint
                   );
-                  console.log(`[tape] nuke mint=${p.mint} ratio=${nuke.nuke_ratio.toFixed(2)}`);
+                  console.log(`[tape] nuke mint=${p.mint} ratio=${nuke.nuke_ratio.toFixed(2)} pct=${nuke.top_holder_pct ?? "null"}`);
                   backfilled++;
                 }
               }
@@ -472,6 +470,8 @@ interface NukeSnapshot {
   nuke_ratio: number | null;
   unique_buyers_5m: number | null;
   same_slot_buyers: number | null;
+  top_holder_pct: number | null;
+  top_holder_tag: string | null;
 }
 
 async function getNukeSnapshot(
@@ -480,13 +480,14 @@ async function getNukeSnapshot(
   price_native: number,
   liq_quote_sol: number
 ): Promise<NukeSnapshot> {
-  const rpcUrl = getSolanaRpcUrl();
   const result: NukeSnapshot = {
     top_holder_sol: null,
     pool_sol: null,
     nuke_ratio: null,
     unique_buyers_5m: null,
     same_slot_buyers: null,
+    top_holder_pct: null,
+    top_holder_tag: null,
   };
 
   if (liq_quote_sol <= 0) {
@@ -499,90 +500,89 @@ async function getNukeSnapshot(
     return result;
   }
 
-  if (!rpcUrl) {
-    console.log(`[tape] nuke skip mint=${mint} reason=no_rpc`);
+  // Check 429 backoff
+  const backoffUntil = holdersBackoff.get(mint);
+  if (backoffUntil && Date.now() < backoffUntil) {
+    console.log(`[tape] nuke skip mint=${mint} reason=429_backoff`);
+    return result;
+  }
+
+  const apiKey = getGmgnApiKey();
+  if (!apiKey) {
+    console.log(`[tape] nuke skip mint=${mint} reason=no_key`);
     return result;
   }
 
   try {
-    // Get total supply to determine >50% threshold
-    let supplyInTokens = 0;
-    try {
-      const supplyResp = await fetch(rpcUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          id: 2,
-          method: "getTokenSupply",
-          params: [mint],
-        }),
-      });
-      if (supplyResp.ok) {
-        const supplyData = await supplyResp.json();
-        const supplyAmount = supplyData?.result?.value?.amount;
-        const decimals = supplyData?.result?.value?.decimals || 0;
-        if (supplyAmount) {
-          supplyInTokens = supplyAmount / Math.pow(10, decimals);
-        }
-      }
-    } catch {
-      // Supply fetch failed, continue without >50% filter
-    }
+    const timestampSecs = Math.floor(Date.now() / 1000);
+    const clientId = `${Math.random().toString(36).slice(2, 14)}-${Math.random().toString(36).slice(2, 10)}`;
+    const url = new URL(GMGN_HOLDERS_BASE);
+    url.searchParams.set("timestamp", String(timestampSecs));
+    url.searchParams.set("client_id", clientId);
+    url.searchParams.set("chain", "sol");
+    url.searchParams.set("address", mint);
+    url.searchParams.set("limit", "5");
+    url.searchParams.set("order_by", "amount_percentage");
+    url.searchParams.set("direction", "desc");
 
-    const resp = await fetch(rpcUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: 1,
-        method: "getTokenLargestAccounts",
-        params: [mint],
-      }),
+    const resp = await fetch(url.toString(), {
+      method: "GET",
+      headers: {
+        "X-APIKEY": apiKey,
+      },
     });
 
+    if (resp.status === 429) {
+      holdersBackoff.set(mint, Date.now() + 10 * 60 * 1000);
+      console.log(`[tape] nuke skip mint=${mint} reason=http_429`);
+      return result;
+    }
+
     if (!resp.ok) {
-      console.log(`[tape] nuke skip mint=${mint} reason=rpc_error status=${resp.status}`);
+      console.log(`[tape] nuke skip mint=${mint} reason=http_${resp.status}`);
       return result;
     }
 
-    const data = await resp.json();
-    const accounts = data?.result?.value;
-    if (!Array.isArray(accounts) || accounts.length === 0) {
-      console.log(`[tape] nuke skip mint=${mint} reason=no_accounts`);
+    const body = await resp.json();
+    const list = body?.data;
+    if (!Array.isArray(list) || list.length === 0) {
+      console.log(`[tape] nuke skip mint=${mint} reason=no_holders`);
       return result;
     }
 
-    // Drop any account holding >50% of supply, use the next largest
-    const halfSupply = supplyInTokens * 0.5;
-    for (const account of accounts) {
-      let amount = 0;
-      if (typeof account.amount === "string") {
-        amount = parseFloat(account.amount) / Math.pow(10, account.decimals);
-      } else {
-        amount = account.amount / Math.pow(10, account.decimals);
+    // Skip first holder if it equals pair address or >50% of supply
+    for (const holder of list) {
+      const addr = holder?.address;
+      const pct = typeof holder?.amount_percentage === "number" ? holder.amount_percentage : 0;
+
+      // Skip pool itself or >50% holder
+      if (pair_address && addr === pair_address) {
+        continue;
       }
-
-      if (supplyInTokens > 0 && amount > halfSupply) {
+      if (pct > 50) {
         continue;
       }
 
-      result.top_holder_sol = amount * price_native;
+      // Use this holder
+      const amountRaw = typeof holder?.amount === "number" ? holder.amount : 0;
+      result.top_holder_sol = amountRaw * price_native;
       result.pool_sol = liq_quote_sol;
       if (liq_quote_sol > 0) {
         result.nuke_ratio = result.top_holder_sol / result.pool_sol;
+      }
+      result.top_holder_pct = pct;
+      if (holder?.tag && typeof holder.tag === "string") {
+        result.top_holder_tag = holder.tag;
       }
       break;
     }
 
     if (result.nuke_ratio === null) {
-      console.log(`[tape] nuke skip mint=${mint} reason=all_half_supply`);
+      console.log(`[tape] nuke skip mint=${mint} reason=all_pool_or_half`);
     }
   } catch {
-    // RPC failed, leave fields null
+    // GMGN call failed
   }
-
-  // Phase 19AN7: dropped unique_buyers_5m / same_slot_buyers RPC loop. They stay null.
 
   return result;
 }

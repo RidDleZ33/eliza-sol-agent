@@ -190,7 +190,9 @@ export function createSchema(db: any): void {
       pool_sol REAL,
       nuke_ratio REAL,
       unique_buyers_5m INTEGER,
-      same_slot_buyers INTEGER
+      same_slot_buyers INTEGER,
+      top_holder_pct REAL,
+      top_holder_tag TEXT
     );
   `);
 
@@ -218,6 +220,8 @@ export function ensurePhase19Columns(db: any): void {
     { name: "nuke_ratio", type: "REAL" },
     { name: "unique_buyers_5m", type: "INTEGER" },
     { name: "same_slot_buyers", type: "INTEGER" },
+    { name: "top_holder_pct", type: "REAL" },
+    { name: "top_holder_tag", type: "TEXT" },
   ];
 
   // Check existing columns via PRAGMA table_info
