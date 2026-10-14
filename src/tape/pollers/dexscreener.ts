@@ -325,8 +325,8 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
 
         }
 
-        // Phase 19C: snapshot at clock + 5 minutes, not at insert time.
-        // Up to 3 eligible rows per poll; no live filter.
+        // Phase 19CN: snapshot at clock + 5 minutes. Select 20 due rows,
+        // skip those without a PumpSwap tick, snapshot the first 3 that have one.
         try {
           const snapshotDueMs = now - 5 * 60 * 1000;
           const pending = db.prepare(`
@@ -334,10 +334,12 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
             WHERE nuke_ratio IS NULL AND pair_created_at_ms IS NOT NULL
               AND pair_created_at_ms <= ?
             ORDER BY pair_created_at_ms ASC
-            LIMIT 3
+            LIMIT 20
           `).all(snapshotDueMs);
 
+          let snapshotted = 0;
           for (const p of pending) {
+            if (snapshotted >= 3) break;
             try {
               const tickRows = db.prepare(`
                 SELECT price_native, liq_quote, pair_address FROM market_ticks
@@ -346,32 +348,36 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
                 LIMIT 1
               `).all(p.mint, p.pair_created_at_ms);
 
-              if (tickRows.length > 0) {
-                const tickRow = tickRows[0];
-                await paceRpc();
-                const nuke = await getNukeSnapshot(
-                  p.mint,
-                  tickRow.pair_address,
-                  tickRow.price_native || 0,
-                  tickRow.liq_quote || 0
-                );
-                if (nuke.nuke_ratio !== null) {
-                  const updateStmt = db.prepare(`
-                    UPDATE migrations SET top_holder_sol=?, pool_sol=?, nuke_ratio=?, unique_buyers_5m=?, same_slot_buyers=?, top_holder_pct=?, top_holder_tag=? WHERE mint=?
-                  `);
-                  updateStmt.run(
-                    nuke.top_holder_sol,
-                    nuke.pool_sol,
-                    nuke.nuke_ratio,
-                    nuke.unique_buyers_5m,
-                    nuke.same_slot_buyers,
-                    nuke.top_holder_pct,
-                    nuke.top_holder_tag,
-                    p.mint
-                  );
-                  console.log(`[tape] nuke mint=${p.mint} ratio=${nuke.nuke_ratio.toFixed(2)} pct=${nuke.top_holder_pct ?? "null"}`);
-                }
+              if (tickRows.length === 0) {
+                console.log(`[tape] nuke skip mint=${p.mint} reason=no_tick`);
+                continue;
               }
+
+              const tickRow = tickRows[0];
+              await paceRpc();
+              const nuke = await getNukeSnapshot(
+                p.mint,
+                tickRow.pair_address,
+                tickRow.price_native || 0,
+                tickRow.liq_quote || 0
+              );
+              if (nuke.nuke_ratio !== null) {
+                const updateStmt = db.prepare(`
+                  UPDATE migrations SET top_holder_sol=?, pool_sol=?, nuke_ratio=?, unique_buyers_5m=?, same_slot_buyers=?, top_holder_pct=?, top_holder_tag=? WHERE mint=?
+                `);
+                updateStmt.run(
+                  nuke.top_holder_sol,
+                  nuke.pool_sol,
+                  nuke.nuke_ratio,
+                  nuke.unique_buyers_5m,
+                  nuke.same_slot_buyers,
+                  nuke.top_holder_pct,
+                  nuke.top_holder_tag,
+                  p.mint
+                );
+                console.log(`[tape] nuke mint=${p.mint} ratio=${nuke.nuke_ratio.toFixed(2)} pct=${nuke.top_holder_pct ?? "null"}`);
+              }
+              snapshotted++;
             } catch (e: any) {
               recordError("gmgn", "nuke_snapshot", `nuke snapshot failed: ${e.message}`, JSON.stringify({ mint: p.mint }));
             }
