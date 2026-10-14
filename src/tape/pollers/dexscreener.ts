@@ -17,6 +17,27 @@ const KEEPALIVE_MS = 6 * 60 * 60 * 1000; // 6 hours
 const MIGRATIONS_MAX_AGE_MS = 30 * 60 * 1000; // 30 minutes
 const MIGRATIONS_MAX_PER_POLL = 20;
 
+// Phase 19AN7: live filter — only snapshot rows that would pass
+function passesLiveFilter(item: any): boolean {
+  if (typeof item.holder_count !== "number" || item.holder_count < 500) return false;
+  const liq = typeof item.liquidity === "number" ? item.liquidity : parseFloat(item.liquidity);
+  if (isNaN(liq) || liq < 25000 || liq >= 100000) return false;
+  if (typeof item.top_10_holder_rate !== "number") return false;
+  if (!item.creator_token_status) return false;
+  return true;
+}
+
+// Phase 19AN7: pace RPC at one call per second
+let lastRpcCallMs = 0;
+function paceRpc() {
+  const now = Date.now();
+  const elapsed = now - lastRpcCallMs;
+  if (elapsed < 1000) {
+    Bun.sleep(1000 - elapsed);
+  }
+  lastRpcCallMs = Date.now();
+}
+
 function migrationsEnabled(): boolean {
   const v = process.env.TAPE_MIGRATIONS;
   return v === "1" || v === "true";
@@ -318,11 +339,23 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
             await pollTokenBatch(runId, batch, result, false);
           }
 
-          // Now compute nuke snapshots for the new migrations (ticks exist after pollTokenBatch)
+          // Phase 19AN7: only snapshot rows that pass the live filter
           for (const mint of newMigrationMints) {
             try {
-              const row = db.prepare("SELECT pair_created_at_ms FROM migrations WHERE mint = ?").get(mint);
+              const row = db.prepare("SELECT pair_created_at_ms, raw_json FROM migrations WHERE mint = ?").get(mint);
               if (!row) continue;
+
+              let raw: any = null;
+              try {
+                raw = JSON.parse(row.raw_json);
+              } catch {
+                // unparsable raw — skip snapshot
+                continue;
+              }
+              if (!passesLiveFilter(raw)) {
+                console.log(`[tape] nuke skip mint=${mint} reason=fail_live_filter`);
+                continue;
+              }
 
               const tickRows = db.prepare(`
                 SELECT price_native, liq_quote, pair_address FROM market_ticks
@@ -333,6 +366,7 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
 
               if (tickRows.length > 0) {
                 const tickRow = tickRows[0];
+                paceRpc();
                 const nuke = await getNukeSnapshot(
                   mint,
                   tickRow.pair_address,
@@ -360,10 +394,10 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
           }
         }
 
-        // Fill null nuke_ratio for up to 5 older rows that now have ticks (every poll)
+        // Phase 19AN7: backfill null nuke_ratio for up to 5 older rows that pass the live filter
         try {
           const pending = db.prepare(`
-            SELECT mint, pair_created_at_ms FROM migrations
+            SELECT mint, pair_created_at_ms, raw_json FROM migrations
             WHERE nuke_ratio IS NULL AND pair_created_at_ms IS NOT NULL
             ORDER BY observed_at_ms ASC
             LIMIT 5
@@ -371,6 +405,18 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
 
           for (const p of pending) {
             try {
+              // Only retry passing rows
+              let raw: any = null;
+              try {
+                raw = JSON.parse(p.raw_json);
+              } catch {
+                continue;
+              }
+              if (!passesLiveFilter(raw)) {
+                console.log(`[tape] nuke backfill skip mint=${p.mint} reason=fail_live_filter`);
+                continue;
+              }
+
               const tickRows = db.prepare(`
                 SELECT price_native, liq_quote, pair_address FROM market_ticks
                 WHERE mint = ? AND dex_id = 'pumpswap' AND pair_created_at_ms IS NOT NULL
@@ -380,6 +426,7 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
 
               if (tickRows.length > 0) {
                 const tickRow = tickRows[0];
+                paceRpc();
                 const nuke = await getNukeSnapshot(
                   p.mint,
                   tickRow.pair_address,
@@ -534,74 +581,7 @@ async function getNukeSnapshot(
     // RPC failed, leave fields null
   }
 
-  // Compute unique_buyers_5m and same_slot_buyers from last 20 transactions
-  try {
-    if (pair_address) {
-      const sigResp = await fetch(rpcUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          id: 3,
-          method: "getSignaturesForAddress",
-          params: [pair_address, { limit: 20 }],
-        }),
-      });
-      if (sigResp.ok) {
-        const sigData = await sigResp.json();
-        const signatures = sigData?.result;
-
-        if (Array.isArray(signatures) && signatures.length > 0) {
-          const allSigners = new Set<string>();
-          const otherSigners = new Set<string>();
-          // First transaction is the oldest (last in the list, newest first ordering)
-          const firstTxIndex = signatures.length - 1;
-          const firstTxSigners = new Set<string>();
-
-          for (let i = 0; i < signatures.length; i++) {
-            const sig = signatures[i];
-            const txResp = await fetch(rpcUrl, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                jsonrpc: "2.0",
-                id: 100 + i,
-                method: "getTransaction",
-                params: [sig.signature, { encoding: "json", commitment: "confirmed" }],
-              }),
-            });
-            if (txResp.ok) {
-              const txData = await txResp.json();
-              const txSignatures = txData?.result?.transaction?.signatures;
-              if (Array.isArray(txSignatures)) {
-                for (const signer of txSignatures) {
-                  allSigners.add(signer);
-                  if (i === firstTxIndex) {
-                    firstTxSigners.add(signer);
-                  } else {
-                    otherSigners.add(signer);
-                  }
-                }
-              }
-            }
-          }
-
-          result.unique_buyers_5m = allSigners.size;
-
-          // Count signers of the first (oldest) tx who also appear in other txs
-          let sameSlotCount = 0;
-          for (const signer of firstTxSigners) {
-            if (otherSigners.has(signer)) {
-              sameSlotCount++;
-            }
-          }
-          result.same_slot_buyers = sameSlotCount;
-        }
-      }
-    }
-  } catch {
-    // Leave unique_buyers_5m and same_slot_buyers null
-  }
+  // Phase 19AN7: dropped unique_buyers_5m / same_slot_buyers RPC loop. They stay null.
 
   return result;
 }
