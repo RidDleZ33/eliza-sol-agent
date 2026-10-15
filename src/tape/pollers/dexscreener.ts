@@ -354,7 +354,6 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
               }
 
               const tickRow = tickRows[0];
-              await paceRpc();
               const nuke = await getNukeSnapshot(
                 p.mint,
                 tickRow.pair_address,
