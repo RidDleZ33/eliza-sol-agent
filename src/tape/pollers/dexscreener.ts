@@ -10,7 +10,7 @@ import { shouldRecordFirstSeen, recordDiscoveryEvent, shouldRecordTrendingEnter 
 import { getDb } from "../db";
 import { SCHEMA_VERSION } from "../schema";
 import { appendTickToJsonl } from "../jsonl";
-import { getSolanaRpcUrl } from "../../utils/env";
+import { getGmgnApiKey, getSolanaRpcUrl } from "../../utils/env";
 
 const DS_BASE = "https://api.dexscreener.com";
 const KEEPALIVE_MS = 6 * 60 * 60 * 1000; // 6 hours
