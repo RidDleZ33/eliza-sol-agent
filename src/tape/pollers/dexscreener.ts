@@ -17,8 +17,9 @@ const KEEPALIVE_MS = 6 * 60 * 60 * 1000; // 6 hours
 const MIGRATIONS_MAX_AGE_MS = 30 * 60 * 1000; // 30 minutes
 const MIGRATIONS_MAX_PER_POLL = 20;
 
-// Phase 19B: 429 backoff — one holders call per snapshot, 10 min per mint on 429
+// Phase 19B/19CN3: 429 backoff — 10 min per mint on 429, 60s global cooldown on any 429
 const holdersBackoff = new Map<string, number>(); // mint -> backoff until ms
+let gmgnGlobalCooldown = 0; // until ms, no GMGN calls at all
 const GMGN_HOLDERS_BASE = "https://openapi.gmgn.ai/v1/market/token_top_holders";
 
 function migrationsEnabled(): boolean {
@@ -325,21 +326,73 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
 
         }
 
-        // Phase 19CN: snapshot at clock + 5 minutes. Select 20 due rows,
-        // skip those without a PumpSwap tick, snapshot the first 3 that have one.
+        // Phase 19CN3: snapshot at clock + 5 minutes. One snapshot per poll.
+        // Skip mints in 429 backoff. Respect global GMGN cooldown.
         try {
           const snapshotDueMs = now - 5 * 60 * 1000;
-          const pending = db.prepare(`
-            SELECT mint, pair_created_at_ms FROM migrations
-            WHERE nuke_ratio IS NULL AND pair_created_at_ms IS NOT NULL
-              AND pair_created_at_ms <= ?
-            ORDER BY pair_created_at_ms ASC
-            LIMIT 20
-          `).all(snapshotDueMs);
+          if (now < gmgnGlobalCooldown) {
+            // Global cooldown active; skip snapshot entirely this poll
+          } else {
+            const pending = db.prepare(`
+              SELECT mint, pair_created_at_ms FROM migrations
+              WHERE nuke_ratio IS NULL AND pair_created_at_ms IS NOT NULL
+                AND pair_created_at_ms <= ?
+              ORDER BY pair_created_at_ms ASC
+              LIMIT 20
+            `).all(snapshotDueMs);
 
-          let snapshotted = 0;
-          for (const p of pending) {
-            if (snapshotted >= 3) break;
+            for (const p of pending) {
+              // Skip mints in individual backoff
+              const backoffUntil = holdersBackoff.get(p.mint);
+              if (backoffUntil && now < backoffUntil) {
+                continue;
+              }
+
+              try {
+                const tickRows = db.prepare(`
+                  SELECT price_native, liq_quote, pair_address FROM market_ticks
+                  WHERE mint = ? AND dex_id = 'pumpswap' AND pair_created_at_ms IS NOT NULL
+                  ORDER BY ABS(pair_created_at_ms - ?) ASC
+                  LIMIT 1
+                `).all(p.mint, p.pair_created_at_ms);
+
+                if (tickRows.length === 0) {
+                  console.log(`[tape] nuke skip mint=${p.mint} reason=no_tick`);
+                  continue;
+                }
+
+                const tickRow = tickRows[0];
+                const nuke = await getNukeSnapshot(
+                  p.mint,
+                  tickRow.pair_address,
+                  tickRow.price_native || 0,
+                  tickRow.liq_quote || 0
+                );
+                if (nuke.nuke_ratio !== null) {
+                  const updateStmt = db.prepare(`
+                    UPDATE migrations SET top_holder_sol=?, pool_sol=?, nuke_ratio=?, unique_buyers_5m=?, same_slot_buyers=?, top_holder_pct=?, top_holder_tag=? WHERE mint=?
+                  `);
+                  updateStmt.run(
+                    nuke.top_holder_sol,
+                    nuke.pool_sol,
+                    nuke.nuke_ratio,
+                    nuke.unique_buyers_5m,
+                    nuke.same_slot_buyers,
+                    nuke.top_holder_pct,
+                    nuke.top_holder_tag,
+                    p.mint
+                  );
+                  console.log(`[tape] nuke mint=${p.mint} ratio=${nuke.nuke_ratio.toFixed(2)} pct=${nuke.top_holder_pct ?? "null"}`);
+                }
+                break; // One snapshot per poll
+              } catch (e: any) {
+                recordError("gmgn", "nuke_snapshot", `nuke snapshot failed: ${e.message}`, JSON.stringify({ mint: p.mint }));
+              }
+            }
+          }
+        } catch (e: any) {
+          recordError("gmgn", "nuke_snapshot", `snapshot query failed: ${e.message}`, null);
+        }
             try {
               const tickRows = db.prepare(`
                 SELECT price_native, liq_quote, pair_address FROM market_ticks
@@ -464,6 +517,7 @@ async function getNukeSnapshot(
 
     if (resp.status === 429) {
       holdersBackoff.set(mint, Date.now() + 10 * 60 * 1000);
+      gmgnGlobalCooldown = Date.now() + 60 * 1000;
       console.log(`[tape] nuke skip mint=${mint} reason=http_429`);
       return result;
     }
