@@ -10,17 +10,16 @@ import { shouldRecordFirstSeen, recordDiscoveryEvent, shouldRecordTrendingEnter 
 import { getDb } from "../db";
 import { SCHEMA_VERSION } from "../schema";
 import { appendTickToJsonl } from "../jsonl";
-import { getGmgnApiKey } from "../../utils/env";
+import { getSolanaRpcUrl } from "../../utils/env";
 
 const DS_BASE = "https://api.dexscreener.com";
 const KEEPALIVE_MS = 6 * 60 * 60 * 1000; // 6 hours
 const MIGRATIONS_MAX_AGE_MS = 30 * 60 * 1000; // 30 minutes
 const MIGRATIONS_MAX_PER_POLL = 20;
 
-// Phase 19B/19CN3: 429 backoff — 10 min per mint on 429, 60s global cooldown on any 429
-const holdersBackoff = new Map<string, number>(); // mint -> backoff until ms
-let gmgnGlobalCooldown = 0; // until ms, no GMGN calls at all
-const GMGN_HOLDERS_BASE = "https://openapi.gmgn.ai/v1/market/token_top_holders";
+// Phase 19D: RPC backoff — 60s global cooldown on non-200
+let rpcBackoffUntil = 0; // until ms, no RPC calls after error
+let noRpcPrinted = false; // only print no_rpc once
 
 function migrationsEnabled(): boolean {
   const v = process.env.TAPE_MIGRATIONS;
@@ -326,12 +325,12 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
 
         }
 
-        // Phase 19CN3: snapshot at clock + 5 minutes. One snapshot per poll.
-        // Skip mints in 429 backoff. Respect global GMGN cooldown.
+        // Phase 19D: snapshot at clock + 5 minutes. One snapshot per poll.
+        // Use Solana RPC getTokenLargestAccounts via operator's SOLANA_RPC_URL.
         try {
           const snapshotDueMs = now - 5 * 60 * 1000;
-          if (now < gmgnGlobalCooldown) {
-            // Global cooldown active; skip snapshot entirely this poll
+          if (now < rpcBackoffUntil) {
+            // RPC backoff active; skip snapshot this poll
           } else {
             const pending = db.prepare(`
               SELECT mint, pair_created_at_ms FROM migrations
@@ -342,12 +341,6 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
             `).all(snapshotDueMs);
 
             for (const p of pending) {
-              // Skip mints in individual backoff
-              const backoffUntil = holdersBackoff.get(p.mint);
-              if (backoffUntil && now < backoffUntil) {
-                continue;
-              }
-
               try {
                 const tickRows = db.prepare(`
                   SELECT price_native, liq_quote, pair_address FROM market_ticks
@@ -382,11 +375,11 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
                     nuke.top_holder_tag,
                     p.mint
                   );
-                  console.log(`[tape] nuke mint=${p.mint} ratio=${nuke.nuke_ratio.toFixed(2)} pct=${nuke.top_holder_pct ?? "null"}`);
+                  console.log(`[tape] nuke mint=${p.mint} ratio=${nuke.nuke_ratio.toFixed(2)}`);
                 }
                 break; // One snapshot per poll
               } catch (e: any) {
-                recordError("gmgn", "nuke_snapshot", `nuke snapshot failed: ${e.message}`, JSON.stringify({ mint: p.mint }));
+                recordError("tape", "nuke_snapshot", `nuke snapshot failed: ${e.message}`, JSON.stringify({ mint: p.mint }));
               }
             }
           }
@@ -415,7 +408,7 @@ interface NukeSnapshot {
 
 async function getNukeSnapshot(
   mint: string,
-  pair_address: string | null,
+  _pair_address: string | null,
   price_native: number,
   liq_quote_sol: number
 ): Promise<NukeSnapshot> {
@@ -429,6 +422,15 @@ async function getNukeSnapshot(
     top_holder_tag: null,
   };
 
+  const rpcUrl = getSolanaRpcUrl();
+  if (!rpcUrl) {
+    if (!noRpcPrinted) {
+      console.log(`[tape] nuke skip mint=${mint} reason=no_rpc`);
+      noRpcPrinted = true;
+    }
+    return result;
+  }
+
   if (liq_quote_sol <= 0) {
     console.log(`[tape] nuke skip mint=${mint} reason=no_pool_sol`);
     return result;
@@ -439,89 +441,54 @@ async function getNukeSnapshot(
     return result;
   }
 
-  // Check 429 backoff
-  const backoffUntil = holdersBackoff.get(mint);
-  if (backoffUntil && Date.now() < backoffUntil) {
-    console.log(`[tape] nuke skip mint=${mint} reason=429_backoff`);
-    return result;
-  }
-
-  const apiKey = getGmgnApiKey();
-  if (!apiKey) {
-    console.log(`[tape] nuke skip mint=${mint} reason=no_key`);
-    return result;
-  }
-
   try {
-    const timestampSecs = Math.floor(Date.now() / 1000);
-    const clientId = `${Math.random().toString(36).slice(2, 14)}-${Math.random().toString(36).slice(2, 10)}`;
-    const url = new URL(GMGN_HOLDERS_BASE);
-    url.searchParams.set("timestamp", String(timestampSecs));
-    url.searchParams.set("client_id", clientId);
-    url.searchParams.set("chain", "sol");
-    url.searchParams.set("address", mint);
-    url.searchParams.set("limit", "5");
-    url.searchParams.set("order_by", "amount_percentage");
-    url.searchParams.set("direction", "desc");
-
-    const resp = await fetch(url.toString(), {
-      method: "GET",
-      headers: {
-        "X-APIKEY": apiKey,
-      },
+    const body = JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "getTokenLargestAccounts",
+      params: [mint],
     });
 
-    if (resp.status === 429) {
-      holdersBackoff.set(mint, Date.now() + 10 * 60 * 1000);
-      gmgnGlobalCooldown = Date.now() + 60 * 1000;
-      console.log(`[tape] nuke skip mint=${mint} reason=http_429`);
-      return result;
-    }
+    const resp = await fetch(rpcUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body,
+    });
 
     if (!resp.ok) {
-      console.log(`[tape] nuke skip mint=${mint} reason=http_${resp.status}`);
+      rpcBackoffUntil = Date.now() + 60 * 1000;
+      console.log(`[tape] nuke skip mint=${mint} reason=rpc_${resp.status}`);
       return result;
     }
 
-    const body = await resp.json();
-    const list = body?.data;
-    if (!Array.isArray(list) || list.length === 0) {
+    const json = await resp.json();
+    const accounts = json?.result?.value;
+    if (!Array.isArray(accounts) || accounts.length < 2) {
       console.log(`[tape] nuke skip mint=${mint} reason=no_holders`);
       return result;
     }
 
-    // Skip first holder if it equals pair address or >50% of supply
-    for (const holder of list) {
-      const addr = holder?.address;
-      const pct = typeof holder?.amount_percentage === "number" ? holder.amount_percentage : 0;
-
-      // Skip pool itself or >50% holder
-      if (pair_address && addr === pair_address) {
-        continue;
-      }
-      if (pct > 50) {
-        continue;
-      }
-
-      // Use this holder
-      const amountRaw = typeof holder?.amount === "number" ? holder.amount : 0;
-      result.top_holder_sol = amountRaw * price_native;
-      result.pool_sol = liq_quote_sol;
-      if (liq_quote_sol > 0) {
-        result.nuke_ratio = result.top_holder_sol / result.pool_sol;
-      }
-      result.top_holder_pct = pct;
-      if (holder?.tag && typeof holder.tag === "string") {
-        result.top_holder_tag = holder.tag;
-      }
-      break;
+    // accounts[0] is pool, accounts[1] is top holder
+    const topHolder = accounts[1];
+    const amountStr = topHolder.uiAmountString;
+    if (!amountStr) {
+      console.log(`[tape] nuke skip mint=${mint} reason=no_amount`);
+      return result;
     }
 
-    if (result.nuke_ratio === null) {
-      console.log(`[tape] nuke skip mint=${mint} reason=all_pool_or_half`);
+    const amount = parseFloat(amountStr);
+    if (isNaN(amount)) {
+      console.log(`[tape] nuke skip mint=${mint} reason=parse_amount`);
+      return result;
     }
-  } catch {
-    // GMGN call failed
+
+    // Price in SOL using tick's price_native (price per token in SOL)
+    result.top_holder_sol = amount * price_native;
+    result.pool_sol = liq_quote_sol;
+    result.nuke_ratio = result.top_holder_sol / result.pool_sol;
+  } catch (e: any) {
+    rpcBackoffUntil = Date.now() + 60 * 1000;
+    console.log(`[tape] nuke skip mint=${mint} reason=rpc_error ${e.message}`);
   }
 
   return result;
