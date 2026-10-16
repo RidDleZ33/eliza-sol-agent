@@ -2,7 +2,7 @@ import { watchlistService } from "../WatchlistService.ts";
 import { configService } from "../ConfigService.ts";
 import { logger } from "../LoggerService.ts";
 import { IngestionWatcher } from "./IngestionWatcher.ts";
-import { getIngestionInterval, getGmgnApiKey, isDryRun } from "../../utils/env.ts";
+import { getIngestionInterval, getGmgnApiKey, isDryRun, getSolanaRpcUrl } from "../../utils/env.ts";
 import { tradeExecutionService } from "../TradeExecutionService.ts";
 
 const SOURCE = "mig_edge";
@@ -11,7 +11,8 @@ const COOLDOWN_MS = 5 * 60 * 1000;
 const MIN_LIQUIDITY = 25000;
 const MAX_LIQUIDITY = 100000;
 const MIN_HOLDERS = 500;
-
+const NUKE_MIN = 0.3;
+const NUKE_MAX = 1.0;
 
 // Phase 18A: Paper forward test of the majority-migration edge.
 // Filter: top 10 and creator status present, liquidity $25k-$100k, 500+ holders.
@@ -204,8 +205,15 @@ export class MigrationEdgeWatcher implements IngestionWatcher {
         if (ok) {
           inserted++;
           logger.info("INGESTION", this.name, "insert", { mint, symbol, liq, top10: item.top_10_holder_rate });
-          // Paper buy if dry-run is on. Do not wake Alpha.
-          this.maybePaperBuy(mint, symbol);
+          // Phase 21A: Live middle band
+          const nuke = await this.checkNukeRatio(mint);
+          if (!nuke.passed) {
+            logger.info("INGESTION", this.name, "skip", { mint, reason: nuke.reason });
+          } else {
+            logger.info("INGESTION", this.name, "nuke pass", { mint, ratio: nuke.ratio?.toFixed(3) });
+            // Paper buy if dry-run is on. Do not wake Alpha.
+            this.maybePaperBuy(mint, symbol);
+          }
         }
       }
 
@@ -266,13 +274,98 @@ export class MigrationEdgeWatcher implements IngestionWatcher {
       const ok = await watchlistService.addDiscoveredToken(mint, item.symbol, 0, SOURCE);
       if (ok) {
         logger.info("INGESTION", this.name, "insert", { mint, symbol: item.symbol, liq: item.liquidity, top10: item.top10Rate });
-        this.maybePaperBuy(mint, item.symbol);
+        // Phase 21A: Live middle band
+        const nuke = await this.checkNukeRatio(mint);
+        if (!nuke.passed) {
+          logger.info("INGESTION", this.name, "skip", { mint, reason: nuke.reason });
+        } else {
+          logger.info("INGESTION", this.name, "nuke pass", { mint, ratio: nuke.ratio?.toFixed(3) });
+          this.maybePaperBuy(mint, item.symbol);
+        }
       }
       toDrop.push(mint);
     }
 
     for (const mint of toDrop) {
       this.pending.delete(mint);
+    }
+  }
+
+  /**
+   * Phase 21A: Live middle band — require 0.3 <= nuke_ratio < 1.0.
+   * Compute from top holder via RPC and pumpswap pair from DexScreener.
+   */
+  private async checkNukeRatio(mint: string): Promise<{ passed: boolean; reason?: string; ratio?: number }> {
+    const rpcUrl = getSolanaRpcUrl();
+    if (!rpcUrl) {
+      return { passed: false, reason: "no_rpc" };
+    }
+
+    // Get pumpswap pair for priceNative and liquidity.quote
+    let priceNative: number | null = null;
+    let liqQuote: number | null = null;
+    try {
+      const dsUrl = "https://api.dexscreener.com/latest/dex/tokens/" + mint;
+      const dsResp = await fetch(dsUrl);
+      if (!dsResp.ok) {
+        return { passed: false, reason: "rpc_" + dsResp.status };
+      }
+      const dsJson = await dsResp.json();
+      const pairs = dsJson?.pairs;
+      if (!Array.isArray(pairs) || pairs.length === 0) {
+        return { passed: false, reason: "no_pair" };
+      }
+      const pumpPair = pairs.find((p: any) => p.dexId === "pumpswap");
+      if (!pumpPair) {
+        return { passed: false, reason: "no_pair" };
+      }
+      priceNative = pumpPair.priceNative;
+      if (!pumpPair.liquidity || !pumpPair.liquidity.quote) {
+        return { passed: false, reason: "no_pair" };
+      }
+      liqQuote = pumpPair.liquidity.quote;
+    } catch (e) {
+      return { passed: false, reason: "rpc_error" };
+    }
+
+    if (!priceNative || !liqQuote) {
+      return { passed: false, reason: "no_pair" };
+    }
+
+    try {
+      const body = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "getTokenLargestAccounts", params: [mint] });
+      const resp = await fetch(rpcUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body });
+      if (!resp.ok) {
+        return { passed: false, reason: "rpc_" + resp.status };
+      }
+      const json = await resp.json();
+      const accounts = json?.result?.value;
+      if (!Array.isArray(accounts) || accounts.length < 2) {
+        return { passed: false, reason: "no_holders" };
+      }
+
+      const topHolder = accounts[1];
+      const amountStr = topHolder.uiAmountString;
+      if (!amountStr) {
+        return { passed: false, reason: "no_amount" };
+      }
+      const amount = parseFloat(amountStr);
+      if (isNaN(amount)) {
+        return { passed: false, reason: "parse_amount" };
+      }
+
+      const topHolderSol = amount * priceNative;
+      const nukeRatio = topHolderSol / liqQuote;
+
+      if (nukeRatio < NUKE_MIN) {
+        return { passed: false, reason: "nuke_low", ratio: nukeRatio };
+      }
+      if (nukeRatio >= NUKE_MAX) {
+        return { passed: false, reason: "nuke_high", ratio: nukeRatio };
+      }
+      return { passed: true, ratio: nukeRatio };
+    } catch (e) {
+      return { passed: false, reason: "rpc_error" };
     }
   }
 
