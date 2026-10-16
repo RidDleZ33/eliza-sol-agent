@@ -30,6 +30,7 @@ interface MigrationClockInfo {
   pairAddress: string | null;
   rawJson: string | null;
   nukeRatio: number | null;
+  top5Ratio: number | null;
 }
 
 function collectMigrationClocks(): Map<string, MigrationClockInfo> {
@@ -66,6 +67,13 @@ function collectMigrationClocks(): Map<string, MigrationClockInfo> {
       } catch {
         // column doesn't exist on this day file
       }
+      // Check if top5_ratio column exists on this day file
+      try {
+        db.prepare("SELECT top5_ratio FROM migrations LIMIT 0").get();
+        query += ", top5_ratio";
+      } catch {
+        // column doesn't exist on this day file
+      }
       query += " FROM migrations ORDER BY observed_at_ms ASC";
 
       const rows: any[] = db.prepare(query).all();
@@ -81,6 +89,7 @@ function collectMigrationClocks(): Map<string, MigrationClockInfo> {
             pairAddress: row.pair_address || null,
             rawJson: row.raw_json,
             nukeRatio: row.nuke_ratio,
+            top5Ratio: row.top5_ratio,
           });
         }
       }
@@ -526,6 +535,11 @@ function bucketLabel(field: string, value: any): string {
     if (value < 1.0) return "0.3-1";
     return ">=1";
   }
+  if (field === "top5_ratio") {
+    if (value < 1) return "<1";
+    if (value < 3) return "1-3";
+    return ">=3";
+  }
   return "unknown";
 }
 
@@ -871,6 +885,7 @@ function main() {
     "is_wash_trading",
     "rug_ratio",
     "nuke_ratio",
+    "top5_ratio",
   ];
 
   // Track best bucket for summary
@@ -1087,6 +1102,7 @@ function main() {
     "buySell",
     "complete_cost_time",
     "nuke_ratio",
+    "top5_ratio",
   ];
 
   for (const field of rugTpFields) {
@@ -1102,6 +1118,10 @@ function main() {
         const clockInfo = clocks.get(rt.mint);
         if (!clockInfo) continue;
         value = clockInfo.nukeRatio;
+      } else if (field === "top5_ratio") {
+        const clockInfo = clocks.get(rt.mint);
+        if (!clockInfo) continue;
+        value = clockInfo.top5Ratio;
       } else {
         const parsed = parseMigration(rt.rawJson);
         if (!parsed) continue;
@@ -1237,6 +1257,54 @@ function main() {
 
   for (const key of ["nuke <0.3", "nuke 0.3-1", "nuke >=1"]) {
     const b = nukeBuckets[key];
+    const tpPct = b.n > 0 ? (b.tpFirst / b.n) * 100 : 0;
+    const rugPct = b.n > 0 ? (b.rugFirst / b.n) * 100 : 0;
+    console.log(`${key}: n=${b.n} tp=${tpPct.toFixed(1)}% rug=${rugPct.toFixed(1)}% rug<5m=${b.rug5m} rug<30m=${b.rug30m}`);
+  }
+
+  // Top5 vs time to rug
+  console.log("\n=== Top5 vs time to rug ===");
+
+  const top5Buckets: Record<string, NukeBucket> = {
+    "top5 <1": { n: 0, tpFirst: 0, rugFirst: 0, rug5m: 0, rug30m: 0 },
+    "top5 1-3": { n: 0, tpFirst: 0, rugFirst: 0, rug5m: 0, rug30m: 0 },
+    "top5 >=3": { n: 0, tpFirst: 0, rugFirst: 0, rug5m: 0, rug30m: 0 },
+  };
+
+  for (const rt of rugTpData) {
+    const clockInfo = clocks.get(rt.mint);
+    if (!clockInfo || clockInfo.top5Ratio == null) continue;
+
+    const top5 = clockInfo.top5Ratio;
+    let bucketKey: string;
+    if (top5 < 1) bucketKey = "top5 <1";
+    else if (top5 < 3) bucketKey = "top5 1-3";
+    else bucketKey = "top5 >=3";
+
+    const b = top5Buckets[bucketKey];
+    b.n++;
+
+    if (rt.outcome === "tp_first") {
+      b.tpFirst++;
+    } else if (rt.outcome === "rug_first") {
+      b.rugFirst++;
+      const six = getSixHourTicks(rt.mint, clockInfo.clockMs, clockInfo.pairAddress);
+      if (six.entry === null) continue;
+      const entryPrice = six.entry.price_usd;
+      let timeToRug: number | null = null;
+      for (const t of six.ticks) {
+        if (t.price_usd <= entryPrice * 0.5) {
+          timeToRug = (t.observed_at_ms - six.entry.observed_at_ms) / (60 * 1000);
+          break;
+        }
+      }
+      if (timeToRug != null && timeToRug < 5) b.rug5m++;
+      if (timeToRug != null && timeToRug < 30) b.rug30m++;
+    }
+  }
+
+  for (const key of ["top5 <1", "top5 1-3", "top5 >=3"]) {
+    const b = top5Buckets[key];
     const tpPct = b.n > 0 ? (b.tpFirst / b.n) * 100 : 0;
     const rugPct = b.n > 0 ? (b.rugFirst / b.n) * 100 : 0;
     console.log(`${key}: n=${b.n} tp=${tpPct.toFixed(1)}% rug=${rugPct.toFixed(1)}% rug<5m=${b.rug5m} rug<30m=${b.rug30m}`);
