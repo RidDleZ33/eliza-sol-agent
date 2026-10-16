@@ -1044,25 +1044,8 @@ export class TelegramAdminBot {
       });
 
       // Phase 9A2: do not await launch(); it blocks forever (poll loop)
-      // Phase 20A: on poll-loop error, restart after 5s instead of dying
-      void this.bot.launch({ dropPendingUpdates: true }).catch((e: any) => {
-        logger.error("TELEGRAM", "TelegramAdminBot", "Poll loop error", { error: e?.message, status: e?.status });
-        if (e?.message?.includes("409") || e?.message?.includes("Conflict")) {
-          logger.error("TELEGRAM", "TelegramAdminBot", "another process is polling this bot token; kill it");
-        }
-        if (this.stopped || !this.bot) return;
-        logger.info("TELEGRAM", "TelegramAdminBot", "Restarting poll loop in 5s");
-        this.restartTimer = setTimeout(() => {
-          if (this.stopped || !this.bot) return;
-          try {
-            void this.bot.launch({ dropPendingUpdates: true }).catch((e2: any) => {
-              logger.error("TELEGRAM", "TelegramAdminBot", "Poll loop restart error", { error: e2?.message, status: e2?.status });
-            });
-          } catch (e3: any) {
-            logger.error("TELEGRAM", "TelegramAdminBot", "Poll loop restart threw", { error: e3?.message });
-          }
-        }, 5000);
-      });
+      // Phase 20AN: one method that relaunches on every death
+      this.startPollLoop();
 
       this.started = true;
       logger.info("TELEGRAM", "TelegramAdminBot", "Admin bot started and polling");
@@ -1070,6 +1053,21 @@ export class TelegramAdminBot {
       logger.error("TELEGRAM", "TelegramAdminBot", "Failed to start admin bot", { error: e.message, status: e?.status });
       throw e;
     }
+  }
+
+  private startPollLoop() {
+    if (this.stopped || !this.bot) return;
+    this.bot.launch({ dropPendingUpdates: true }).catch((e: any) => {
+      logger.error("TELEGRAM", "TelegramAdminBot", "Poll loop error", { error: e?.message, status: e?.status });
+      if (e?.message?.includes("409") || e?.message?.includes("Conflict")) {
+        logger.error("TELEGRAM", "TelegramAdminBot", "another process is polling this bot token; kill it");
+      }
+      if (this.stopped) return;
+      logger.info("TELEGRAM", "TelegramAdminBot", "Restarting poll loop in 5s");
+      this.restartTimer = setTimeout(() => {
+        this.startPollLoop();
+      }, 5000);
+    });
   }
 
   async stop() {
