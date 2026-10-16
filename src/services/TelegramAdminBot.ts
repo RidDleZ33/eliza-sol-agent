@@ -28,6 +28,8 @@ export class TelegramAdminBot {
   private bot: Telegraf<any> | null = null;
   private adminChatId: string;
   private started = false;
+  private stopped = false;
+  private restartTimer: any = null;
 
   // Log streaming state
   private logStreamEnabled = false;
@@ -1042,12 +1044,24 @@ export class TelegramAdminBot {
       });
 
       // Phase 9A2: do not await launch(); it blocks forever (poll loop)
+      // Phase 20A: on poll-loop error, restart after 5s instead of dying
       void this.bot.launch({ dropPendingUpdates: true }).catch((e: any) => {
         logger.error("TELEGRAM", "TelegramAdminBot", "Poll loop error", { error: e?.message, status: e?.status });
         if (e?.message?.includes("409") || e?.message?.includes("Conflict")) {
           logger.error("TELEGRAM", "TelegramAdminBot", "another process is polling this bot token; kill it");
         }
-        this.started = false;
+        if (this.stopped || !this.bot) return;
+        logger.info("TELEGRAM", "TelegramAdminBot", "Restarting poll loop in 5s");
+        this.restartTimer = setTimeout(() => {
+          if (this.stopped || !this.bot) return;
+          try {
+            void this.bot.launch({ dropPendingUpdates: true }).catch((e2: any) => {
+              logger.error("TELEGRAM", "TelegramAdminBot", "Poll loop restart error", { error: e2?.message, status: e2?.status });
+            });
+          } catch (e3: any) {
+            logger.error("TELEGRAM", "TelegramAdminBot", "Poll loop restart threw", { error: e3?.message });
+          }
+        }, 5000);
       });
 
       this.started = true;
@@ -1059,6 +1073,11 @@ export class TelegramAdminBot {
   }
 
   async stop() {
+    this.stopped = true;
+    if (this.restartTimer) {
+      clearTimeout(this.restartTimer);
+      this.restartTimer = null;
+    }
     if (!this.started || !this.bot) return;
 
     try {
