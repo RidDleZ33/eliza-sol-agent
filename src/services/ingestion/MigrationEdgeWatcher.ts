@@ -199,21 +199,20 @@ export class MigrationEdgeWatcher implements IngestionWatcher {
           continue;
         }
 
-        // Filter passed. Insert.
+        // Phase 21A: Live middle band — check before insert
         const symbol = item.symbol || mint.slice(0, 6);
+        const nuke = await this.checkNukeRatio(mint);
+        if (!nuke.passed) {
+          logger.info("INGESTION", this.name, "skip", { mint, reason: nuke.reason });
+          continue;
+        }
+        logger.info("INGESTION", this.name, "nuke pass", { mint, ratio: nuke.ratio?.toFixed(3) });
         const ok = await watchlistService.addDiscoveredToken(mint, symbol, 0, SOURCE);
         if (ok) {
           inserted++;
           logger.info("INGESTION", this.name, "insert", { mint, symbol, liq, top10: item.top_10_holder_rate });
-          // Phase 21A: Live middle band
-          const nuke = await this.checkNukeRatio(mint);
-          if (!nuke.passed) {
-            logger.info("INGESTION", this.name, "skip", { mint, reason: nuke.reason });
-          } else {
-            logger.info("INGESTION", this.name, "nuke pass", { mint, ratio: nuke.ratio?.toFixed(3) });
-            // Paper buy if dry-run is on. Do not wake Alpha.
-            this.maybePaperBuy(mint, symbol);
-          }
+          // Paper buy if dry-run is on. Do not wake Alpha.
+          this.maybePaperBuy(mint, symbol);
         }
       }
 
@@ -270,18 +269,18 @@ export class MigrationEdgeWatcher implements IngestionWatcher {
         continue;
       }
 
-      // Filter passed.
+      // Phase 21A: Live middle band — check before insert
+      const nuke = await this.checkNukeRatio(mint);
+      if (!nuke.passed) {
+        logger.info("INGESTION", this.name, "skip", { mint, reason: nuke.reason });
+        toDrop.push(mint);
+        continue;
+      }
+      logger.info("INGESTION", this.name, "nuke pass", { mint, ratio: nuke.ratio?.toFixed(3) });
       const ok = await watchlistService.addDiscoveredToken(mint, item.symbol, 0, SOURCE);
       if (ok) {
         logger.info("INGESTION", this.name, "insert", { mint, symbol: item.symbol, liq: item.liquidity, top10: item.top10Rate });
-        // Phase 21A: Live middle band
-        const nuke = await this.checkNukeRatio(mint);
-        if (!nuke.passed) {
-          logger.info("INGESTION", this.name, "skip", { mint, reason: nuke.reason });
-        } else {
-          logger.info("INGESTION", this.name, "nuke pass", { mint, ratio: nuke.ratio?.toFixed(3) });
-          this.maybePaperBuy(mint, item.symbol);
-        }
+        this.maybePaperBuy(mint, item.symbol);
       }
       toDrop.push(mint);
     }
@@ -308,7 +307,7 @@ export class MigrationEdgeWatcher implements IngestionWatcher {
       const dsUrl = "https://api.dexscreener.com/latest/dex/tokens/" + mint;
       const dsResp = await fetch(dsUrl);
       if (!dsResp.ok) {
-        return { passed: false, reason: "rpc_" + dsResp.status };
+        return { passed: false, reason: "ds_" + dsResp.status };
       }
       const dsJson = await dsResp.json();
       const pairs = dsJson?.pairs;
