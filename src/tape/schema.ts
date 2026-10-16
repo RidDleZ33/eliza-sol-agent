@@ -192,7 +192,9 @@ export function createSchema(db: any): void {
       unique_buyers_5m INTEGER,
       same_slot_buyers INTEGER,
       top_holder_pct REAL,
-      top_holder_tag TEXT
+      top_holder_tag TEXT,
+      top5_sol REAL,
+      top5_ratio REAL
     );
   `);
 
@@ -222,6 +224,8 @@ export function ensurePhase19Columns(db: any): void {
     { name: "same_slot_buyers", type: "INTEGER" },
     { name: "top_holder_pct", type: "REAL" },
     { name: "top_holder_tag", type: "TEXT" },
+    { name: "top5_sol", type: "REAL" },
+    { name: "top5_ratio", type: "REAL" },
   ];
 
   // Check existing columns via PRAGMA table_info

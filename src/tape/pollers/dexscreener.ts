@@ -283,8 +283,8 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
                 pair_created_at_ms, price_usd, liq_usd, mcap_usd, fdv_usd,
                 tx_5m_buys, tx_5m_sells, vol_5m_usd, raw_json,
                 top_holder_sol, pool_sol, nuke_ratio, unique_buyers_5m, same_slot_buyers,
-                top_holder_pct, top_holder_tag
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                top_holder_pct, top_holder_tag, top5_sol, top5_ratio
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `);
             migrationStmt.run(
               mint,
@@ -302,7 +302,7 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
               null,
               null,
               JSON.stringify(item),
-              null, null, null, null, null, null, null
+              null, null, null, null, null, null, null, null, null
             );
           } catch (e: any) {
             recordError("gmgn", "db", `migrations insert: ${e.message}`, JSON.stringify({ mint }));
@@ -363,7 +363,7 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
                 );
                 if (nuke.nuke_ratio !== null) {
                   const updateStmt = db.prepare(`
-                    UPDATE migrations SET top_holder_sol=?, pool_sol=?, nuke_ratio=?, unique_buyers_5m=?, same_slot_buyers=?, top_holder_pct=?, top_holder_tag=? WHERE mint=?
+                    UPDATE migrations SET top_holder_sol=?, pool_sol=?, nuke_ratio=?, unique_buyers_5m=?, same_slot_buyers=?, top_holder_pct=?, top_holder_tag=?, top5_sol=?, top5_ratio=? WHERE mint=?
                   `);
                   updateStmt.run(
                     nuke.top_holder_sol,
@@ -373,6 +373,8 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
                     nuke.same_slot_buyers,
                     nuke.top_holder_pct,
                     nuke.top_holder_tag,
+                    nuke.top5_sol,
+                    nuke.top5_ratio,
                     p.mint
                   );
                   console.log(`[tape] nuke mint=${p.mint} ratio=${nuke.nuke_ratio.toFixed(2)}`);
@@ -404,6 +406,8 @@ interface NukeSnapshot {
   same_slot_buyers: number | null;
   top_holder_pct: number | null;
   top_holder_tag: string | null;
+  top5_sol: number | null;
+  top5_ratio: number | null;
 }
 
 async function getNukeSnapshot(
@@ -420,6 +424,8 @@ async function getNukeSnapshot(
     same_slot_buyers: null,
     top_holder_pct: null,
     top_holder_tag: null,
+    top5_sol: null,
+    top5_ratio: null,
   };
 
   const rpcUrl = getSolanaRpcUrl();
@@ -486,6 +492,21 @@ async function getNukeSnapshot(
     result.top_holder_sol = amount * price_native;
     result.pool_sol = liq_quote_sol;
     result.nuke_ratio = result.top_holder_sol / result.pool_sol;
+
+    // Top 5 non-pool holders (indices 1-5)
+    let top5Sol = 0;
+    for (let i = 1; i <= 5 && i < accounts.length; i++) {
+      const acct = accounts[i];
+      const aStr = acct.uiAmountString;
+      if (aStr) {
+        const a = parseFloat(aStr);
+        if (!isNaN(a)) {
+          top5Sol += a * price_native;
+        }
+      }
+    }
+    result.top5_sol = top5Sol;
+    result.top5_ratio = top5Sol / liq_quote_sol;
   } catch (e: any) {
     rpcBackoffUntil = Date.now() + 60 * 1000;
     console.log(`[tape] nuke skip mint=${mint} reason=rpc_error ${e.message}`);
