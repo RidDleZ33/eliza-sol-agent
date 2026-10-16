@@ -1186,6 +1186,62 @@ function main() {
     console.log(`cross rug time-to-hit min=${percentile(fatSmartRugTimes, 0).toFixed(1)} p25=${percentile(fatSmartRugTimes, 25).toFixed(1)} median=${percentile(fatSmartRugTimes, 50).toFixed(1)} p75=${percentile(fatSmartRugTimes, 75).toFixed(1)} max=${percentile(fatSmartRugTimes, 100).toFixed(1)} n=${fatSmartRugTimes.length}`);
   }
 
+  // Nuke vs time to rug: for each nuke bucket, rug-first rate and how fast the rug hit
+  console.log("\n=== Nuke vs time to rug ===");
+
+  interface NukeBucket {
+    n: number;
+    tpFirst: number;
+    rugFirst: number;
+    rug5m: number;
+    rug30m: number;
+  }
+
+  const nukeBuckets: Record<string, NukeBucket> = {
+    "nuke <0.3": { n: 0, tpFirst: 0, rugFirst: 0, rug5m: 0, rug30m: 0 },
+    "nuke 0.3-1": { n: 0, tpFirst: 0, rugFirst: 0, rug5m: 0, rug30m: 0 },
+    "nuke >=1": { n: 0, tpFirst: 0, rugFirst: 0, rug5m: 0, rug30m: 0 },
+  };
+
+  for (const rt of rugTpData) {
+    const clockInfo = clocks.get(rt.mint);
+    if (!clockInfo || clockInfo.nukeRatio == null) continue;
+
+    const nuke = clockInfo.nukeRatio;
+    let bucketKey: string;
+    if (nuke < 0.3) bucketKey = "nuke <0.3";
+    else if (nuke < 1.0) bucketKey = "nuke 0.3-1";
+    else bucketKey = "nuke >=1";
+
+    const b = nukeBuckets[bucketKey];
+    b.n++;
+
+    if (rt.outcome === "tp_first") {
+      b.tpFirst++;
+    } else if (rt.outcome === "rug_first") {
+      b.rugFirst++;
+      const six = getSixHourTicks(rt.mint, clockInfo.clockMs, clockInfo.pairAddress);
+      if (six.entry === null) continue;
+      const entryPrice = six.entry.price_usd;
+      let timeToRug: number | null = null;
+      for (const t of six.ticks) {
+        if (t.price_usd <= entryPrice * 0.5) {
+          timeToRug = (t.observed_at_ms - six.entry.observed_at_ms) / (60 * 1000);
+          break;
+        }
+      }
+      if (timeToRug != null && timeToRug < 5) b.rug5m++;
+      if (timeToRug != null && timeToRug < 30) b.rug30m++;
+    }
+  }
+
+  for (const key of ["nuke <0.3", "nuke 0.3-1", "nuke >=1"]) {
+    const b = nukeBuckets[key];
+    const tpPct = b.n > 0 ? (b.tpFirst / b.n) * 100 : 0;
+    const rugPct = b.n > 0 ? (b.rugFirst / b.n) * 100 : 0;
+    console.log(`${key}: n=${b.n} tp=${tpPct.toFixed(1)}% rug=${rugPct.toFixed(1)}% rug<5m=${b.rug5m} rug<30m=${b.rug30m}`);
+  }
+
   // Sample of high-liquidity rug-first names
   console.log("\n=== Fat book rug sample (>=100k, rug_first) ===");
   let fatCount = 0;
