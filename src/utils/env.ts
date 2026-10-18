@@ -68,6 +68,7 @@ const EnvSchema = z.object({
   EXIT_CLOCK_SEC: z.string().default("0"),
   POSITION_CHECK_INTERVAL_MS: z.string().default("5000"),
   TAPE_RETAIN_DAYS: z.string().default("14"),
+  TAPE_KEEPALIVE_HOURS: z.string().default("1"),
   TAPE_DECISIONS: z.string().default("false"),
   CLOCK_SEC_MIG_EDGE: z.string().optional(),
 });
@@ -317,4 +318,10 @@ export function getTapeRetainDays(): number {
 // Phase 15F: persist Gamma decisions to tape
 export function getTapeDecisions(): boolean {
   return env.TAPE_DECISIONS === "true" || env.TAPE_DECISIONS === "1";
+}
+
+// Phase 22A: tape keepalive window in hours (default 1)
+export function getTapeKeepaliveHours(): number {
+  const raw = parseFloat(env.TAPE_KEEPALIVE_HOURS);
+  return Number.isFinite(raw) && raw > 0 ? raw : 1;
 }

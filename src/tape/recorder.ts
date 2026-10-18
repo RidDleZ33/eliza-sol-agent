@@ -12,12 +12,13 @@ const Database = require("better-sqlite3");
 import { pollDexScreener } from "./pollers/dexscreener";
 import { pollSolMark } from "./pollers/solmark";
 import { initJsonl, isJsonlEnabled } from "./jsonl";
-import { getTapeRetainDays } from "../utils/env";
+import { getTapeRetainDays, getTapeKeepaliveHours } from "../utils/env";
 import { existsSync, unlinkSync, readdirSync } from "fs";
 
 const TAPE_DIR = "data/tape";
 const LEGACY_DB = "data/tape/tape.sqlite";
 const RETAIN_DAYS = getTapeRetainDays();
+const KEEPALIVE_HOURS = getTapeKeepaliveHours();
 
 const pollMs = parseInt(process.env.TAPE_POLL_MS || "20000", 10);
 const solMarkMs = parseInt(process.env.TAPE_SOL_MARK_MS || "60000", 10);
@@ -161,7 +162,7 @@ async function start() {
   console.log(
     `[tape] schema_version=${SCHEMA_VERSION} db=${todayPath} journal=${actualJournalMode} ` +
     `jsonl=${isJsonlEnabled() ? "on" : "off"} poll_ms=${pollMs} retain_days=${RETAIN_DAYS} ` +
-    `migrations=${migrationsOn ? "on" : "off"}`
+    `keepalive_h=${KEEPALIVE_HOURS} migrations=${migrationsOn ? "on" : "off"}`
   );
 
   // Register ingest run

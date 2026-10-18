@@ -10,10 +10,10 @@ import { shouldRecordFirstSeen, recordDiscoveryEvent, shouldRecordTrendingEnter 
 import { getDb } from "../db";
 import { SCHEMA_VERSION } from "../schema";
 import { appendTickToJsonl } from "../jsonl";
-import { getGmgnApiKey, getSolanaRpcUrl } from "../../utils/env";
+import { getGmgnApiKey, getSolanaRpcUrl, getTapeKeepaliveHours } from "../../utils/env";
 
 const DS_BASE = "https://api.dexscreener.com";
-const KEEPALIVE_MS = 6 * 60 * 60 * 1000; // 6 hours
+const KEEPALIVE_MS = getTapeKeepaliveHours() * 60 * 60 * 1000; // from TAPE_KEEPALIVE_HOURS (default 1h)
 const MIGRATIONS_MAX_AGE_MS = 30 * 60 * 1000; // 30 minutes
 const MIGRATIONS_MAX_PER_POLL = 20;
 
