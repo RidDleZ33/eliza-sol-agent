@@ -1038,6 +1038,7 @@ function main() {
     entryLiq: number | null;
     entryBuySell: number | null;
     outcome: "tp_first" | "rug_first" | "neither";
+    timeToRug: number | null;
   }[] = [];
 
   for (const md of mintData) {
@@ -1061,10 +1062,12 @@ function main() {
     }
 
     let outcome: "tp_first" | "rug_first" | "neither";
+    let timeToRug: number | null = null;
     if (tp !== null && (rug === null || tp.observed_at_ms <= rug.observed_at_ms)) {
       outcome = "tp_first";
     } else if (rug !== null) {
       outcome = "rug_first";
+      timeToRug = (rug.observed_at_ms - six.entry.observed_at_ms) / (60 * 1000);
     } else {
       outcome = "neither";
     }
@@ -1075,6 +1078,7 @@ function main() {
       entryLiq: md.entryLiq,
       entryBuySell: md.entryBuySell,
       outcome,
+      timeToRug,
     });
   }
 
@@ -1204,6 +1208,88 @@ function main() {
 
   if (fatSmartRugTimes.length >= 30) {
     console.log(`cross rug time-to-hit min=${percentile(fatSmartRugTimes, 0).toFixed(1)} p25=${percentile(fatSmartRugTimes, 25).toFixed(1)} median=${percentile(fatSmartRugTimes, 50).toFixed(1)} p75=${percentile(fatSmartRugTimes, 75).toFixed(1)} max=${percentile(fatSmartRugTimes, 100).toFixed(1)} n=${fatSmartRugTimes.length}`);
+  }
+
+  // Fast rug: hit -50% inside 3 minutes of entry
+  console.log("\n=== Fast rug (hit -50% inside 3m) ===");
+
+  let totalFast = 0;
+  let totalSlow = 0;
+  let totalNotRug = 0;
+  for (const rt of rugTpData) {
+    if (rt.outcome === "tp_first" || rt.timeToRug == null) {
+      totalNotRug++;
+    } else if (rt.timeToRug <= 3) {
+      totalFast++;
+    } else {
+      totalSlow++;
+    }
+  }
+  const fastN = rugTpData.length;
+  console.log(
+    `n=${fastN} fast=${totalFast} (${((totalFast / fastN) * 100).toFixed(1)}%) slow=${totalSlow} (${((totalSlow / fastN) * 100).toFixed(1)}%) not_rug=${totalNotRug}`
+  );
+
+  const fastRugFields = [
+    "liq_usd",
+    "top_10_holder_rate",
+    "creator_token_status",
+    "holder_count",
+    "bundler_trader_amount_rate",
+    "smart_degen_count",
+    "sniper_count",
+    "buySell",
+    "complete_cost_time",
+    "nuke_ratio",
+    "top5_ratio",
+  ];
+
+  for (const field of fastRugFields) {
+    const buckets: Record<string, { n: number; fast: number; slow: number; notRug: number }> = {};
+
+    for (const rt of rugTpData) {
+      let value: any;
+      if (field === "liq_usd") {
+        value = rt.entryLiq;
+      } else if (field === "buySell") {
+        value = rt.entryBuySell;
+      } else if (field === "nuke_ratio") {
+        const clockInfo = clocks.get(rt.mint);
+        if (!clockInfo) continue;
+        value = clockInfo.nukeRatio;
+      } else if (field === "top5_ratio") {
+        const clockInfo = clocks.get(rt.mint);
+        if (!clockInfo) continue;
+        value = clockInfo.top5Ratio;
+      } else {
+        const parsed = parseMigration(rt.rawJson);
+        if (!parsed) continue;
+        value = parsed[field];
+      }
+
+      if (value === undefined || value === null) continue;
+
+      const label = bucketLabel(field, value);
+      const key = `${field}:${label}`;
+      if (!buckets[key]) {
+        buckets[key] = { n: 0, fast: 0, slow: 0, notRug: 0 };
+      }
+      buckets[key].n++;
+
+      if (rt.outcome === "tp_first" || rt.timeToRug == null) {
+        buckets[key].notRug++;
+      } else if (rt.timeToRug <= 3) {
+        buckets[key].fast++;
+      } else {
+        buckets[key].slow++;
+      }
+    }
+
+    for (const [key, data] of Object.entries(buckets)) {
+      const fastPct = data.n > 0 ? (data.fast / data.n) * 100 : 0;
+      const slowPct = data.n > 0 ? (data.slow / data.n) * 100 : 0;
+      console.log(`${key} n=${data.n} fast=${data.fast} (${fastPct.toFixed(1)}%) slow=${data.slow} (${slowPct.toFixed(1)}%)`);
+    }
   }
 
   // Nuke vs time to rug: for each nuke bucket, rug-first rate and how fast the rug hit
