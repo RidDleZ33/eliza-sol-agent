@@ -108,6 +108,7 @@ interface Tick {
   price_usd: number;
   observed_at_ms: number;
   liq_usd: number;
+  liq_quote: number;
   tx_5m_buys: number;
   tx_5m_sells: number;
 }
@@ -182,7 +183,7 @@ function getSixHourTicks(mint: string, clockMs: number, pairAddress: string) {
     const entryAfterMs = clockMs + 5 * 60 * 1000;
     const potentialEntries: Tick[] = db
       .prepare(
-        "SELECT mint, price_usd, observed_at_ms, liq_usd, tx_5m_buys, tx_5m_sells FROM market_ticks WHERE mint=? AND pair_address=? AND observed_at_ms >= ? ORDER BY observed_at_ms ASC LIMIT 1"
+        "SELECT mint, price_usd, observed_at_ms, liq_usd, liq_quote, tx_5m_buys, tx_5m_sells FROM market_ticks WHERE mint=? AND pair_address=? AND observed_at_ms >= ? ORDER BY observed_at_ms ASC LIMIT 1"
       )
       .all(mint, pairAddress, entryAfterMs);
 
@@ -220,7 +221,7 @@ function getSixHourTicks(mint: string, clockMs: number, pairAddress: string) {
 
     const ticks: Tick[] = db
       .prepare(
-        "SELECT mint, price_usd, observed_at_ms, liq_usd, tx_5m_buys, tx_5m_sells FROM market_ticks WHERE mint=? AND pair_address=? AND observed_at_ms >= ? AND observed_at_ms <= ? ORDER BY observed_at_ms ASC"
+        "SELECT mint, price_usd, observed_at_ms, liq_usd, liq_quote, tx_5m_buys, tx_5m_sells FROM market_ticks WHERE mint=? AND pair_address=? AND observed_at_ms >= ? AND observed_at_ms <= ? ORDER BY observed_at_ms ASC"
       )
       .all(mint, pairAddress, entryTick.observed_at_ms, sixHourEnd);
 
@@ -270,7 +271,7 @@ function getTicksForMint(mint: string, clockMs: number, pairAddress: string) {
 
     const potentialEntries: Tick[] = db
       .prepare(
-        "SELECT mint, price_usd, observed_at_ms, liq_usd, tx_5m_buys, tx_5m_sells FROM market_ticks WHERE mint=? AND pair_address=? AND observed_at_ms >= ? ORDER BY observed_at_ms ASC LIMIT 1"
+        "SELECT mint, price_usd, observed_at_ms, liq_usd, liq_quote, tx_5m_buys, tx_5m_sells FROM market_ticks WHERE mint=? AND pair_address=? AND observed_at_ms >= ? ORDER BY observed_at_ms ASC LIMIT 1"
       )
       .all(mint, pairAddress, entryAfterMs);
 
@@ -284,7 +285,7 @@ function getTicksForMint(mint: string, clockMs: number, pairAddress: string) {
 
     const ticks: Tick[] = db
       .prepare(
-        "SELECT mint, price_usd, observed_at_ms, liq_usd, tx_5m_buys, tx_5m_sells FROM market_ticks WHERE mint=? AND pair_address=? AND observed_at_ms > ? ORDER BY observed_at_ms ASC"
+        "SELECT mint, price_usd, observed_at_ms, liq_usd, liq_quote, tx_5m_buys, tx_5m_sells FROM market_ticks WHERE mint=? AND pair_address=? AND observed_at_ms > ? ORDER BY observed_at_ms ASC"
       )
       .all(mint, pairAddress, entryAfterMs);
 
@@ -1039,6 +1040,7 @@ function main() {
     entryBuySell: number | null;
     outcome: "tp_first" | "rug_first" | "neither";
     timeToRug: number | null;
+    poolDrop: number | null;
   }[] = [];
 
   for (const md of mintData) {
@@ -1072,6 +1074,23 @@ function main() {
       outcome = "neither";
     }
 
+    // Pool drop at 60s
+    const entryLiqQuote = six.entry.liq_quote;
+    let poolDrop: number | null = null;
+    if (entryLiqQuote > 0) {
+      const sixtySecMs = six.entry.observed_at_ms + 60 * 1000;
+      let tick60: Tick | null = null;
+      for (const t of six.ticks) {
+        if (t.observed_at_ms >= sixtySecMs) {
+          tick60 = t;
+          break;
+        }
+      }
+      if (tick60 !== null && tick60.liq_quote > 0) {
+        poolDrop = 1 - (tick60.liq_quote / entryLiqQuote);
+      }
+    }
+
     rugTpData.push({
       mint: md.mint,
       rawJson: md.rawJson,
@@ -1079,6 +1098,7 @@ function main() {
       entryBuySell: md.entryBuySell,
       outcome,
       timeToRug,
+      poolDrop,
     });
   }
 
@@ -1149,6 +1169,84 @@ function main() {
       const tpRate = (data.tpFirst / data.n) * 100;
       const rugRate = (data.rugFirst / data.n) * 100;
       console.log(`${key} n=${data.n} tp=${tpRate.toFixed(1)}% rug=${rugRate.toFixed(1)}%`);
+    }
+  }
+
+  // Pool drop at 60s
+  console.log("\n=== Pool drop at 60s ===");
+  interface PoolDropBucket {
+    n: number;
+    fastRug: number;
+    tpFirst: number;
+  }
+  const poolDropBuckets: Record<string, PoolDropBucket> = {
+    "drop <0.2": { n: 0, fastRug: 0, tpFirst: 0 },
+    "drop 0.2-0.5": { n: 0, fastRug: 0, tpFirst: 0 },
+    "drop >=0.5": { n: 0, fastRug: 0, tpFirst: 0 },
+  };
+
+  for (const md of mintData) {
+    const clockInfo = clocks.get(md.mint);
+    if (!clockInfo) continue;
+    const six = getSixHourTicks(md.mint, clockInfo.clockMs, clockInfo.pairAddress);
+    if (six.entry === null || six.ticks.length === 0) continue;
+
+    const entryPrice = six.entry.price_usd;
+    const entryLiqQuote = six.entry.liq_quote;
+    if (entryLiqQuote <= 0) continue;
+
+    // Find first tick at or after 60s
+    const sixtySec = six.entry.observed_at_ms + 60 * 1000;
+    let tick60: Tick | null = null;
+    for (const t of six.ticks) {
+      if (t.observed_at_ms >= sixtySec) {
+        tick60 = t;
+        break;
+      }
+    }
+    if (tick60 === null || tick60.liq_quote <= 0) continue;
+
+    const poolDrop = 1 - (tick60.liq_quote / entryLiqQuote);
+
+    let bucketKey: string;
+    if (poolDrop < 0.2) bucketKey = "drop <0.2";
+    else if (poolDrop < 0.5) bucketKey = "drop 0.2-0.5";
+    else bucketKey = "drop >=0.5";
+
+    poolDropBuckets[bucketKey].n++;
+
+    // Determine fast-rug and take-profit outcomes
+    let tp: Tick | null = null;
+    let rug: Tick | null = null;
+    for (const t of six.ticks) {
+      if (tp === null && t.price_usd >= entryPrice * 1.3) {
+        tp = t;
+      }
+      if (rug === null && t.price_usd <= entryPrice * 0.5) {
+        rug = t;
+      }
+      if (tp !== null && rug !== null) break;
+    }
+
+    const isTpFirst = tp !== null && (rug === null || tp.observed_at_ms <= rug.observed_at_ms);
+    if (isTpFirst) {
+      poolDropBuckets[bucketKey].tpFirst++;
+    } else {
+      const timeToRug = (rug === null) ? null : (rug.observed_at_ms - six.entry.observed_at_ms) / (60 * 1000);
+      if (timeToRug !== null && timeToRug <= 3) {
+        poolDropBuckets[bucketKey].fastRug++;
+      }
+    }
+  }
+
+  for (const key of ["drop <0.2", "drop 0.2-0.5", "drop >=0.5"]) {
+    const b = poolDropBuckets[key];
+    if (b.n === 0) {
+      console.log(`${key}: n=0 fast=0.0% tp=0.0%`);
+    } else {
+      const fastPct = (b.fastRug / b.n) * 100;
+      const tpPct = (b.tpFirst / b.n) * 100;
+      console.log(`${key}: n=${b.n} fast=${fastPct.toFixed(1)}% tp=${tpPct.toFixed(1)}%`);
     }
   }
 
