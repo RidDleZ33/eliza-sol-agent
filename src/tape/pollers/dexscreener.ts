@@ -362,8 +362,8 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
                   tickRow.liq_quote || 0
                 );
 
-                // Now get same_slot_buyers from oldest tx on pair
-                if (nuke.nuke_ratio !== null && nuke.nuke_ratio < 1.0) {
+                // Now get same_slot_buyers from first tx on pair
+                if (nuke.nuke_ratio !== null) {
                   try {
                     const slotCount = await countSameSlotBuyers(p.mint, tickRow.pair_address);
                     nuke.same_slot_buyers = slotCount;
@@ -547,47 +547,65 @@ async function countSameSlotBuyers(
     return null;
   }
 
+  const PAGE_LIMIT = 20;
+  const MAX_PAGES = 10;
+
+  let beforeSig: string | undefined = undefined;
+  let firstSig = "";
+
   try {
-    // Step 1: getSignaturesForAddress — oldest of last 20
-    const sigBody = JSON.stringify({
-      jsonrpc: "2.0",
-      id: 1,
-      method: "getSignaturesForAddress",
-      params: [pairAddress, { limit: 20 }],
-    });
+    // Walk backward through history to find the first transaction
+    for (let page = 0; page < MAX_PAGES; page++) {
+      const params: any[] = [pairAddress, { limit: PAGE_LIMIT }];
+      if (beforeSig) {
+        params[1].before = beforeSig;
+      }
 
-    const sigResp = await fetch(rpcUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: sigBody,
-    });
+      const sigBody = JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "getSignaturesForAddress",
+        params,
+      });
 
-    if (!sigResp.ok) {
-      rpcBackoffUntil = Date.now() + 60 * 1000;
-      console.log(`[tape] slot skip mint=${mint} reason=sig_${sigResp.status}`);
-      return null;
+      const sigResp = await fetch(rpcUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: sigBody,
+      });
+
+      if (!sigResp.ok) {
+        rpcBackoffUntil = Date.now() + 60 * 1000;
+        console.log(`[tape] slot skip mint=${mint} reason=sig_${sigResp.status}`);
+        return null;
+      }
+
+      const sigJson = await sigResp.json();
+      const sigs = sigJson?.result;
+      if (!Array.isArray(sigs) || sigs.length === 0) {
+        console.log(`[tape] slot skip mint=${mint} reason=no_sigs`);
+        return null;
+      }
+
+      // Oldest sig in this page
+      const oldestInPage = sigs[sigs.length - 1].signature;
+      firstSig = oldestInPage;
+
+      // If page returned fewer than limit, we've hit the end
+      if (sigs.length < PAGE_LIMIT) {
+        break;
+      }
+
+      // Move back to next page
+      beforeSig = oldestInPage;
     }
 
-    const sigJson = await sigResp.json();
-    const sigs = sigJson?.result;
-    if (!Array.isArray(sigs) || sigs.length === 0) {
-      console.log(`[tape] slot skip mint=${mint} reason=no_sigs`);
-      return null;
-    }
-
-    // Oldest signature is last in array
-    const oldestSig = sigs[sigs.length - 1].signature;
-    if (!oldestSig) {
-      console.log(`[tape] slot skip mint=${mint} reason=no_sig_field`);
-      return null;
-    }
-
-    // Step 2: getTransaction on oldest signature
+    // Step 2: getTransaction on the first (oldest) signature
     const txBody = JSON.stringify({
       jsonrpc: "2.0",
       id: 1,
       method: "getTransaction",
-      params: [oldestSig, {
+      params: [firstSig, {
         encoding: "json",
         maxSupportedTransactionVersion: 0,
       }],
