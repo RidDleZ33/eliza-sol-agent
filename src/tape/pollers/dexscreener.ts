@@ -361,6 +361,20 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
                   tickRow.price_native || 0,
                   tickRow.liq_quote || 0
                 );
+
+                // Now get same_slot_buyers from oldest tx on pair
+                if (nuke.nuke_ratio !== null && nuke.nuke_ratio < 1.0) {
+                  try {
+                    const slotCount = await countSameSlotBuyers(p.mint, tickRow.pair_address);
+                    nuke.same_slot_buyers = slotCount;
+                    if (slotCount !== null) {
+                      console.log(`[tape] slot mint=${p.mint} count=${slotCount}`);
+                    }
+                  } catch (e: any) {
+                    console.log(`[tape] slot skip mint=${p.mint} reason=exception ${e.message}`);
+                  }
+                }
+
                 if (nuke.nuke_ratio !== null) {
                   const updateStmt = db.prepare(`
                     UPDATE migrations SET top_holder_sol=?, pool_sol=?, nuke_ratio=?, unique_buyers_5m=?, same_slot_buyers=?, top_holder_pct=?, top_holder_tag=?, top5_sol=?, top5_ratio=? WHERE mint=?
@@ -513,6 +527,104 @@ async function getNukeSnapshot(
   }
 
   return result;
+}
+
+async function countSameSlotBuyers(
+  mint: string,
+  pairAddress: string | null
+): Promise<number | null> {
+  if (!pairAddress) return null;
+
+  const rpcUrl = getSolanaRpcUrl();
+  if (!rpcUrl) {
+    console.log(`[tape] slot skip mint=${mint} reason=no_rpc`);
+    return null;
+  }
+
+  // Check backoff
+  if (Date.now() < rpcBackoffUntil) {
+    console.log(`[tape] slot skip mint=${mint} reason=rpc_backoff`);
+    return null;
+  }
+
+  try {
+    // Step 1: getSignaturesForAddress — oldest of last 20
+    const sigBody = JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "getSignaturesForAddress",
+      params: [pairAddress, { limit: 20 }],
+    });
+
+    const sigResp = await fetch(rpcUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: sigBody,
+    });
+
+    if (!sigResp.ok) {
+      rpcBackoffUntil = Date.now() + 60 * 1000;
+      console.log(`[tape] slot skip mint=${mint} reason=sig_${sigResp.status}`);
+      return null;
+    }
+
+    const sigJson = await sigResp.json();
+    const sigs = sigJson?.result;
+    if (!Array.isArray(sigs) || sigs.length === 0) {
+      console.log(`[tape] slot skip mint=${mint} reason=no_sigs`);
+      return null;
+    }
+
+    // Oldest signature is last in array
+    const oldestSig = sigs[sigs.length - 1].signature;
+    if (!oldestSig) {
+      console.log(`[tape] slot skip mint=${mint} reason=no_sig_field`);
+      return null;
+    }
+
+    // Step 2: getTransaction on oldest signature
+    const txBody = JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "getTransaction",
+      params: [oldestSig, {
+        encoding: "json",
+        maxSupportedTransactionVersion: 0,
+      }],
+    });
+
+    const txResp = await fetch(rpcUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: txBody,
+    });
+
+    if (!txResp.ok) {
+      rpcBackoffUntil = Date.now() + 60 * 1000;
+      console.log(`[tape] slot skip mint=${mint} reason=tx_${txResp.status}`);
+      return null;
+    }
+
+    const txJson = await txResp.json();
+    const tx = txJson?.result?.transaction;
+    if (!tx) {
+      console.log(`[tape] slot skip mint=${mint} reason=no_tx`);
+      return null;
+    }
+
+    // Count unique signers
+    const signers = tx?.signatures;
+    if (!Array.isArray(signers)) {
+      console.log(`[tape] slot skip mint=${mint} reason=no_signatures`);
+      return null;
+    }
+
+    return signers.length;
+  } catch (e: any) {
+    rpcBackoffUntil = Date.now() + 60 * 1000;
+    console.log(`[tape] slot skip mint=${mint} reason=slot_error ${e.message}`);
+    return null;
+  }
 }
 
 async function pollTokenBatch(
