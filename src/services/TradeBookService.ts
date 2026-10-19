@@ -32,6 +32,7 @@ function classifyExit(reason: string | null | undefined): string {
   if (upper.startsWith("TAKE_PROFIT")) return "TAKE_PROFIT";
   if (upper.startsWith("STALE")) return "STALE";
   if (upper.startsWith("CLOCK")) return "CLOCK";
+  if (upper.startsWith("POOL_DROP")) return "POOL_DROP";
   return "OTHER";
 }
 
