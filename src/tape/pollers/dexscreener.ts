@@ -583,8 +583,12 @@ async function countSameSlotBuyers(
       const sigJson = await sigResp.json();
       const sigs = sigJson?.result;
       if (!Array.isArray(sigs) || sigs.length === 0) {
-        console.log(`[tape] slot skip mint=${mint} reason=no_sigs`);
-        return null;
+        // Empty page means we've hit the beginning of history
+        if (page === 0) {
+          console.log(`[tape] slot skip mint=${mint} reason=no_sigs`);
+          return null;
+        }
+        break;
       }
 
       // Oldest sig in this page
