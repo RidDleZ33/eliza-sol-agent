@@ -268,6 +268,18 @@ export class PriceActionService {
    * Pair age in minutes from stashed Dex pair pairCreatedAt.
    * Null if unknown (treated as old → 5m bars).
    */
+  /**
+   * Return the cached PA source for a mint if the entry is still inside TTL.
+   * Does not fetch; returns null if missing or stale.
+   */
+  getCachedSource(mint: string): string | null {
+    const cached = this.cache.get(mint);
+    if (cached && Date.now() - cached.timestamp < this.cacheTtlMs) {
+      return cached.source;
+    }
+    return null;
+  }
+
   private pairAgeMinutes(mintAddress: string): number | null {
     const stashed = watchlistService.getDexPair(mintAddress);
     if (!stashed || !stashed.pair.pairCreatedAt) {

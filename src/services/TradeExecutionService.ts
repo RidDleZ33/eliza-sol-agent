@@ -9,6 +9,7 @@ import {
   VersionedTransaction,
 } from "@solana/web3.js";
 import { watchlistService } from "./WatchlistService.ts";
+import { priceActionService } from "./PriceActionService.ts";
 import { isDryRun, getSolanaRpcUrl } from "../utils/env.ts";
 import { getHouseKeypair } from "../utils/wallet.ts";
 import { configService } from "./ConfigService.ts";
@@ -238,7 +239,8 @@ export class TradeExecutionService {
     symbol: string,
     convictionScore: number,
     tradeSize: number,
-    triggerType: string
+    triggerType: string,
+    buyReason?: string
   ): Promise<TradeExecutionResult> {
     const connection = this.getConnection();
     const keypair = getHouseKeypair();
@@ -382,6 +384,7 @@ export class TradeExecutionService {
         solOut: 0,
         txSig: signature,
         status: "FILLED",
+        reason: buyReason,
       });
       telegramAdminBot.notifyTrade({ side: "BUY", symbol, status: "FILLED", mode: "LIVE", solIn: tradeSize, mint: mintAddress, txSig: signature }).catch(() => {});
 
@@ -610,9 +613,15 @@ export class TradeExecutionService {
         });
 
         // Phase 10C: include conviction and Gamma committee reasons on the desk tape
-        const buyReason = deskReason
+        let buyReason = deskReason
           ? `BUY conv=${convictionScore.toFixed(2)} | ${deskReason.slice(0, 160)}`
           : `BUY conv=${convictionScore.toFixed(2)}`;
+
+        // Phase 23C: stamp PA source onto buy reason so the book can classify it
+        const paSource = priceActionService.getCachedSource(mintAddress);
+        if (paSource) {
+          buyReason = buyReason + ` src=${paSource}`;
+        }
 
         // Phase 2A: PAPER BUY journal row (sol_in = tradeSize; sol_out = 0)
         await watchlistService.logTradeRow({
@@ -645,7 +654,15 @@ export class TradeExecutionService {
         return { success: false, error: "Jupiter circuit breaker is open" };
       }
 
-      return await this.executeLiveBuy(mintAddress, symbol, convictionScore, tradeSize, triggerType);
+      // Phase 23C: stamp PA source onto buy reason so the book can classify it
+      let liveBuyReason = `BUY conv=${convictionScore.toFixed(2)} | ${triggerType}`;
+      const paSource = priceActionService.getCachedSource(mintAddress);
+      if (paSource) {
+        liveBuyReason = liveBuyReason + ` src=${paSource}`;
+      }
+
+      const result = await this.executeLiveBuy(mintAddress, symbol, convictionScore, tradeSize, triggerType, liveBuyReason);
+      return result;
     } catch (e: any) {
       logger.error("EXECUTION", "TradeExecution", "Buy Execution Error", { symbol, error: e.message });
       return { success: false, error: e.message || "Unknown execution error" };

@@ -39,6 +39,7 @@ function classifyExit(reason: string | null | undefined): string {
 function classifyPaSrc(reason: string | null | undefined, buyReason: string | null | undefined): string {
   const combined = [reason, buyReason].filter(Boolean).join(" ");
   if (/src=birdeye/i.test(combined)) return "birdeye";
+  if (/src=gmgn/i.test(combined)) return "gmgn";
   if (/src=dex/i.test(combined)) return "dex";
   if (/PA unavailable/i.test(combined)) return "none";
   return "unk";
