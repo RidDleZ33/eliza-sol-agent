@@ -9,18 +9,20 @@ import { addSessionPnl } from "../execution/risk.ts";
 import { priceActionService } from "./PriceActionService.ts";
 import { volStopPct } from "../execution/volStop.ts";
 import { excursionSnippet } from "../execution/excursion.ts";
-import { getExitClockSec, getClockSecMigEdge } from "../utils/env.ts";
+import { getExitClockSec, getClockSecMigEdge, getPoolDropPct } from "../utils/env.ts";
 
 export class PositionManagerService {
   private runtime: any;
   private checkInterval: any;
   private positionPeaks: Map<string, number>; // mint -> peak price
   private positionTroughs: Map<string, number>; // mint -> trough price
+  private positionPoolQuotes: Map<string, number>; // mint -> initial pool quote SOL
 
   constructor(runtime) {
     this.runtime = runtime;
     this.positionPeaks = new Map();
     this.positionTroughs = new Map();
+    this.positionPoolQuotes = new Map();
   }
 
   start() {
@@ -183,6 +185,34 @@ export class PositionManagerService {
     // Phase 14A: trailing stop only arms after peak reaches take-profit threshold
     const peakPnlPct = ((peakForExcursion - entryForExcursion) / entryForExcursion) * 100;
 
+    // Phase 23A: Pool drop exit (fast-rug signal) — check before stop-loss
+    const poolDropPct = getPoolDropPct();
+    if (poolDropPct > 0) {
+      let initialQuote = this.positionPoolQuotes.get(mint);
+      if (initialQuote === undefined) {
+        initialQuote = await this.getPoolQuote(mint);
+        if (initialQuote !== null) {
+          this.positionPoolQuotes.set(mint, initialQuote);
+        }
+      }
+      if (initialQuote !== null) {
+        const currentQuote = await this.getPoolQuote(mint);
+        if (currentQuote !== null) {
+          const quoteChange = ((initialQuote - currentQuote) / initialQuote) * 100;
+          if (quoteChange >= poolDropPct) {
+            logger.info("POSITIONS", "PositionManager", "POOL_DROP triggered", {
+              symbol,
+              quoteChangePct: quoteChange.toFixed(1),
+              initialQuote: initialQuote.toFixed(2),
+              currentQuote: currentQuote.toFixed(2),
+            });
+            await this.exitPosition(mint, symbol, `POOL_DROP (${quoteChange.toFixed(1)}% drop) | ${exc}`, currentPrice, pnlPct);
+            return;
+          }
+        }
+      }
+    }
+
     if (pnlPct >= takeProfitPct) {
       logger.info("POSITIONS", "PositionManager", "TAKE_PROFIT triggered", {
         symbol,
@@ -303,6 +333,7 @@ export class PositionManagerService {
       // Clear peak price
       this.positionPeaks.delete(mint);
       this.positionTroughs.delete(mint);
+      this.positionPoolQuotes.delete(mint);
     } else {
       logger.error("POSITIONS", "PositionManager", "Failed to exit position", {
         symbol,
@@ -336,6 +367,27 @@ export class PositionManagerService {
     }
 
     return 0;
+  }
+
+  private async getPoolQuote(mint: string): Promise<number | null> {
+    try {
+      const response = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${mint}`);
+      if (!response.ok) return null;
+      const data = await response.json();
+      const pairs = data?.pairs;
+      if (!Array.isArray(pairs)) return null;
+      const pumpPair = pairs.find((p: any) => p.dexId === "pumpswap");
+      if (!pumpPair) return null;
+      const quote = pumpPair.liquidity?.quote;
+      if (quote === undefined || quote === null) return null;
+      return parseFloat(quote);
+    } catch (e) {
+      logger.debug("POSITIONS", "PositionManager", "Error fetching pool quote", {
+        mint,
+        error: e.message,
+      });
+      return null;
+    }
   }
 }
 

@@ -1,0 +1,897 @@
+[migration-grid] collecting migration clocks...
+[migration-grid] 4199 mints with migration clocks
+pairs resolved=4199 fromRow=1 fromTick=4171 none=27
+[migration-grid] 50/4199...
+[migration-grid] 100/4199...
+[migration-grid] 150/4199...
+[migration-grid] 200/4199...
+[migration-grid] 250/4199...
+[migration-grid] 300/4199...
+[migration-grid] 350/4199...
+[migration-grid] 400/4199...
+[migration-grid] 450/4199...
+[migration-grid] 500/4199...
+[migration-grid] 550/4199...
+[migration-grid] 600/4199...
+[migration-grid] 650/4199...
+[migration-grid] 700/4199...
+[migration-grid] 750/4199...
+[migration-grid] 800/4199...
+[migration-grid] 850/4199...
+[migration-grid] 900/4199...
+[migration-grid] 950/4199...
+[migration-grid] 1000/4199...
+[migration-grid] 1050/4199...
+[migration-grid] 1100/4199...
+[migration-grid] 1150/4199...
+[migration-grid] 1200/4199...
+[migration-grid] 1250/4199...
+[migration-grid] 1300/4199...
+[migration-grid] 1350/4199...
+[migration-grid] 1400/4199...
+[migration-grid] 1450/4199...
+[migration-grid] 1500/4199...
+[migration-grid] 1550/4199...
+[migration-grid] 1600/4199...
+[migration-grid] 1650/4199...
+[migration-grid] 1700/4199...
+[migration-grid] 1750/4199...
+[migration-grid] 1800/4199...
+[migration-grid] 1850/4199...
+[migration-grid] 1900/4199...
+[migration-grid] 1950/4199...
+[migration-grid] 2000/4199...
+[migration-grid] 2050/4199...
+[migration-grid] 2100/4199...
+[migration-grid] 2150/4199...
+[migration-grid] 2200/4199...
+[migration-grid] 2250/4199...
+[migration-grid] 2300/4199...
+[migration-grid] 2350/4199...
+[migration-grid] 2400/4199...
+[migration-grid] 2450/4199...
+[migration-grid] 2500/4199...
+[migration-grid] 2550/4199...
+[migration-grid] 2600/4199...
+[migration-grid] 2650/4199...
+[migration-grid] 2700/4199...
+[migration-grid] 2750/4199...
+[migration-grid] 2800/4199...
+[migration-grid] 2850/4199...
+[migration-grid] 2900/4199...
+[migration-grid] 2950/4199...
+[migration-grid] 3000/4199...
+[migration-grid] 3050/4199...
+[migration-grid] 3100/4199...
+[migration-grid] 3150/4199...
+[migration-grid] 3200/4199...
+[migration-grid] 3250/4199...
+[migration-grid] 3300/4199...
+[migration-grid] 3350/4199...
+[migration-grid] 3400/4199...
+[migration-grid] 3450/4199...
+[migration-grid] 3500/4199...
+[migration-grid] 3550/4199...
+[migration-grid] 3600/4199...
+[migration-grid] 3650/4199...
+[migration-grid] 3700/4199...
+[migration-grid] 3750/4199...
+[migration-grid] 3800/4199...
+[migration-grid] 3850/4199...
+[migration-grid] 3900/4199...
+[migration-grid] 3950/4199...
+[migration-grid] 4000/4199...
+[migration-grid] 4050/4199...
+[migration-grid] 4100/4199...
+[migration-grid] 4150/4199...
+
+Scored: 4106
+Unscored: 93
+
+=== Overall ===
+flat20: n=4106 hit=52.9% median=20.3% avg=-13.6%
+flat30: n=4106 hit=46.5% median=3.0% avg=-15.8%
+flat40: n=4106 hit=40.8% median=-0.1% avg=-18.3%
+flat50: n=4106 hit=36.0% median=-29.4% avg=-20.9%
+hold: n=4106 median=-89.5% avg=-42.8%
+trail10: n=4106 hit=52.8% median=-52.2% avg=-26.4%
+trail15: n=4106 hit=52.6% median=-57.7% avg=-27.1%
+trail20: n=4106 hit=52.2% median=-59.3% avg=-26.7%
+trail25: n=4106 hit=52.0% median=-64.0% avg=-28.5%
+half30trail20: n=4106 hit=46.5% median=-28.1% avg=-22.3%
+half40trail15: n=4106 hit=40.8% median=-27.9% avg=-24.1%
+flat30or15m: n=4106 hit=42.2% median=0.9% avg=-14.4%
+flat30or30m: n=4106 hit=45.3% median=1.8% avg=-15.1%
+flat30stop20: n=4106 hit=40.5% median=-4.2% avg=-10.7%
+flat30stop25: n=4106 hit=41.6% median=0.0% avg=-11.5%
+runners 6h: +200%=557 +1000%=62 +2000%=17 of n=4106
+
+=== Runner Peak Grid (peak >= 20x) ===
+runners 6h: wick=0 path=17 of n=17
+path time-to-peak min=9.3 p25=78.1 median=95.5 p75=169.3 max=357.9
+
+--- Capture rules on path names (exit / peak) ---
+flat100: n=17 medianCapture=9.2% halfPeak=0.0%
+flat200: n=17 medianCapture=12.8% halfPeak=0.0%
+flat500: n=17 medianCapture=20.2% halfPeak=0.0%
+flat1000: n=17 medianCapture=35.9% halfPeak=23.5%
+arm100-trail20: n=17 medianCapture=16.9% halfPeak=23.5%
+arm100-trail40: n=17 medianCapture=28.9% halfPeak=35.3%
+arm200-trail20: n=17 medianCapture=20.4% halfPeak=23.5%
+arm200-trail30: n=17 medianCapture=23.9% halfPeak=29.4%
+arm200-trail40: n=17 medianCapture=28.9% halfPeak=35.3%
+arm500-trail20: n=17 medianCapture=23.3% halfPeak=23.5%
+arm500-trail40: n=17 medianCapture=28.9% halfPeak=35.3%
+time30m: n=17 medianCapture=14.4% halfPeak=17.6%
+time60m: n=17 medianCapture=17.1% halfPeak=17.6%
+time120m: n=17 medianCapture=39.4% halfPeak=41.2%
+time240m: n=17 medianCapture=32.8% halfPeak=35.3%
+arm100-time30: n=17 medianCapture=22.8% halfPeak=23.5%
+arm100-time60: n=17 medianCapture=24.1% halfPeak=23.5%
+arm200-time30: n=17 medianCapture=26.0% halfPeak=35.3%
+arm200-time60: n=17 medianCapture=39.1% halfPeak=29.4%
+
+--- flat20 buckets ---
+liq_usd:<25k n=2345 hit=46.2% median=0.0% avg=-17.3%
+liq_usd:50-100k n=1018 hit=71.8% median=20.7% avg=-11.0%
+liq_usd:25-50k n=489 hit=70.8% median=21.8% avg=-5.7%
+liq_usd:>=100k n=254 hit=4.3% median=2.7% avg=-4.8%
+buySell:<1 n=692 hit=39.0% median=-15.0% avg=-18.0%
+buySell:1-2 n=2513 hit=60.2% median=20.8% avg=-13.7%
+buySell:>=2 n=776 hit=49.4% median=10.2% avg=-11.0%
+top_10_holder_rate:>=0.4 n=2185 hit=54.2% median=20.3% avg=-15.5%
+top_10_holder_rate:<0.2 n=872 hit=49.2% median=5.7% avg=-10.2%
+top_10_holder_rate:0.2-0.4 n=1048 hit=53.1% median=20.9% avg=-12.4%
+bundler_trader_amount_rate:>=0.3 n=2835 hit=55.3% median=20.4% avg=-13.7%
+bundler_trader_amount_rate:0.1-0.3 n=463 hit=58.5% median=21.3% avg=-10.0%
+bundler_trader_amount_rate:<0.1 n=807 hit=41.0% median=0.0% avg=-15.4%
+rat_trader_amount_rate:<0.1 n=3733 hit=53.0% median=20.2% avg=-13.1%
+rat_trader_amount_rate:0.1-0.3 n=51 hit=43.1% median=-15.2% avg=-27.7%
+rat_trader_amount_rate:>=0.3 n=321 hit=53.6% median=20.5% avg=-17.5%
+sniper_count:0 n=104 hit=43.3% median=0.1% avg=-16.8%
+sniper_count:1-10 n=47 hit=34.0% median=0.0% avg=-5.3%
+holder_count:<100 n=2251 hit=51.4% median=20.1% avg=-14.6%
+holder_count:>=500 n=418 hit=63.6% median=21.5% avg=-5.9%
+holder_count:100-500 n=1436 hit=52.1% median=20.3% avg=-14.3%
+smart_degen_count:>=1 n=2353 hit=51.4% median=20.3% avg=-12.9%
+smart_degen_count:0 n=1737 hit=55.0% median=20.3% avg=-14.6%
+renowned_count:0 n=3287 hit=53.0% median=20.2% avg=-14.1%
+renowned_count:>=1 n=818 hit=52.6% median=20.8% avg=-11.8%
+creator_token_status:creator_hold n=2421 hit=54.5% median=20.3% avg=-14.3%
+creator_token_status:creator_close n=1678 hit=50.6% median=20.1% avg=-12.6%
+dev_team_hold_rate:>=0.05 n=2458 hit=56.9% median=20.4% avg=-13.0%
+dev_team_hold_rate:<0.05 n=1647 hit=46.9% median=0.6% avg=-14.5%
+complete_cost_time:<300s n=898 hit=48.9% median=4.8% avg=-16.6%
+complete_cost_time:300-1800s n=639 hit=59.0% median=22.3% avg=-8.9%
+complete_cost_time:>=1800s n=443 hit=46.3% median=-1.8% avg=-15.1%
+has_at_least_one_social:true n=137 hit=36.5% median=0.0% avg=-19.6%
+has_at_least_one_social:false n=35 hit=42.9% median=3.0% avg=7.6%
+is_wash_trading:false n=4105 hit=52.9% median=20.3% avg=-13.6%
+rug_ratio:<0.3 n=2733 hit=54.6% median=20.3% avg=-14.1%
+rug_ratio:>=0.3 n=1372 hit=49.6% median=9.5% avg=-12.7%
+nuke_ratio:<0.3 n=200 hit=52.0% median=20.4% avg=-10.4%
+nuke_ratio:>=1 n=82 hit=41.5% median=4.5% avg=-14.1%
+nuke_ratio:0.3-1 n=88 hit=69.3% median=21.0% avg=0.4%
+
+--- flat30 buckets ---
+liq_usd:<25k n=2345 hit=40.1% median=-21.5% avg=-19.4%
+liq_usd:50-100k n=1018 hit=63.5% median=30.5% avg=-14.4%
+liq_usd:25-50k n=489 hit=64.8% median=31.3% avg=-6.7%
+liq_usd:>=100k n=254 hit=2.8% median=2.7% avg=-4.5%
+buySell:<1 n=692 hit=34.2% median=-23.5% avg=-18.7%
+buySell:1-2 n=2513 hit=53.0% median=30.2% avg=-16.4%
+buySell:>=2 n=776 hit=43.7% median=4.6% avg=-13.0%
+top_10_holder_rate:>=0.4 n=2185 hit=47.9% median=5.5% avg=-18.0%
+top_10_holder_rate:<0.2 n=872 hit=44.2% median=0.0% avg=-11.6%
+top_10_holder_rate:0.2-0.4 n=1048 hit=45.6% median=-16.0% avg=-14.6%
+bundler_trader_amount_rate:>=0.3 n=2835 hit=48.5% median=5.5% avg=-16.1%
+bundler_trader_amount_rate:0.1-0.3 n=463 hit=52.3% median=30.2% avg=-11.5%
+bundler_trader_amount_rate:<0.1 n=807 hit=36.2% median=0.0% avg=-17.0%
+rat_trader_amount_rate:<0.1 n=3733 hit=46.4% median=3.1% avg=-15.2%
+rat_trader_amount_rate:0.1-0.3 n=51 hit=39.2% median=-49.2% avg=-27.9%
+rat_trader_amount_rate:>=0.3 n=321 hit=48.6% median=-13.4% avg=-20.1%
+sniper_count:0 n=104 hit=39.4% median=0.0% avg=-17.6%
+sniper_count:1-10 n=47 hit=34.0% median=0.0% avg=-1.8%
+holder_count:<100 n=2251 hit=45.4% median=3.1% avg=-17.0%
+holder_count:>=500 n=418 hit=58.6% median=30.6% avg=-6.5%
+holder_count:100-500 n=1436 hit=44.7% median=-15.6% avg=-16.6%
+smart_degen_count:>=1 n=2353 hit=45.1% median=-2.1% avg=-14.7%
+smart_degen_count:0 n=1737 hit=48.5% median=7.2% avg=-17.2%
+renowned_count:0 n=3287 hit=46.9% median=3.5% avg=-16.1%
+renowned_count:>=1 n=818 hit=44.7% median=-15.8% avg=-14.3%
+creator_token_status:creator_hold n=2421 hit=48.0% median=5.5% avg=-16.7%
+creator_token_status:creator_close n=1678 hit=44.4% median=0.0% avg=-14.4%
+dev_team_hold_rate:>=0.05 n=2458 hit=50.7% median=30.1% avg=-15.0%
+dev_team_hold_rate:<0.05 n=1647 hit=40.3% median=-1.2% avg=-17.0%
+complete_cost_time:<300s n=898 hit=43.0% median=-15.1% avg=-18.3%
+complete_cost_time:300-1800s n=639 hit=52.0% median=30.5% avg=-11.8%
+complete_cost_time:>=1800s n=443 hit=37.9% median=-23.4% avg=-17.4%
+has_at_least_one_social:true n=137 hit=32.8% median=0.0% avg=-20.8%
+has_at_least_one_social:false n=35 hit=40.0% median=0.5% avg=7.5%
+is_wash_trading:false n=4105 hit=46.5% median=3.0% avg=-15.8%
+rug_ratio:<0.3 n=2733 hit=48.4% median=4.6% avg=-15.8%
+rug_ratio:>=0.3 n=1372 hit=42.6% median=0.1% avg=-15.6%
+nuke_ratio:<0.3 n=200 hit=44.0% median=0.0% avg=-13.1%
+nuke_ratio:>=1 n=82 hit=32.9% median=3.0% avg=-21.2%
+nuke_ratio:0.3-1 n=88 hit=62.5% median=30.6% avg=-2.1%
+
+--- flat40 buckets ---
+liq_usd:<25k n=2345 hit=34.4% median=-40.4% avg=-22.3%
+liq_usd:50-100k n=1018 hit=56.5% median=40.3% avg=-17.5%
+liq_usd:25-50k n=489 hit=59.3% median=40.7% avg=-8.3%
+liq_usd:>=100k n=254 hit=2.0% median=2.7% avg=-4.4%
+buySell:<1 n=692 hit=28.9% median=-30.6% avg=-20.9%
+buySell:1-2 n=2513 hit=46.7% median=-15.7% avg=-19.3%
+buySell:>=2 n=776 hit=38.7% median=3.1% avg=-15.2%
+top_10_holder_rate:>=0.4 n=2185 hit=42.7% median=2.1% avg=-20.2%
+top_10_holder_rate:<0.2 n=872 hit=38.5% median=0.0% avg=-14.8%
+top_10_holder_rate:0.2-0.4 n=1048 hit=38.7% median=-33.7% avg=-17.5%
+bundler_trader_amount_rate:>=0.3 n=2835 hit=43.2% median=1.3% avg=-18.1%
+bundler_trader_amount_rate:0.1-0.3 n=463 hit=45.1% median=-22.0% avg=-14.4%
+bundler_trader_amount_rate:<0.1 n=807 hit=30.0% median=-1.1% avg=-21.6%
+rat_trader_amount_rate:<0.1 n=3733 hit=40.9% median=0.0% avg=-17.5%
+rat_trader_amount_rate:0.1-0.3 n=51 hit=33.3% median=-55.4% avg=-29.2%
+rat_trader_amount_rate:>=0.3 n=321 hit=41.1% median=-77.3% avg=-26.3%
+sniper_count:0 n=104 hit=36.5% median=0.0% avg=-16.3%
+sniper_count:1-10 n=47 hit=23.4% median=0.0% avg=-13.2%
+holder_count:<100 n=2251 hit=40.4% median=0.5% avg=-19.2%
+holder_count:>=500 n=418 hit=51.2% median=40.1% avg=-10.8%
+holder_count:100-500 n=1436 hit=38.4% median=-35.2% avg=-19.2%
+smart_degen_count:>=1 n=2353 hit=39.1% median=-30.5% avg=-17.6%
+smart_degen_count:0 n=1737 hit=43.4% median=3.1% avg=-19.3%
+renowned_count:0 n=3287 hit=41.5% median=0.0% avg=-18.7%
+renowned_count:>=1 n=818 hit=38.1% median=-34.4% avg=-17.1%
+creator_token_status:creator_hold n=2421 hit=42.4% median=1.8% avg=-19.4%
+creator_token_status:creator_close n=1678 hit=38.6% median=-13.4% avg=-16.7%
+dev_team_hold_rate:>=0.05 n=2458 hit=45.1% median=2.8% avg=-17.2%
+dev_team_hold_rate:<0.05 n=1647 hit=34.4% median=-24.8% avg=-20.0%
+complete_cost_time:<300s n=898 hit=37.5% median=-34.2% avg=-20.7%
+complete_cost_time:300-1800s n=639 hit=45.4% median=-20.8% avg=-14.6%
+complete_cost_time:>=1800s n=443 hit=31.4% median=-32.8% avg=-19.7%
+has_at_least_one_social:true n=137 hit=27.7% median=0.0% avg=-24.8%
+has_at_least_one_social:false n=35 hit=37.1% median=0.5% avg=12.0%
+is_wash_trading:false n=4105 hit=40.8% median=-0.1% avg=-18.3%
+rug_ratio:<0.3 n=2733 hit=42.8% median=-0.0% avg=-18.2%
+rug_ratio:>=0.3 n=1372 hit=37.0% median=-0.1% avg=-18.6%
+nuke_ratio:<0.3 n=200 hit=38.5% median=-12.9% avg=-15.1%
+nuke_ratio:>=1 n=82 hit=31.7% median=2.9% avg=-20.0%
+nuke_ratio:0.3-1 n=88 hit=60.2% median=40.5% avg=0.6%
+
+--- flat50 buckets ---
+liq_usd:<25k n=2345 hit=30.6% median=-52.6% avg=-23.9%
+liq_usd:50-100k n=1018 hit=49.2% median=10.9% avg=-22.7%
+liq_usd:25-50k n=489 hit=52.6% median=50.3% avg=-10.9%
+liq_usd:>=100k n=254 hit=1.6% median=2.7% avg=-4.8%
+buySell:<1 n=692 hit=25.4% median=-34.2% avg=-21.8%
+buySell:1-2 n=2513 hit=41.3% median=-60.3% avg=-22.1%
+buySell:>=2 n=776 hit=33.8% median=2.1% avg=-18.7%
+top_10_holder_rate:>=0.4 n=2185 hit=37.5% median=-28.1% avg=-23.6%
+top_10_holder_rate:<0.2 n=872 hit=34.7% median=-0.9% avg=-16.5%
+top_10_holder_rate:0.2-0.4 n=1048 hit=34.1% median=-38.9% avg=-18.8%
+bundler_trader_amount_rate:>=0.3 n=2835 hit=38.1% median=-30.5% avg=-20.9%
+bundler_trader_amount_rate:0.1-0.3 n=463 hit=42.1% median=-30.2% avg=-12.9%
+bundler_trader_amount_rate:<0.1 n=807 hit=25.3% median=-21.2% avg=-25.3%
+rat_trader_amount_rate:<0.1 n=3733 hit=36.2% median=-21.9% avg=-19.9%
+rat_trader_amount_rate:0.1-0.3 n=51 hit=27.5% median=-69.7% avg=-36.1%
+rat_trader_amount_rate:>=0.3 n=321 hit=35.8% median=-81.8% avg=-30.3%
+sniper_count:0 n=104 hit=30.8% median=0.0% avg=-21.4%
+sniper_count:1-10 n=47 hit=19.1% median=0.0% avg=-17.4%
+holder_count:<100 n=2251 hit=35.4% median=-0.5% avg=-22.6%
+holder_count:>=500 n=418 hit=46.9% median=3.2% avg=-12.2%
+holder_count:100-500 n=1436 hit=33.9% median=-44.8% avg=-20.7%
+smart_degen_count:>=1 n=2353 hit=34.8% median=-43.2% avg=-19.3%
+smart_degen_count:0 n=1737 hit=37.9% median=1.3% avg=-23.1%
+renowned_count:0 n=3287 hit=36.7% median=-15.4% avg=-21.5%
+renowned_count:>=1 n=818 hit=33.5% median=-39.1% avg=-18.4%
+creator_token_status:creator_hold n=2421 hit=37.3% median=-26.5% avg=-22.5%
+creator_token_status:creator_close n=1678 hit=34.3% median=-30.7% avg=-18.3%
+dev_team_hold_rate:>=0.05 n=2458 hit=40.0% median=-8.7% avg=-20.2%
+dev_team_hold_rate:<0.05 n=1647 hit=30.1% median=-37.9% avg=-21.9%
+complete_cost_time:<300s n=898 hit=33.6% median=-43.2% avg=-22.5%
+complete_cost_time:300-1800s n=639 hit=40.2% median=-43.9% avg=-17.0%
+complete_cost_time:>=1800s n=443 hit=27.3% median=-36.0% avg=-19.5%
+has_at_least_one_social:true n=137 hit=23.4% median=-0.9% avg=-28.5%
+has_at_least_one_social:false n=35 hit=31.4% median=0.0% avg=6.1%
+is_wash_trading:false n=4105 hit=36.0% median=-29.5% avg=-20.9%
+rug_ratio:<0.3 n=2733 hit=37.9% median=-35.3% avg=-20.7%
+rug_ratio:>=0.3 n=1372 hit=32.3% median=-20.4% avg=-21.3%
+nuke_ratio:<0.3 n=200 hit=35.5% median=-16.4% avg=-13.9%
+nuke_ratio:>=1 n=82 hit=26.8% median=2.0% avg=-22.7%
+nuke_ratio:0.3-1 n=88 hit=46.6% median=2.9% avg=-12.4%
+
+--- hold buckets ---
+liq_usd:<25k n=2345 median=-82.1% avg=-45.3%
+liq_usd:50-100k n=1018 median=-99.6% avg=-49.6%
+liq_usd:25-50k n=489 median=-98.2% avg=-35.9%
+liq_usd:>=100k n=254 median=2.7% avg=-4.7%
+buySell:<1 n=692 median=-58.5% avg=-33.1%
+buySell:1-2 n=2513 median=-94.4% avg=-49.8%
+buySell:>=2 n=776 median=-96.4% avg=-35.0%
+top_10_holder_rate:>=0.4 n=2185 median=-97.2% avg=-41.7%
+top_10_holder_rate:<0.2 n=872 median=-88.6% avg=-51.7%
+top_10_holder_rate:0.2-0.4 n=1048 median=-66.6% avg=-37.5%
+bundler_trader_amount_rate:>=0.3 n=2835 median=-91.8% avg=-39.7%
+bundler_trader_amount_rate:0.1-0.3 n=463 median=-82.3% avg=-46.9%
+bundler_trader_amount_rate:<0.1 n=807 median=-86.5% avg=-51.1%
+rat_trader_amount_rate:<0.1 n=3733 median=-88.5% avg=-40.2%
+rat_trader_amount_rate:0.1-0.3 n=51 median=-73.2% avg=-35.3%
+rat_trader_amount_rate:>=0.3 n=321 median=-96.0% avg=-73.5%
+sniper_count:0 n=104 median=-95.0% avg=-36.4%
+sniper_count:1-10 n=47 median=-2.5% avg=-46.5%
+holder_count:<100 n=2251 median=-96.7% avg=-40.4%
+holder_count:>=500 n=418 median=-95.9% avg=-59.1%
+holder_count:100-500 n=1436 median=-73.9% avg=-41.7%
+smart_degen_count:>=1 n=2353 median=-81.1% avg=-42.4%
+smart_degen_count:0 n=1737 median=-99.0% avg=-44.0%
+renowned_count:0 n=3287 median=-95.7% avg=-44.0%
+renowned_count:>=1 n=818 median=-65.6% avg=-37.7%
+creator_token_status:creator_hold n=2421 median=-96.4% avg=-41.8%
+creator_token_status:creator_close n=1678 median=-76.7% avg=-44.6%
+dev_team_hold_rate:>=0.05 n=2458 median=-96.3% avg=-42.8%
+dev_team_hold_rate:<0.05 n=1647 median=-76.0% avg=-42.7%
+complete_cost_time:<300s n=898 median=-84.2% avg=-45.2%
+complete_cost_time:300-1800s n=639 median=-82.8% avg=-42.3%
+complete_cost_time:>=1800s n=443 median=-53.0% avg=-31.2%
+has_at_least_one_social:true n=137 median=-87.8% avg=-43.5%
+has_at_least_one_social:false n=35 median=0.0% avg=-27.9%
+is_wash_trading:false n=4105 median=-89.5% avg=-42.7%
+rug_ratio:<0.3 n=2733 median=-92.0% avg=-42.8%
+rug_ratio:>=0.3 n=1372 median=-84.6% avg=-42.6%
+nuke_ratio:<0.3 n=200 median=-75.1% avg=-35.3%
+nuke_ratio:>=1 n=82 median=-89.9% avg=-41.6%
+nuke_ratio:0.3-1 n=88 median=-98.6% avg=-45.8%
+
+--- trail10 buckets ---
+liq_usd:<25k n=2345 hit=50.2% median=-20.5% avg=-21.5%
+liq_usd:50-100k n=1018 hit=62.5% median=-89.5% avg=-43.4%
+liq_usd:25-50k n=489 hit=72.2% median=-11.9% avg=-25.2%
+liq_usd:>=100k n=254 hit=0.8% median=2.7% avg=-4.7%
+buySell:<1 n=692 hit=42.1% median=-24.7% avg=-19.7%
+buySell:1-2 n=2513 hit=59.4% median=-77.7% avg=-29.8%
+buySell:>=2 n=776 hit=48.8% median=-0.3% avg=-24.5%
+top_10_holder_rate:>=0.4 n=2185 hit=50.4% median=-82.8% avg=-33.5%
+top_10_holder_rate:<0.2 n=872 hit=51.6% median=-5.6% avg=-22.2%
+top_10_holder_rate:0.2-0.4 n=1048 hit=58.7% median=-6.9% avg=-15.0%
+bundler_trader_amount_rate:>=0.3 n=2835 hit=54.2% median=-70.9% avg=-27.7%
+bundler_trader_amount_rate:0.1-0.3 n=463 hit=61.8% median=-11.5% avg=-14.3%
+bundler_trader_amount_rate:<0.1 n=807 hit=42.6% median=-16.0% avg=-28.8%
+rat_trader_amount_rate:<0.1 n=3733 hit=52.9% median=-45.6% avg=-26.1%
+rat_trader_amount_rate:0.1-0.3 n=51 hit=47.1% median=-49.2% avg=-30.8%
+rat_trader_amount_rate:>=0.3 n=321 hit=52.3% median=-79.0% avg=-29.1%
+sniper_count:0 n=104 hit=37.5% median=-76.0% avg=-27.0%
+sniper_count:1-10 n=47 hit=36.2% median=-1.7% avg=-40.8%
+holder_count:<100 n=2251 hit=48.4% median=-81.2% avg=-33.5%
+holder_count:>=500 n=418 hit=64.6% median=-9.9% avg=-17.8%
+holder_count:100-500 n=1436 hit=56.2% median=-11.1% avg=-17.7%
+smart_degen_count:>=1 n=2353 hit=55.5% median=-10.5% avg=-16.5%
+smart_degen_count:0 n=1737 hit=49.2% median=-86.5% avg=-39.7%
+renowned_count:0 n=3287 hit=51.7% median=-76.6% avg=-29.4%
+renowned_count:>=1 n=818 hit=57.2% median=-4.9% avg=-14.3%
+creator_token_status:creator_hold n=2421 hit=52.1% median=-80.7% avg=-30.9%
+creator_token_status:creator_close n=1678 hit=53.8% median=-8.6% avg=-19.7%
+dev_team_hold_rate:>=0.05 n=2458 hit=54.1% median=-80.6% avg=-31.0%
+dev_team_hold_rate:<0.05 n=1647 hit=50.8% median=-8.1% avg=-19.5%
+complete_cost_time:<300s n=898 hit=51.2% median=-25.7% avg=-22.8%
+complete_cost_time:300-1800s n=639 hit=63.2% median=-1.8% avg=-10.8%
+complete_cost_time:>=1800s n=443 hit=52.1% median=-7.6% avg=-16.4%
+has_at_least_one_social:true n=137 hit=34.3% median=-77.6% avg=-36.9%
+has_at_least_one_social:false n=35 hit=37.1% median=0.0% avg=-9.9%
+is_wash_trading:false n=4105 hit=52.8% median=-52.2% avg=-26.4%
+rug_ratio:<0.3 n=2733 hit=54.4% median=-63.9% avg=-27.0%
+rug_ratio:>=0.3 n=1372 hit=49.6% median=-30.4% avg=-25.1%
+nuke_ratio:<0.3 n=200 hit=56.0% median=-9.8% avg=-20.3%
+nuke_ratio:>=1 n=82 hit=36.6% median=-75.9% avg=-33.3%
+nuke_ratio:0.3-1 n=88 hit=67.0% median=-80.9% avg=-31.3%
+
+--- trail15 buckets ---
+liq_usd:<25k n=2345 hit=50.0% median=-24.7% avg=-22.9%
+liq_usd:50-100k n=1018 hit=62.5% median=-89.5% avg=-43.5%
+liq_usd:25-50k n=489 hit=71.2% median=-16.1% avg=-25.1%
+liq_usd:>=100k n=254 hit=0.8% median=2.7% avg=-4.7%
+buySell:<1 n=692 hit=41.8% median=-27.1% avg=-19.9%
+buySell:1-2 n=2513 hit=59.2% median=-78.6% avg=-30.6%
+buySell:>=2 n=776 hit=48.5% median=-4.9% avg=-26.0%
+top_10_holder_rate:>=0.4 n=2185 hit=50.2% median=-82.9% avg=-32.9%
+top_10_holder_rate:<0.2 n=872 hit=51.6% median=-11.8% avg=-25.9%
+top_10_holder_rate:0.2-0.4 n=1048 hit=58.3% median=-11.1% avg=-16.2%
+bundler_trader_amount_rate:>=0.3 n=2835 hit=53.9% median=-72.2% avg=-27.7%
+bundler_trader_amount_rate:0.1-0.3 n=463 hit=61.6% median=-19.5% avg=-17.5%
+bundler_trader_amount_rate:<0.1 n=807 hit=42.5% median=-22.6% avg=-30.8%
+rat_trader_amount_rate:<0.1 n=3733 hit=52.6% median=-51.1% avg=-26.8%
+rat_trader_amount_rate:0.1-0.3 n=51 hit=47.1% median=-49.2% avg=-29.8%
+rat_trader_amount_rate:>=0.3 n=321 hit=52.3% median=-79.3% avg=-30.2%
+sniper_count:0 n=104 hit=36.5% median=-76.0% avg=-26.9%
+sniper_count:1-10 n=47 hit=36.2% median=-1.7% avg=-40.8%
+holder_count:<100 n=2251 hit=48.1% median=-81.5% avg=-33.1%
+holder_count:>=500 n=418 hit=64.6% median=-51.3% avg=-23.7%
+holder_count:100-500 n=1436 hit=56.1% median=-15.2% avg=-18.8%
+smart_degen_count:>=1 n=2353 hit=55.2% median=-15.2% avg=-17.9%
+smart_degen_count:0 n=1737 hit=49.0% median=-86.8% avg=-39.7%
+renowned_count:0 n=3287 hit=51.4% median=-77.7% avg=-30.0%
+renowned_count:>=1 n=818 hit=57.1% median=-8.3% avg=-15.7%
+creator_token_status:creator_hold n=2421 hit=51.8% median=-81.0% avg=-30.7%
+creator_token_status:creator_close n=1678 hit=53.6% median=-13.5% avg=-22.0%
+dev_team_hold_rate:>=0.05 n=2458 hit=53.9% median=-81.0% avg=-30.9%
+dev_team_hold_rate:<0.05 n=1647 hit=50.6% median=-13.1% avg=-21.5%
+complete_cost_time:<300s n=898 hit=51.1% median=-30.3% avg=-24.1%
+complete_cost_time:300-1800s n=639 hit=63.1% median=-8.7% avg=-14.6%
+complete_cost_time:>=1800s n=443 hit=51.5% median=-10.0% avg=-17.9%
+has_at_least_one_social:true n=137 hit=34.3% median=-77.6% avg=-37.2%
+has_at_least_one_social:false n=35 hit=34.3% median=0.0% avg=-8.4%
+is_wash_trading:false n=4105 hit=52.5% median=-57.7% avg=-27.1%
+rug_ratio:<0.3 n=2733 hit=54.2% median=-67.5% avg=-27.3%
+rug_ratio:>=0.3 n=1372 hit=49.2% median=-34.1% avg=-26.7%
+nuke_ratio:<0.3 n=200 hit=55.5% median=-11.6% avg=-19.7%
+nuke_ratio:>=1 n=82 hit=36.6% median=-75.9% avg=-33.3%
+nuke_ratio:0.3-1 n=88 hit=65.9% median=-80.9% avg=-30.6%
+
+--- trail20 buckets ---
+liq_usd:<25k n=2345 hit=49.6% median=-28.9% avg=-22.1%
+liq_usd:50-100k n=1018 hit=62.5% median=-89.5% avg=-43.6%
+liq_usd:25-50k n=489 hit=70.3% median=-26.1% avg=-24.7%
+liq_usd:>=100k n=254 hit=0.8% median=2.7% avg=-4.7%
+buySell:<1 n=692 hit=40.8% median=-27.6% avg=-16.5%
+buySell:1-2 n=2513 hit=59.1% median=-78.9% avg=-30.5%
+buySell:>=2 n=776 hit=48.2% median=-10.3% avg=-27.0%
+top_10_holder_rate:>=0.4 n=2185 hit=49.8% median=-83.0% avg=-31.5%
+top_10_holder_rate:<0.2 n=872 hit=51.5% median=-20.1% avg=-25.5%
+top_10_holder_rate:0.2-0.4 n=1048 hit=57.9% median=-14.4% avg=-17.5%
+bundler_trader_amount_rate:>=0.3 n=2835 hit=53.6% median=-72.4% avg=-26.6%
+bundler_trader_amount_rate:0.1-0.3 n=463 hit=61.3% median=-25.9% avg=-18.8%
+bundler_trader_amount_rate:<0.1 n=807 hit=42.1% median=-28.3% avg=-31.5%
+rat_trader_amount_rate:<0.1 n=3733 hit=52.3% median=-53.1% avg=-26.1%
+rat_trader_amount_rate:0.1-0.3 n=51 hit=47.1% median=-49.2% avg=-31.2%
+rat_trader_amount_rate:>=0.3 n=321 hit=52.3% median=-79.6% avg=-32.4%
+sniper_count:0 n=104 hit=36.5% median=-76.0% avg=-27.1%
+sniper_count:1-10 n=47 hit=36.2% median=-1.7% avg=-41.2%
+holder_count:<100 n=2251 hit=47.7% median=-81.7% avg=-31.6%
+holder_count:>=500 n=418 hit=64.6% median=-64.4% avg=-22.6%
+holder_count:100-500 n=1436 hit=55.7% median=-19.8% avg=-20.1%
+smart_degen_count:>=1 n=2353 hit=54.7% median=-20.7% avg=-16.8%
+smart_degen_count:0 n=1737 hit=48.9% median=-86.8% avg=-40.0%
+renowned_count:0 n=3287 hit=51.0% median=-78.0% avg=-29.3%
+renowned_count:>=1 n=818 hit=57.0% median=-11.7% avg=-16.2%
+creator_token_status:creator_hold n=2421 hit=51.5% median=-81.2% avg=-29.9%
+creator_token_status:creator_close n=1678 hit=53.2% median=-18.2% avg=-21.9%
+dev_team_hold_rate:>=0.05 n=2458 hit=53.5% median=-81.1% avg=-29.8%
+dev_team_hold_rate:<0.05 n=1647 hit=50.3% median=-18.1% avg=-22.0%
+complete_cost_time:<300s n=898 hit=51.0% median=-33.7% avg=-23.5%
+complete_cost_time:300-1800s n=639 hit=62.4% median=-14.3% avg=-11.5%
+complete_cost_time:>=1800s n=443 hit=50.8% median=-13.4% avg=-20.2%
+has_at_least_one_social:true n=137 hit=34.3% median=-77.6% avg=-37.6%
+has_at_least_one_social:false n=35 hit=34.3% median=0.0% avg=-8.4%
+is_wash_trading:false n=4105 hit=52.2% median=-59.4% avg=-26.7%
+rug_ratio:<0.3 n=2733 hit=53.9% median=-69.1% avg=-26.4%
+rug_ratio:>=0.3 n=1372 hit=49.0% median=-36.2% avg=-27.2%
+nuke_ratio:<0.3 n=200 hit=55.5% median=-15.0% avg=-18.5%
+nuke_ratio:>=1 n=82 hit=36.6% median=-75.9% avg=-33.3%
+nuke_ratio:0.3-1 n=88 hit=65.9% median=-80.9% avg=-30.7%
+
+--- trail25 buckets ---
+liq_usd:<25k n=2345 hit=49.2% median=-35.5% avg=-25.0%
+liq_usd:50-100k n=1018 hit=62.5% median=-89.6% avg=-43.9%
+liq_usd:25-50k n=489 hit=69.9% median=-28.6% avg=-25.4%
+liq_usd:>=100k n=254 hit=0.8% median=2.7% avg=-4.7%
+buySell:<1 n=692 hit=40.2% median=-28.9% avg=-18.1%
+buySell:1-2 n=2513 hit=58.9% median=-79.3% avg=-32.4%
+buySell:>=2 n=776 hit=47.9% median=-18.6% avg=-29.0%
+top_10_holder_rate:>=0.4 n=2185 hit=49.6% median=-83.5% avg=-32.8%
+top_10_holder_rate:<0.2 n=872 hit=51.4% median=-30.4% avg=-29.3%
+top_10_holder_rate:0.2-0.4 n=1048 hit=57.4% median=-19.7% avg=-18.8%
+bundler_trader_amount_rate:>=0.3 n=2835 hit=53.3% median=-73.3% avg=-28.0%
+bundler_trader_amount_rate:0.1-0.3 n=463 hit=61.1% median=-36.3% avg=-22.0%
+bundler_trader_amount_rate:<0.1 n=807 hit=42.1% median=-37.2% avg=-34.0%
+rat_trader_amount_rate:<0.1 n=3733 hit=52.0% median=-58.2% avg=-27.9%
+rat_trader_amount_rate:0.1-0.3 n=51 hit=47.1% median=-54.8% avg=-34.4%
+rat_trader_amount_rate:>=0.3 n=321 hit=52.3% median=-80.4% avg=-34.3%
+sniper_count:0 n=104 hit=36.5% median=-76.0% avg=-26.8%
+sniper_count:1-10 n=47 hit=36.2% median=-1.7% avg=-41.2%
+holder_count:<100 n=2251 hit=47.5% median=-82.1% avg=-32.7%
+holder_count:>=500 n=418 hit=64.6% median=-77.5% avg=-28.4%
+holder_count:100-500 n=1436 hit=55.3% median=-24.2% avg=-21.8%
+smart_degen_count:>=1 n=2353 hit=54.3% median=-26.1% avg=-19.8%
+smart_degen_count:0 n=1737 hit=48.8% median=-87.0% avg=-40.3%
+renowned_count:0 n=3287 hit=50.8% median=-79.3% avg=-31.4%
+renowned_count:>=1 n=818 hit=56.6% median=-17.8% avg=-16.9%
+creator_token_status:creator_hold n=2421 hit=51.3% median=-81.8% avg=-30.9%
+creator_token_status:creator_close n=1678 hit=52.9% median=-24.2% avg=-24.9%
+dev_team_hold_rate:>=0.05 n=2458 hit=53.3% median=-82.0% avg=-31.3%
+dev_team_hold_rate:<0.05 n=1647 hit=49.9% median=-23.4% avg=-24.4%
+complete_cost_time:<300s n=898 hit=50.4% median=-37.5% avg=-25.5%
+complete_cost_time:300-1800s n=639 hit=62.3% median=-22.0% avg=-17.2%
+complete_cost_time:>=1800s n=443 hit=50.1% median=-18.7% avg=-20.8%
+has_at_least_one_social:true n=137 hit=34.3% median=-77.6% avg=-37.5%
+has_at_least_one_social:false n=35 hit=34.3% median=0.0% avg=-8.4%
+is_wash_trading:false n=4105 hit=52.0% median=-64.0% avg=-28.5%
+rug_ratio:<0.3 n=2733 hit=53.6% median=-71.6% avg=-28.6%
+rug_ratio:>=0.3 n=1372 hit=48.7% median=-41.0% avg=-28.2%
+nuke_ratio:<0.3 n=200 hit=54.5% median=-20.2% avg=-21.3%
+nuke_ratio:>=1 n=82 hit=36.6% median=-75.9% avg=-33.3%
+nuke_ratio:0.3-1 n=88 hit=65.9% median=-81.6% avg=-34.0%
+
+--- half30trail20 buckets ---
+liq_usd:<25k n=2345 hit=40.1% median=-30.1% avg=-22.1%
+liq_usd:50-100k n=1018 hit=63.5% median=-32.9% avg=-29.7%
+liq_usd:25-50k n=489 hit=64.8% median=-19.8% avg=-16.7%
+liq_usd:>=100k n=254 hit=2.8% median=2.7% avg=-4.6%
+buySell:<1 n=692 hit=34.2% median=-27.1% avg=-18.2%
+buySell:1-2 n=2513 hit=53.0% median=-32.7% avg=-24.9%
+buySell:>=2 n=776 hit=43.7% median=0.7% avg=-20.2%
+top_10_holder_rate:>=0.4 n=2185 hit=47.9% median=-31.3% avg=-25.3%
+top_10_holder_rate:<0.2 n=872 hit=44.2% median=-20.2% avg=-20.1%
+top_10_holder_rate:0.2-0.4 n=1048 hit=45.6% median=-21.8% avg=-17.7%
+bundler_trader_amount_rate:>=0.3 n=2835 hit=48.5% median=-28.9% avg=-22.2%
+bundler_trader_amount_rate:0.1-0.3 n=463 hit=52.3% median=-27.9% avg=-17.0%
+bundler_trader_amount_rate:<0.1 n=807 hit=36.2% median=-23.1% avg=-25.5%
+rat_trader_amount_rate:<0.1 n=3733 hit=46.4% median=-27.5% avg=-21.7%
+rat_trader_amount_rate:0.1-0.3 n=51 hit=39.2% median=-49.2% avg=-30.3%
+rat_trader_amount_rate:>=0.3 n=321 hit=48.6% median=-34.7% avg=-27.8%
+sniper_count:0 n=104 hit=39.4% median=-28.7% avg=-23.2%
+sniper_count:1-10 n=47 hit=34.0% median=-1.7% avg=-21.5%
+holder_count:<100 n=2251 hit=45.4% median=-29.1% avg=-24.9%
+holder_count:>=500 n=418 hit=58.6% median=-24.2% avg=-15.9%
+holder_count:100-500 n=1436 hit=44.7% median=-27.4% avg=-20.0%
+smart_degen_count:>=1 n=2353 hit=45.1% median=-25.1% avg=-17.3%
+smart_degen_count:0 n=1737 hit=48.5% median=-29.7% avg=-29.0%
+renowned_count:0 n=3287 hit=46.9% median=-28.6% avg=-23.5%
+renowned_count:>=1 n=818 hit=44.7% median=-15.8% avg=-17.4%
+creator_token_status:creator_hold n=2421 hit=48.0% median=-29.7% avg=-24.0%
+creator_token_status:creator_close n=1678 hit=44.4% median=-22.3% avg=-19.7%
+dev_team_hold_rate:>=0.05 n=2458 hit=50.7% median=-29.0% avg=-23.0%
+dev_team_hold_rate:<0.05 n=1647 hit=40.3% median=-23.5% avg=-21.2%
+complete_cost_time:<300s n=898 hit=43.0% median=-29.6% avg=-22.3%
+complete_cost_time:300-1800s n=639 hit=52.0% median=-17.8% avg=-13.8%
+complete_cost_time:>=1800s n=443 hit=37.9% median=-24.8% avg=-20.2%
+has_at_least_one_social:true n=137 hit=32.8% median=-28.8% avg=-29.6%
+has_at_least_one_social:false n=35 hit=40.0% median=0.0% avg=-1.6%
+is_wash_trading:false n=4105 hit=46.5% median=-28.2% avg=-22.3%
+rug_ratio:<0.3 n=2733 hit=48.4% median=-28.6% avg=-22.1%
+rug_ratio:>=0.3 n=1372 hit=42.6% median=-26.3% avg=-22.5%
+nuke_ratio:<0.3 n=200 hit=44.0% median=-14.8% avg=-17.1%
+nuke_ratio:>=1 n=82 hit=32.9% median=-25.8% avg=-28.6%
+nuke_ratio:0.3-1 n=88 hit=62.5% median=-30.2% avg=-16.2%
+
+--- half40trail15 buckets ---
+liq_usd:<25k n=2345 hit=34.4% median=-40.4% avg=-24.4%
+liq_usd:50-100k n=1018 hit=56.5% median=-28.7% avg=-31.3%
+liq_usd:25-50k n=489 hit=59.3% median=-17.1% avg=-17.6%
+liq_usd:>=100k n=254 hit=2.0% median=2.7% avg=-4.5%
+buySell:<1 n=692 hit=28.9% median=-30.6% avg=-21.8%
+buySell:1-2 n=2513 hit=46.7% median=-29.5% avg=-26.7%
+buySell:>=2 n=776 hit=38.7% median=0.1% avg=-21.0%
+top_10_holder_rate:>=0.4 n=2185 hit=42.7% median=-28.4% avg=-27.3%
+top_10_holder_rate:<0.2 n=872 hit=38.5% median=-20.2% avg=-22.2%
+top_10_holder_rate:0.2-0.4 n=1048 hit=38.7% median=-33.7% avg=-19.0%
+bundler_trader_amount_rate:>=0.3 n=2835 hit=43.2% median=-28.3% avg=-23.8%
+bundler_trader_amount_rate:0.1-0.3 n=463 hit=45.1% median=-29.0% avg=-18.8%
+bundler_trader_amount_rate:<0.1 n=807 hit=30.0% median=-23.1% avg=-28.2%
+rat_trader_amount_rate:<0.1 n=3733 hit=40.9% median=-27.2% avg=-23.5%
+rat_trader_amount_rate:0.1-0.3 n=51 hit=33.3% median=-55.4% avg=-29.4%
+rat_trader_amount_rate:>=0.3 n=321 hit=41.1% median=-77.3% avg=-30.5%
+sniper_count:0 n=104 hit=36.5% median=-23.0% avg=-22.5%
+sniper_count:1-10 n=47 hit=23.4% median=-1.7% avg=-27.2%
+holder_count:<100 n=2251 hit=40.4% median=-27.5% avg=-27.0%
+holder_count:>=500 n=418 hit=51.2% median=-22.3% avg=-19.0%
+holder_count:100-500 n=1436 hit=38.4% median=-35.2% avg=-21.1%
+smart_degen_count:>=1 n=2353 hit=39.1% median=-30.5% avg=-20.0%
+smart_degen_count:0 n=1737 hit=43.4% median=-27.3% avg=-30.0%
+renowned_count:0 n=3287 hit=41.5% median=-27.5% avg=-25.5%
+renowned_count:>=1 n=818 hit=38.1% median=-34.4% avg=-18.3%
+creator_token_status:creator_hold n=2421 hit=42.4% median=-28.3% avg=-26.2%
+creator_token_status:creator_close n=1678 hit=38.6% median=-26.0% avg=-21.3%
+dev_team_hold_rate:>=0.05 n=2458 hit=45.1% median=-27.8% avg=-25.1%
+dev_team_hold_rate:<0.05 n=1647 hit=34.4% median=-28.7% avg=-22.7%
+complete_cost_time:<300s n=898 hit=37.5% median=-34.2% avg=-24.0%
+complete_cost_time:300-1800s n=639 hit=45.4% median=-25.1% avg=-17.7%
+complete_cost_time:>=1800s n=443 hit=31.4% median=-32.8% avg=-20.5%
+has_at_least_one_social:true n=137 hit=27.7% median=-23.9% avg=-31.6%
+has_at_least_one_social:false n=35 hit=37.1% median=0.0% avg=0.7%
+is_wash_trading:false n=4105 hit=40.8% median=-27.9% avg=-24.1%
+rug_ratio:<0.3 n=2733 hit=42.8% median=-28.2% avg=-24.1%
+rug_ratio:>=0.3 n=1372 hit=37.0% median=-27.3% avg=-24.0%
+nuke_ratio:<0.3 n=200 hit=38.5% median=-21.5% avg=-17.8%
+nuke_ratio:>=1 n=82 hit=31.7% median=-21.0% avg=-28.1%
+nuke_ratio:0.3-1 n=88 hit=60.2% median=-26.6% avg=-14.4%
+
+--- flat30or15m buckets ---
+liq_usd:<25k n=2345 hit=36.9% median=-18.6% avg=-17.9%
+liq_usd:50-100k n=1018 hit=57.6% median=30.3% avg=-13.7%
+liq_usd:25-50k n=489 hit=57.7% median=30.6% avg=-5.9%
+liq_usd:>=100k n=254 hit=0.0% median=1.1% avg=-1.5%
+buySell:<1 n=692 hit=30.5% median=-19.8% avg=-16.6%
+buySell:1-2 n=2513 hit=48.5% median=22.3% avg=-15.1%
+buySell:>=2 n=776 hit=39.2% median=1.6% avg=-11.9%
+top_10_holder_rate:>=0.4 n=2185 hit=43.6% median=2.2% avg=-17.2%
+top_10_holder_rate:<0.2 n=872 hit=41.2% median=0.0% avg=-9.9%
+top_10_holder_rate:0.2-0.4 n=1048 hit=40.2% median=-16.1% avg=-12.4%
+bundler_trader_amount_rate:>=0.3 n=2835 hit=43.8% median=1.6% avg=-14.8%
+bundler_trader_amount_rate:0.1-0.3 n=463 hit=46.7% median=8.6% avg=-8.9%
+bundler_trader_amount_rate:<0.1 n=807 hit=34.1% median=0.0% avg=-16.1%
+rat_trader_amount_rate:<0.1 n=3733 hit=42.0% median=1.0% avg=-13.8%
+rat_trader_amount_rate:0.1-0.3 n=51 hit=37.3% median=-41.4% avg=-25.6%
+rat_trader_amount_rate:>=0.3 n=321 hit=45.8% median=-5.0% avg=-19.8%
+sniper_count:0 n=104 hit=36.5% median=0.0% avg=-16.8%
+sniper_count:1-10 n=47 hit=31.9% median=0.0% avg=-0.9%
+holder_count:<100 n=2251 hit=41.3% median=1.1% avg=-16.3%
+holder_count:>=500 n=418 hit=54.8% median=30.4% avg=-6.0%
+holder_count:100-500 n=1436 hit=40.0% median=-14.0% avg=-13.8%
+smart_degen_count:>=1 n=2353 hit=41.1% median=-6.0% avg=-12.9%
+smart_degen_count:0 n=1737 hit=44.0% median=2.8% avg=-16.4%
+renowned_count:0 n=3287 hit=42.9% median=1.4% avg=-15.1%
+renowned_count:>=1 n=818 hit=39.5% median=-16.0% avg=-11.8%
+creator_token_status:creator_hold n=2421 hit=43.6% median=2.3% avg=-15.5%
+creator_token_status:creator_close n=1678 hit=40.3% median=0.0% avg=-12.8%
+dev_team_hold_rate:>=0.05 n=2458 hit=46.2% median=5.3% avg=-14.0%
+dev_team_hold_rate:<0.05 n=1647 hit=36.3% median=-3.6% avg=-15.1%
+complete_cost_time:<300s n=898 hit=40.2% median=-11.6% avg=-16.6%
+complete_cost_time:300-1800s n=639 hit=48.0% median=4.0% avg=-9.8%
+complete_cost_time:>=1800s n=443 hit=29.8% median=-18.1% avg=-14.3%
+has_at_least_one_social:true n=137 hit=31.4% median=0.0% avg=-19.4%
+has_at_least_one_social:false n=35 hit=34.3% median=0.0% avg=6.2%
+is_wash_trading:false n=4105 hit=42.2% median=0.9% avg=-14.4%
+rug_ratio:<0.3 n=2733 hit=43.9% median=1.5% avg=-14.5%
+rug_ratio:>=0.3 n=1372 hit=38.8% median=0.0% avg=-14.3%
+nuke_ratio:<0.3 n=200 hit=41.0% median=0.0% avg=-10.2%
+nuke_ratio:>=1 n=82 hit=31.7% median=1.0% avg=-20.5%
+nuke_ratio:0.3-1 n=88 hit=58.0% median=30.5% avg=-1.1%
+
+--- flat30or30m buckets ---
+liq_usd:<25k n=2345 hit=38.9% median=-21.2% avg=-18.7%
+liq_usd:50-100k n=1018 hit=63.0% median=30.5% avg=-14.2%
+liq_usd:25-50k n=489 hit=62.2% median=31.0% avg=-6.3%
+liq_usd:>=100k n=254 hit=2.0% median=1.8% avg=-2.4%
+buySell:<1 n=692 hit=32.5% median=-21.6% avg=-17.6%
+buySell:1-2 n=2513 hit=52.0% median=30.2% avg=-16.0%
+buySell:>=2 n=776 hit=42.4% median=2.9% avg=-11.9%
+top_10_holder_rate:>=0.4 n=2185 hit=46.8% median=3.4% avg=-17.5%
+top_10_holder_rate:<0.2 n=872 hit=43.6% median=0.0% avg=-10.9%
+top_10_holder_rate:0.2-0.4 n=1048 hit=43.7% median=-20.5% avg=-13.8%
+bundler_trader_amount_rate:>=0.3 n=2835 hit=47.2% median=3.2% avg=-15.5%
+bundler_trader_amount_rate:0.1-0.3 n=463 hit=51.0% median=30.1% avg=-10.1%
+bundler_trader_amount_rate:<0.1 n=807 hit=35.6% median=0.0% avg=-16.7%
+rat_trader_amount_rate:<0.1 n=3733 hit=45.2% median=1.9% avg=-14.6%
+rat_trader_amount_rate:0.1-0.3 n=51 hit=37.3% median=-17.8% avg=-24.1%
+rat_trader_amount_rate:>=0.3 n=321 hit=48.6% median=-13.4% avg=-20.1%
+sniper_count:0 n=104 hit=38.5% median=0.0% avg=-17.7%
+sniper_count:1-10 n=47 hit=34.0% median=0.0% avg=-1.1%
+holder_count:<100 n=2251 hit=44.3% median=2.1% avg=-16.5%
+holder_count:>=500 n=418 hit=58.4% median=30.6% avg=-6.4%
+holder_count:100-500 n=1436 hit=43.1% median=-17.9% avg=-15.5%
+smart_degen_count:>=1 n=2353 hit=43.7% median=-4.5% avg=-14.0%
+smart_degen_count:0 n=1737 hit=47.7% median=4.1% avg=-16.7%
+renowned_count:0 n=3287 hit=46.0% median=2.3% avg=-15.7%
+renowned_count:>=1 n=818 hit=42.8% median=-18.2% avg=-12.9%
+creator_token_status:creator_hold n=2421 hit=46.9% median=3.3% avg=-16.0%
+creator_token_status:creator_close n=1678 hit=43.1% median=0.0% avg=-13.7%
+dev_team_hold_rate:>=0.05 n=2458 hit=49.6% median=16.0% avg=-14.4%
+dev_team_hold_rate:<0.05 n=1647 hit=39.0% median=-1.7% avg=-16.3%
+complete_cost_time:<300s n=898 hit=42.1% median=-11.6% avg=-17.2%
+complete_cost_time:300-1800s n=639 hit=50.5% median=30.1% avg=-11.5%
+complete_cost_time:>=1800s n=443 hit=35.0% median=-19.5% avg=-15.5%
+has_at_least_one_social:true n=137 hit=32.8% median=0.0% avg=-20.3%
+has_at_least_one_social:false n=35 hit=37.1% median=0.5% avg=6.7%
+is_wash_trading:false n=4105 hit=45.3% median=1.8% avg=-15.1%
+rug_ratio:<0.3 n=2733 hit=47.3% median=2.8% avg=-15.3%
+rug_ratio:>=0.3 n=1372 hit=41.5% median=0.1% avg=-14.8%
+nuke_ratio:<0.3 n=200 hit=42.5% median=0.0% avg=-12.1%
+nuke_ratio:>=1 n=82 hit=32.9% median=1.5% avg=-20.5%
+nuke_ratio:0.3-1 n=88 hit=62.5% median=30.6% avg=-0.1%
+
+--- flat30stop20 buckets ---
+liq_usd:<25k n=2345 hit=32.2% median=-23.3% avg=-13.3%
+liq_usd:50-100k n=1018 hit=62.6% median=30.5% avg=-11.1%
+liq_usd:25-50k n=489 hit=54.0% median=30.3% avg=-1.2%
+liq_usd:>=100k n=254 hit=2.8% median=2.7% avg=-3.9%
+buySell:<1 n=692 hit=28.2% median=-22.7% avg=-14.3%
+buySell:1-2 n=2513 hit=47.0% median=-20.3% avg=-9.9%
+buySell:>=2 n=776 hit=36.6% median=2.7% avg=-11.1%
+top_10_holder_rate:>=0.4 n=2185 hit=44.4% median=2.8% avg=-14.2%
+top_10_holder_rate:<0.2 n=872 hit=39.6% median=0.0% avg=-6.0%
+top_10_holder_rate:0.2-0.4 n=1048 hit=33.1% median=-23.5% avg=-7.6%
+bundler_trader_amount_rate:>=0.3 n=2835 hit=42.4% median=-5.7% avg=-10.5%
+bundler_trader_amount_rate:0.1-0.3 n=463 hit=42.3% median=-21.8% avg=-7.4%
+bundler_trader_amount_rate:<0.1 n=807 hit=32.8% median=-0.0% avg=-13.7%
+rat_trader_amount_rate:<0.1 n=3733 hit=40.2% median=-1.1% avg=-10.1%
+rat_trader_amount_rate:0.1-0.3 n=51 hit=35.3% median=-20.6% avg=-17.4%
+rat_trader_amount_rate:>=0.3 n=321 hit=45.2% median=-22.5% avg=-16.6%
+sniper_count:0 n=104 hit=38.5% median=0.0% avg=-12.1%
+sniper_count:1-10 n=47 hit=31.9% median=0.0% avg=0.1%
+holder_count:<100 n=2251 hit=41.9% median=1.4% avg=-13.6%
+holder_count:>=500 n=418 hit=53.6% median=30.2% avg=-2.5%
+holder_count:100-500 n=1436 hit=34.5% median=-23.0% avg=-8.7%
+smart_degen_count:>=1 n=2353 hit=36.3% median=-22.2% avg=-8.7%
+smart_degen_count:0 n=1737 hit=46.4% median=4.5% avg=-13.4%
+renowned_count:0 n=3287 hit=42.4% median=0.3% avg=-12.1%
+renowned_count:>=1 n=818 hit=33.0% median=-22.8% avg=-5.2%
+creator_token_status:creator_hold n=2421 hit=43.6% median=2.2% avg=-12.8%
+creator_token_status:creator_close n=1678 hit=36.1% median=-21.1% avg=-7.7%
+dev_team_hold_rate:>=0.05 n=2458 hit=46.4% median=3.3% avg=-10.6%
+dev_team_hold_rate:<0.05 n=1647 hit=31.8% median=-22.1% avg=-11.0%
+complete_cost_time:<300s n=898 hit=36.6% median=-22.2% avg=-10.8%
+complete_cost_time:300-1800s n=639 hit=41.3% median=-21.6% avg=-5.1%
+complete_cost_time:>=1800s n=443 hit=26.2% median=-23.7% avg=-10.3%
+has_at_least_one_social:true n=137 hit=31.4% median=0.0% avg=-15.3%
+has_at_least_one_social:false n=35 hit=40.0% median=0.5% avg=7.6%
+is_wash_trading:false n=4105 hit=40.5% median=-4.5% avg=-10.7%
+rug_ratio:<0.3 n=2733 hit=42.2% median=-17.5% avg=-10.6%
+rug_ratio:>=0.3 n=1372 hit=37.1% median=-0.4% avg=-11.0%
+nuke_ratio:<0.3 n=200 hit=32.5% median=-21.5% avg=-10.3%
+nuke_ratio:>=1 n=82 hit=32.9% median=3.0% avg=-15.7%
+nuke_ratio:0.3-1 n=88 hit=56.8% median=30.4% avg=-1.3%
+
+--- flat30stop25 buckets ---
+liq_usd:<25k n=2345 hit=33.7% median=-27.5% avg=-14.4%
+liq_usd:50-100k n=1018 hit=62.7% median=30.5% avg=-11.1%
+liq_usd:25-50k n=489 hit=56.0% median=30.5% avg=-2.0%
+liq_usd:>=100k n=254 hit=2.8% median=2.7% avg=-4.2%
+buySell:<1 n=692 hit=29.5% median=-26.7% avg=-14.6%
+buySell:1-2 n=2513 hit=48.0% median=-5.5% avg=-10.9%
+buySell:>=2 n=776 hit=38.1% median=3.0% avg=-11.6%
+top_10_holder_rate:>=0.4 n=2185 hit=45.3% median=3.1% avg=-14.7%
+top_10_holder_rate:<0.2 n=872 hit=40.9% median=0.0% avg=-6.7%
+top_10_holder_rate:0.2-0.4 n=1048 hit=34.5% median=-27.5% avg=-8.8%
+bundler_trader_amount_rate:>=0.3 n=2835 hit=43.4% median=1.2% avg=-11.2%
+bundler_trader_amount_rate:0.1-0.3 n=463 hit=45.1% median=-25.9% avg=-7.0%
+bundler_trader_amount_rate:<0.1 n=807 hit=33.3% median=0.0% avg=-15.1%
+rat_trader_amount_rate:<0.1 n=3733 hit=41.4% median=0.0% avg=-10.8%
+rat_trader_amount_rate:0.1-0.3 n=51 hit=37.3% median=-27.0% avg=-17.6%
+rat_trader_amount_rate:>=0.3 n=321 hit=45.5% median=-26.9% avg=-19.1%
+sniper_count:0 n=104 hit=39.4% median=0.0% avg=-11.5%
+sniper_count:1-10 n=47 hit=31.9% median=0.0% avg=-0.7%
+holder_count:<100 n=2251 hit=42.7% median=1.7% avg=-14.0%
+holder_count:>=500 n=418 hit=55.3% median=30.3% avg=-3.2%
+holder_count:100-500 n=1436 hit=36.0% median=-27.4% avg=-9.9%
+smart_degen_count:>=1 n=2353 hit=38.0% median=-26.6% avg=-9.7%
+smart_degen_count:0 n=1737 hit=46.8% median=4.7% avg=-13.8%
+renowned_count:0 n=3287 hit=43.4% median=1.3% avg=-12.7%
+renowned_count:>=1 n=818 hit=34.7% median=-27.3% avg=-6.5%
+creator_token_status:creator_hold n=2421 hit=44.5% median=2.7% avg=-13.3%
+creator_token_status:creator_close n=1678 hit=37.5% median=-25.4% avg=-8.8%
+dev_team_hold_rate:>=0.05 n=2458 hit=47.4% median=4.1% avg=-10.9%
+dev_team_hold_rate:<0.05 n=1647 hit=33.0% median=-26.5% avg=-12.4%
+complete_cost_time:<300s n=898 hit=38.0% median=-26.5% avg=-11.8%
+complete_cost_time:300-1800s n=639 hit=43.3% median=-26.0% avg=-6.4%
+complete_cost_time:>=1800s n=443 hit=26.9% median=-27.6% avg=-12.2%
+has_at_least_one_social:true n=137 hit=32.1% median=0.0% avg=-15.1%
+has_at_least_one_social:false n=35 hit=40.0% median=0.5% avg=7.6%
+is_wash_trading:false n=4105 hit=41.6% median=0.0% avg=-11.5%
+rug_ratio:<0.3 n=2733 hit=43.2% median=-1.9% avg=-11.5%
+rug_ratio:>=0.3 n=1372 hit=38.5% median=0.0% avg=-11.6%
+nuke_ratio:<0.3 n=200 hit=35.0% median=-26.1% avg=-11.1%
+nuke_ratio:>=1 n=82 hit=32.9% median=3.0% avg=-16.5%
+nuke_ratio:0.3-1 n=88 hit=58.0% median=30.4% avg=-1.1%
+
+=== Cross buckets (flat30 only) ===
+holders500 x grad5to30: n=168 hit=60.1% median=32.7% runners 6h: +200%=25 +1000%=0 +2000%=0
+holders500 x top10low: n=332 hit=58.7% median=30.5% runners 6h: +200%=48 +1000%=3 +2000%=1
+holders500 x creatorOut: n=318 hit=61.0% median=30.7% runners 6h: +200%=56 +1000%=3 +2000%=1
+holders500 x bundlerMid: n=163 hit=68.1% median=31.3% runners 6h: +200%=40 +1000%=1 +2000%=0
+holders500 x smart1: n=287 hit=62.0% median=32.0% runners 6h: +200%=50 +1000%=2 +2000%=1
+grad5to30 x top10low: n=257 hit=49.4% median=10.9% runners 6h: +200%=31 +1000%=6 +2000%=1
+grad5to30 x creatorOut: n=506 hit=51.6% median=30.4% runners 6h: +200%=89 +1000%=10 +2000%=2
+grad5to30 x bundlerMid: n=159 hit=61.0% median=32.0% runners 6h: +200%=36 +1000%=3 +2000%=1
+grad5to30 x smart1: n=623 hit=52.0% median=30.5% runners 6h: +200%=102 +1000%=11 +2000%=3
+top10low x creatorOut: n=746 hit=44.9% median=0.0% runners 6h: +200%=81 +1000%=10 +2000%=2
+top10low x bundlerMid: n=226 hit=57.1% median=30.5% runners 6h: +200%=37 +1000%=4 +2000%=1
+top10low x smart1: n=690 hit=43.9% median=0.0% runners 6h: +200%=71 +1000%=9 +2000%=2
+creatorOut x bundlerMid: n=339 hit=52.5% median=30.2% runners 6h: +200%=63 +1000%=4 +2000%=1
+creatorOut x smart1: n=1478 hit=44.3% median=-0.4% runners 6h: +200%=184 +1000%=19 +2000%=5
+bundlerMid x smart1: n=405 hit=50.4% median=30.1% runners 6h: +200%=66 +1000%=4 +2000%=1
+best cross: holders500 x grad5to30 n=168 median=32.7%
+
+=== Best flat30 bucket ===
+best flat30 bucket: liq_usd:25-50k n=489 median=31.3%
+
+=== Best trail bucket ===
+best trail: liq_usd:>=100k n=254 median=2.7%
+
+=== Rug vs TP ===
+n=4106 tp_first=1880 (45.8%) rug_first=1763 (42.9%) neither=463 (11.3%)
+liq_usd:<25k n=2345 tp=38.8% rug=49.5%
+liq_usd:50-100k n=1018 tp=63.7% rug=35.5%
+liq_usd:25-50k n=489 tp=61.3% rug=37.6%
+liq_usd:>=100k n=254 tp=9.1% rug=22.4%
+top_10_holder_rate:>=0.4 n=2185 tp=48.1% rug=42.4%
+top_10_holder_rate:<0.2 n=872 tp=43.5% rug=36.7%
+top_10_holder_rate:0.2-0.4 n=1048 tp=42.9% rug=49.2%
+creator_token_status:creator_hold n=2421 tp=47.9% rug=42.3%
+creator_token_status:creator_close n=1678 tp=42.7% rug=43.9%
+holder_count:<100 n=2251 tp=45.4% rug=40.3%
+holder_count:>=500 n=418 tp=58.1% rug=35.6%
+holder_count:100-500 n=1436 tp=42.8% rug=49.2%
+bundler_trader_amount_rate:>=0.3 n=2835 tp=47.6% rug=43.2%
+bundler_trader_amount_rate:0.1-0.3 n=463 tp=51.4% rug=43.2%
+bundler_trader_amount_rate:<0.1 n=807 tp=36.1% rug=41.8%
+smart_degen_count:>=1 n=2353 tp=43.4% rug=46.7%
+smart_degen_count:0 n=1737 tp=49.1% rug=37.8%
+sniper_count:0 n=104 tp=41.3% rug=35.6%
+sniper_count:1-10 n=47 tp=31.9% rug=14.9%
+buySell:<1 n=692 tp=34.5% rug=43.6%
+buySell:1-2 n=2513 tp=51.5% rug=45.9%
+buySell:>=2 n=776 tp=44.1% rug=38.3%
+complete_cost_time:<300s n=898 tp=41.5% rug=46.2%
+complete_cost_time:300-1800s n=639 tp=49.8% rug=44.4%
+complete_cost_time:>=1800s n=443 tp=37.2% rug=53.0%
+nuke_ratio:<0.3 n=200 tp=40.5% rug=44.0%
+nuke_ratio:>=1 n=82 tp=37.8% rug=40.2%
+nuke_ratio:0.3-1 n=88 tp=63.6% rug=27.3%
+top5_ratio:<1 n=120 tp=43.3% rug=43.3%
+top5_ratio:1-3 n=68 tp=55.9% rug=32.4%
+
+=== Pool drop at 60s ===
+drop <0.2: n=3621 fast=13.0% tp=51.2%
+drop 0.2-0.5: n=209 fast=52.2% tp=10.0%
+drop >=0.5: n=276 fast=97.1% tp=1.8%
+
+=== Time to rug ===
+rug time-to-hit min=0.0 p25=1.4 median=3.1 p75=7.5 max=326.1 n=1763
+grad 5-30m rug time-to-hit min=0.3 p25=1.7 median=3.5 p75=8.2 max=240.4 n=284
+cross rug time-to-hit min=0.3 p25=1.4 median=2.4 p75=6.2 max=58.7 n=82
+
+=== Fast rug (hit -50% inside 3m) ===
+n=4106 fast=849 (20.7%) slow=914 (22.3%) not_rug=2343
+liq_usd:<25k n=2345 fast=640 (27.3%) slow=521 (22.2%)
+liq_usd:50-100k n=1018 fast=142 (13.9%) slow=219 (21.5%)
+liq_usd:25-50k n=489 fast=66 (13.5%) slow=118 (24.1%)
+liq_usd:>=100k n=254 fast=1 (0.4%) slow=56 (22.0%)
+top_10_holder_rate:>=0.4 n=2185 fast=509 (23.3%) slow=418 (19.1%)
+top_10_holder_rate:<0.2 n=872 fast=167 (19.2%) slow=153 (17.5%)
+top_10_holder_rate:0.2-0.4 n=1048 fast=173 (16.5%) slow=343 (32.7%)
+creator_token_status:creator_hold n=2421 fast=531 (21.9%) slow=492 (20.3%)
+creator_token_status:creator_close n=1678 fast=316 (18.8%) slow=420 (25.0%)
+creator_token_status:other n=6 fast=2 (33.3%) slow=2 (33.3%)
+holder_count:<100 n=2251 fast=499 (22.2%) slow=408 (18.1%)
+holder_count:>=500 n=418 fast=86 (20.6%) slow=63 (15.1%)
+holder_count:100-500 n=1436 fast=264 (18.4%) slow=443 (30.8%)
+bundler_trader_amount_rate:>=0.3 n=2835 fast=561 (19.8%) slow=665 (23.5%)
+bundler_trader_amount_rate:0.1-0.3 n=463 fast=76 (16.4%) slow=124 (26.8%)
+bundler_trader_amount_rate:<0.1 n=807 fast=212 (26.3%) slow=125 (15.5%)
+smart_degen_count:>=1 n=2353 fast=528 (22.4%) slow=570 (24.2%)
+smart_degen_count:0 n=1737 fast=320 (18.4%) slow=336 (19.3%)
+sniper_count:0 n=104 fast=20 (19.2%) slow=17 (16.3%)
+sniper_count:1-10 n=47 fast=3 (6.4%) slow=4 (8.5%)
+sniper_count:>10 n=21 fast=5 (23.8%) slow=4 (19.0%)
+buySell:<1 n=692 fast=159 (23.0%) slow=143 (20.7%)
+buySell:1-2 n=2513 fast=556 (22.1%) slow=598 (23.8%)
+buySell:>=2 n=776 fast=131 (16.9%) slow=166 (21.4%)
+complete_cost_time:<300s n=898 fast=227 (25.3%) slow=188 (20.9%)
+complete_cost_time:300-1800s n=639 fast=129 (20.2%) slow=155 (24.3%)
+complete_cost_time:>=1800s n=443 fast=49 (11.1%) slow=186 (42.0%)
+nuke_ratio:<0.3 n=200 fast=42 (21.0%) slow=46 (23.0%)
+nuke_ratio:>=1 n=82 fast=19 (23.2%) slow=14 (17.1%)
+nuke_ratio:0.3-1 n=88 fast=13 (14.8%) slow=11 (12.5%)
+top5_ratio:<1 n=120 fast=30 (25.0%) slow=22 (18.3%)
+top5_ratio:1-3 n=68 fast=17 (25.0%) slow=5 (7.4%)
+top5_ratio:>=3 n=12 fast=3 (25.0%) slow=2 (16.7%)
+
+=== Nuke vs time to rug ===
+nuke <0.3: n=200 tp=40.5% rug=44.0% rug<5m=57 rug<30m=80
+nuke 0.3-1: n=88 tp=63.6% rug=27.3% rug<5m=16 rug<30m=21
+nuke >=1: n=82 tp=37.8% rug=40.2% rug<5m=21 rug<30m=30
+
+=== Top5 vs time to rug ===
+top5 <1: n=120 tp=43.3% rug=43.3% rug<5m=37 rug<30m=49
+top5 1-3: n=68 tp=55.9% rug=32.4% rug<5m=17 rug<30m=22
+top5 >=3: n=12 tp=33.3% rug=41.7% rug<5m=4 rug<30m=4
+
+=== Fat book rug sample (>=100k, rug_first) ===
+FAT mint=MgfPJEwb.. liq=571,735 entry=0.044930 min=0.000002 max=0.046830 rugMin=37.6
+FAT mint=4AeKTE46.. liq=432,662 entry=0.025730 min=0.000002 max=0.027100 rugMin=131.0
+FAT mint=5CUoNMnj.. liq=429,698 entry=0.025380 min=0.000002 max=0.025980 rugMin=95.3
+FAT mint=uJd988Kf.. liq=114,712 entry=0.001851 min=0.000002 max=0.001959 rugMin=120.8
+FAT mint=4PTyzPcZ.. liq=431,518 entry=0.025590 min=0.000002 max=0.027000 rugMin=141.9
+FAT mint=y55U9QCj.. liq=225,804 entry=0.007056 min=0.000002 max=0.007561 rugMin=119.8
+FAT mint=f9egEE6U.. liq=226,030 entry=0.007065 min=0.000001 max=0.007627 rugMin=129.1
+FAT mint=ccLK7dk5.. liq=151,011 entry=0.003178 min=0.000002 max=0.003404 rugMin=316.6
+fat sample shown=8
+
+=== Thin book tp sample (<25k, tp_first) ===
+THIN mint=8j2G4CUi.. liq=15,456 entry=0.000038 min=0.000029 max=0.000199
+THIN mint=C1a6DRyb.. liq=4,377 entry=0.000005 min=0.000005 max=0.000011
+THIN mint=AHK1P9qN.. liq=12,597 entry=0.000029 min=0.000028 max=0.000053
+THIN mint=s5y69pXv.. liq=16,836 entry=0.000048 min=0.000002 max=0.000081
+THIN mint=5J1uZFAH.. liq=18,779 entry=0.000057 min=0.000009 max=0.000091
+THIN mint=ByQ4cTwV.. liq=12,110 entry=0.000027 min=0.000023 max=0.000146
+THIN mint=G3w5H4Ri.. liq=13,312 entry=0.000031 min=0.000003 max=0.000041
+THIN mint=FMGe8RSt.. liq=11,735 entry=0.000025 min=0.000016 max=0.000067
+thin sample shown=8

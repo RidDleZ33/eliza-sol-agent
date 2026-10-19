@@ -66,6 +66,7 @@ const EnvSchema = z.object({
   TRAILING_STOP_PCT: z.string().default("10"),
   STALE_POSITION_MINUTES: z.string().default("30"),
   EXIT_CLOCK_SEC: z.string().default("0"),
+  POOL_DROP_PCT: z.string().default("30"),
   POSITION_CHECK_INTERVAL_MS: z.string().default("5000"),
   TAPE_RETAIN_DAYS: z.string().default("14"),
   TAPE_KEEPALIVE_HOURS: z.string().default("1"),
@@ -208,6 +209,10 @@ export function getPositionCheckIntervalMs(): number {
 
 export function getExitClockSec(): number {
   return parseInt(env.EXIT_CLOCK_SEC);
+}
+
+export function getPoolDropPct(): number {
+  return parseFloat(env.POOL_DROP_PCT);
 }
 
 export function getClockSecMigEdge(): number | null {
