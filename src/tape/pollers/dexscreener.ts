@@ -362,11 +362,11 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
                   tickRow.liq_quote || 0
                 );
 
-                // Now get same_slot_buyers from first tx on pair
-                if (nuke.nuke_ratio !== null) {
+                // Same-slot walk: run whenever pair_address is set, regardless of nuke ratio
+                let slotCount: number | null = null;
+                if (tickRow.pair_address) {
                   try {
-                    const slotCount = await countSameSlotBuyers(p.mint, tickRow.pair_address);
-                    nuke.same_slot_buyers = slotCount;
+                    slotCount = await countSameSlotBuyers(p.mint, tickRow.pair_address);
                     if (slotCount !== null) {
                       console.log(`[tape] slot mint=${p.mint} count=${slotCount}`);
                     }
@@ -384,7 +384,7 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
                     nuke.pool_sol,
                     nuke.nuke_ratio,
                     nuke.unique_buyers_5m,
-                    nuke.same_slot_buyers,
+                    slotCount,
                     nuke.top_holder_pct,
                     nuke.top_holder_tag,
                     nuke.top5_sol,
@@ -392,8 +392,19 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
                     p.mint
                   );
                   console.log(`[tape] nuke mint=${p.mint} ratio=${nuke.nuke_ratio.toFixed(2)}`);
+                } else if (slotCount !== null) {
+                  // Nuke ratio null (no RPC call), but slot count succeeded
+                  const slotStmt = db.prepare(`
+                    UPDATE migrations SET same_slot_buyers=? WHERE mint=?
+                  `);
+                  slotStmt.run(slotCount, p.mint);
                 }
-                break; // One snapshot per poll
+
+                // Only break after an RPC-backed snapshot. Early returns (no_pool_sol, no_price)
+                // did not hit RPC and can continue to the next pending row.
+                if (nuke.rpc_called) {
+                  break; // One snapshot per poll
+                }
               } catch (e: any) {
                 recordError("tape", "nuke_snapshot", `nuke snapshot failed: ${e.message}`, JSON.stringify({ mint: p.mint }));
               }
@@ -422,6 +433,7 @@ interface NukeSnapshot {
   top_holder_tag: string | null;
   top5_sol: number | null;
   top5_ratio: number | null;
+  rpc_called: boolean;
 }
 
 async function getNukeSnapshot(
@@ -440,6 +452,7 @@ async function getNukeSnapshot(
     top_holder_tag: null,
     top5_sol: null,
     top5_ratio: null,
+    rpc_called: false,
   };
 
   const rpcUrl = getSolanaRpcUrl();
@@ -461,6 +474,7 @@ async function getNukeSnapshot(
     return result;
   }
 
+  result.rpc_called = true;
   try {
     const body = JSON.stringify({
       jsonrpc: "2.0",
