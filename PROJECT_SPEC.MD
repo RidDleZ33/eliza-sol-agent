@@ -1,100 +1,40 @@
-# AI Committee: Three-Agent Solana Trading Swarm
+# Desk spec
 
-A three-agent autonomous trading committee built on ElizaOS. Each agent specializes in one aspect of the Solana trading ecosystem and collaborates in a shared "war room" to identify, evaluate, and execute trades.
+Operator desk for Solana pairs, plus a separate tape used to test one entry rule at a time. Updated 2026-10-20 against master `a657cc5`.
 
-## Architecture
+The 2026-09 committee spec (Eliza swarm, unanimous vote, Jito bundle as the product) is retired. Those files still exist under `src/plugins/` and `characters/`. They are not the boot path.
 
-The swarm consists of three specialized agents with a clear separation of concerns:
+## Roles
 
-### Alpha - Momentum Hunter
-- **Role:** Scans social velocity and narrative momentum
-- **Specialization:** Identifies early organic interest, influencer calls, and emerging metas before DEX trending lists update
-- **Output:** Structured narrative evaluations with ticker, mint address, reasoning, and confidence score (0.0-1.0)
-- **Constraints:** Does NOT trade directly; provides only signal data
+| Name | Owns | Does not own |
+|---|---|---|
+| Ingest | Flag-gated watchers writing the watchlist | Pass / fail |
+| Alpha | Narrative score via `LlmClient` | Buy, size |
+| Beta | Contract and watch-set facts | Buy, size |
+| Gamma | Regime label for the operator | Size, sell, swap |
+| mig_edge | Own entry filter on Pump.fun migrations | Slots, size, other sources |
+| Position manager | TP, stop, trail, clock, pool-drop | Partial sells (not implemented) |
+| Execution | Jupiter route, dry-run or live, risk caps | LLM text as a size |
+| Tape | Event-time pair rows and migration facts, no orders | Applying the live filter (ingest does that) |
 
-### Beta - Quant Analyst
-- **Role:** On-chain forensics and risk analysis
-- **Specialization:** Liquidity pool depth, top holder distributions, mint authority status, pool burn ratios
-- **Output:** Contract security assessments (PASS/FAIL), technical verification parameters
-- **Constraints:** Does NOT trade; evaluates tokens strictly on hard on-chain telemetry
+Social-unknown is dissent plus `used_fallback`. It is not an automatic pass into a buy.
 
-### Gamma - Risk Officer & Executor
-- **Role:** Chief Risk Officer and sole execution agent
-- **Specialization:** Portfolio exposure guardrails, consensus evaluation, trade execution
-- **Output:** Approval/rejection decisions, Jito-bundled Jupiter swaps
-- **Constraints:** ONLY agent with trade execution interface; cannot alter position sizing via text
+## Boot
 
-## Consensus Protocol
+`src/index.ts` starts services directly. `ELIZA_BOOT=1` is not implemented. Entitlement `operator` is required to stay up; lower tiers exit. Crash recovery runs before watchers. Telegram starts before ingest when token and chat id are set, and relaunches the poll if it dies. Beta ticks on the interval even if Alpha is backlogged; Alpha is single-flight via `requestAlphaTick`.
 
-Trades execute only when ALL conditions are met:
-1. **Alpha signals:** Narrative Confidence Score ≥ 0.75
-2. **Beta verifies:** Contract security PASS (liquidity locked, top 10 ≤ 25%, mint disabled)
-3. **Gamma approves:** Portfolio limits allow entry
+## Risk and exits
 
-## Technology Stack
+Caps are env, read in code: trade size, deployed SOL, daily loss, kill switch. Daily-loss halt posts to Telegram (throttled) and journals a row. Dry-run disagreement fails closed.
 
-- **Framework:** ElizaOS v1.6.0 (`@elizaos/core`)
-- **Database:** `@elizaos/plugin-sql` with dynamic runtime migrations
-- **LLM Backend:** Ollama (`openai` compatible endpoint at `/v1`)
-- **Model:** `qwen2.5:3b` (configurable via `MODEL_NAME` env var)
-- **Web UI:** `@elizaos/ui` served on port 8007
-- **Solana Plugins:** `@elizaos/plugin-solana`, `@elizaos/plugin-jupiter`
+Pool-drop sells when PumpSwap quote liquidity drops `POOL_DROP_PCT` from entry, before the price stop. Clock can be global or overridden per source (`CLOCK_SEC_MIG_EDGE`).
 
-## Project Structure
+## Tape and promote rule
 
-```
-eliza-sol-agent/
-├── src/
-│   └── index.ts              # Main entry point
-├── plugins/
-│   ├── consensus/            # Shared consensus room
-│   └── trading-execution/    # Gamma's trade execution actions
-├── utils/
-│   └── env.ts                # Typed environment config
-├── characters/
-│   ├── alpha.json            # Momentum Hunter config
-│   ├── beta.json             # Quant Analyst config
-│   └── gamma.json            # Risk Officer config
-├── .env                      # Environment variables
-├── package.json
-└── tsconfig.json
-```
+Recorder: `bun run tape`. Day files under `data/tape/`. Keepalive hours default 1. Score the migration pair only.
 
-## Environment Variables
+Promote a cell only if holdout median PnL beats the current desk rule, n >= 30, two weeks in a row. Do not promote on MFE. A tape result never writes `.env`.
 
-| Variable | Description | Example |
-|----------|-------------|---------|
-| `OLLAMA_BASE_URL` | Ollama API endpoint (with `/v1`) | `http://arceus:11434/v1` |
-| `OLLAMA_API_KEY` | API key (can be dummy) | `ollama` |
-| `MODEL_NAME` | Ollama model name | `qwen2.5:3b` |
-| `ELIZAOS_WEB_PORT` | Web UI port | `8007` |
-| `SOLANA_RPC_URL` | Solana RPC endpoint | `https://api.mainnet-beta.solana.com` |
-| `SOLANA_PUBLIC_KEY` | Trading wallet public key | `<your-pubkey>` |
-| `JITO_BUNDLE_URL` | Jito MEV bundle endpoint | `https://mainnet.block-engine.jito.wtf/api/v1/bundles` |
+## Explicitly out
 
-## Running the Swarm
-
-```bash
-# Install dependencies
-bun install
-
-# Start the swarm
-bun run src/index.ts
-```
-
-The web UI will be available at `http://localhost:8007`.
-
-## Key Design Decisions
-
-1. **Separation of Concerns:** Each agent has one clear responsibility; no overlap.
-2. **Consensus Over Speed:** Two approvals required before execution.
-3. **Hardcoded Limits:** Trade limits set in environment, not via LLM text.
-4. **Jito Bundles:** MEV protection for all executed trades.
-5. **Signal Data:** Alpha and Beta provide structured data, not prose.
-
-## Future Enhancements
-
-- Add `@elizaos/plugin-telegram` for alerts
-- Integrate DexScreener and Birdeye API providers
-- Add automated dry-run backtesting mode
-- Implement dynamic position sizing based on volatility
+Create-stream snipes. Buys inside five minutes of migrate. GMGN as an execution venue. Public wallet-follow as a pass. Gamma writing the score. One week of tape, or a cell under 30 names.
