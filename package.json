@@ -1,7 +1,7 @@
 {
   "name": "eliza-sol-agent",
   "version": "1.0.0",
-  "description": "AI Committee: Multi-agent Solana trading swarm on ElizaOS",
+  "description": "RidSolBot. Solana paper desk with code-owned exits and an event-time migration tape. LLM labels only.",
   "main": "src/index.ts",
   "scripts": {
     "start": "bun src/index.ts",
