@@ -31,6 +31,7 @@ interface MigrationClockInfo {
   rawJson: string | null;
   nukeRatio: number | null;
   top5Ratio: number | null;
+  sameSlotBuyers: number | null;
 }
 
 function collectMigrationClocks(): Map<string, MigrationClockInfo> {
@@ -74,6 +75,13 @@ function collectMigrationClocks(): Map<string, MigrationClockInfo> {
       } catch {
         // column doesn't exist on this day file
       }
+      // Check if same_slot_buyers column exists on this day file
+      try {
+        db.prepare("SELECT same_slot_buyers FROM migrations LIMIT 0").get();
+        query += ", same_slot_buyers";
+      } catch {
+        // column doesn't exist on this day file
+      }
       query += " FROM migrations ORDER BY observed_at_ms ASC";
 
       const rows: any[] = db.prepare(query).all();
@@ -90,6 +98,7 @@ function collectMigrationClocks(): Map<string, MigrationClockInfo> {
             rawJson: row.raw_json,
             nukeRatio: row.nuke_ratio,
             top5Ratio: row.top5_ratio,
+            sameSlotBuyers: row.same_slot_buyers,
           });
         }
       }
@@ -540,6 +549,12 @@ function bucketLabel(field: string, value: any): string {
     if (value < 1) return "<1";
     if (value < 3) return "1-3";
     return ">=3";
+  }
+  if (field === "same_slot_buyers") {
+    if (value === 0) return "0";
+    if (value === 1) return "1";
+    if (value < 6) return "2-5";
+    return ">=6";
   }
   return "unknown";
 }
@@ -1127,6 +1142,7 @@ function main() {
     "complete_cost_time",
     "nuke_ratio",
     "top5_ratio",
+    "same_slot_buyers",
   ];
 
   for (const field of rugTpFields) {
@@ -1146,6 +1162,10 @@ function main() {
         const clockInfo = clocks.get(rt.mint);
         if (!clockInfo) continue;
         value = clockInfo.top5Ratio;
+      } else if (field === "same_slot_buyers") {
+        const clockInfo = clocks.get(rt.mint);
+        if (!clockInfo) continue;
+        value = clockInfo.sameSlotBuyers;
       } else {
         const parsed = parseMigration(rt.rawJson);
         if (!parsed) continue;
@@ -1340,6 +1360,7 @@ function main() {
     "complete_cost_time",
     "nuke_ratio",
     "top5_ratio",
+    "same_slot_buyers",
   ];
 
   for (const field of fastRugFields) {
@@ -1359,6 +1380,10 @@ function main() {
         const clockInfo = clocks.get(rt.mint);
         if (!clockInfo) continue;
         value = clockInfo.top5Ratio;
+      } else if (field === "same_slot_buyers") {
+        const clockInfo = clocks.get(rt.mint);
+        if (!clockInfo) continue;
+        value = clockInfo.sameSlotBuyers;
       } else {
         const parsed = parseMigration(rt.rawJson);
         if (!parsed) continue;
@@ -1489,6 +1514,56 @@ function main() {
 
   for (const key of ["top5 <1", "top5 1-3", "top5 >=3"]) {
     const b = top5Buckets[key];
+    const tpPct = b.n > 0 ? (b.tpFirst / b.n) * 100 : 0;
+    const rugPct = b.n > 0 ? (b.rugFirst / b.n) * 100 : 0;
+    console.log(`${key}: n=${b.n} tp=${tpPct.toFixed(1)}% rug=${rugPct.toFixed(1)}% rug<5m=${b.rug5m} rug<30m=${b.rug30m}`);
+  }
+
+  // Same-slot vs time to rug
+  console.log("\n=== Same-slot vs time to rug ===");
+
+  const sameSlotBuckets: Record<string, NukeBucket> = {
+    "same 0": { n: 0, tpFirst: 0, rugFirst: 0, rug5m: 0, rug30m: 0 },
+    "same 1": { n: 0, tpFirst: 0, rugFirst: 0, rug5m: 0, rug30m: 0 },
+    "same 2-5": { n: 0, tpFirst: 0, rugFirst: 0, rug5m: 0, rug30m: 0 },
+    "same >=6": { n: 0, tpFirst: 0, rugFirst: 0, rug5m: 0, rug30m: 0 },
+  };
+
+  for (const rt of rugTpData) {
+    const clockInfo = clocks.get(rt.mint);
+    if (!clockInfo || clockInfo.sameSlotBuyers == null) continue;
+
+    const same = clockInfo.sameSlotBuyers;
+    let bucketKey: string;
+    if (same === 0) bucketKey = "same 0";
+    else if (same === 1) bucketKey = "same 1";
+    else if (same < 6) bucketKey = "same 2-5";
+    else bucketKey = "same >=6";
+
+    const b = sameSlotBuckets[bucketKey];
+    b.n++;
+
+    if (rt.outcome === "tp_first") {
+      b.tpFirst++;
+    } else if (rt.outcome === "rug_first") {
+      b.rugFirst++;
+      const six = getSixHourTicks(rt.mint, clockInfo.clockMs, clockInfo.pairAddress);
+      if (six.entry === null) continue;
+      const entryPrice = six.entry.price_usd;
+      let timeToRug: number | null = null;
+      for (const t of six.ticks) {
+        if (t.price_usd <= entryPrice * 0.5) {
+          timeToRug = (t.observed_at_ms - six.entry.observed_at_ms) / (60 * 1000);
+          break;
+        }
+      }
+      if (timeToRug != null && timeToRug < 5) b.rug5m++;
+      if (timeToRug != null && timeToRug < 30) b.rug30m++;
+    }
+  }
+
+  for (const key of ["same 0", "same 1", "same 2-5", "same >=6"]) {
+    const b = sameSlotBuckets[key];
     const tpPct = b.n > 0 ? (b.tpFirst / b.n) * 100 : 0;
     const rugPct = b.n > 0 ? (b.rugFirst / b.n) * 100 : 0;
     console.log(`${key}: n=${b.n} tp=${tpPct.toFixed(1)}% rug=${rugPct.toFixed(1)}% rug<5m=${b.rug5m} rug<30m=${b.rug30m}`);
