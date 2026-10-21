@@ -4,7 +4,7 @@
 // Docs: https://docs.jup.ag/api-reference/swap-api/get-quote
 
 import { logger } from "../services/LoggerService.ts";
-import { env } from "../utils/env.ts";
+import { env, getPriorityFeeMaxLamports } from "../utils/env.ts";
 
 export const SOL_MINT = "So11111111111111111111111111111111111111112";
 const QUOTE_TIMEOUT_MS = 10_000;
@@ -131,6 +131,12 @@ export async function jupiterBuildSwap(
     userPublicKey,
     wrapAndUnwrapSol: true,
     dynamicComputeUnitLimit: true,
+    prioritizationFeeLamports: {
+      priorityLevelWithMaxLamports: {
+        maxLamports: getPriorityFeeMaxLamports(),
+        priorityLevel: "veryHigh",
+      },
+    },
   };
 
   try {
@@ -163,10 +169,13 @@ export async function jupiterBuildSwap(
       return null;
     }
 
-    const data: SwapBuildResult = await res.json();
+    const data = await res.json();
     if (!data.swapTransaction) {
       logger.warn("EXECUTION", "jupiterBuildSwap", "Response missing swapTransaction", { data });
       return null;
+    }
+    if (data.prioritizationFeeLamports !== undefined) {
+      logger.info("EXECUTION", "jupiterBuildSwap", "Priority fee set on swap", { fee_lamports: data.prioritizationFeeLamports });
     }
     return data.swapTransaction;
   } catch (e: any) {

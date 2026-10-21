@@ -58,6 +58,7 @@ const EnvSchema = z.object({
   MIN_LIQUIDITY_USD: z.string().default("10000"),
   MAX_TOP10_CONCENTRATION_PCT: z.string().default("25"),
   JITO_TIP_LAMPORTS: z.string().default("100000"),
+  PRIORITY_FEE_MAX_LAMPORTS: z.string().default("500000"),
   MAX_CONCURRENT_POSITIONS: z.string().default("3"),
   DRY_RUN_MODE: z.string().optional(),
   TAKE_PROFIT_PCT: z.string().default("50"),
@@ -169,6 +170,11 @@ export function getMaxTop10ConcentrationPct(): number {
 
 export function getJitoTipLamports(): number {
   return parseInt(env.JITO_TIP_LAMPORTS);
+}
+
+export function getPriorityFeeMaxLamports(): number {
+  const raw = parseInt(env.PRIORITY_FEE_MAX_LAMPORTS, 10);
+  return Number.isFinite(raw) && raw > 0 ? raw : 500000;
 }
 
 export function getMaxConcurrentPositions(): number {
