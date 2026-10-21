@@ -8,8 +8,8 @@ import {
   Keypair,
   PublicKey,
   TransactionMessage,
-  toBase58,
 } from "@solana/web3.js";
+import { bs58 } from "@solana/web3.js";
 import { env } from "../utils/env.ts";
 
 const JITO_TIP_ACCOUNTS = [
@@ -85,7 +85,7 @@ export async function sendJitoSellBundle(
       console.warn("[jito] swap tx missing signature");
       return null;
     }
-    return toBase58(swapSig);
+    return bs58.encode(swapSig);
   } catch (e: any) {
     console.warn("[jito] bundle send error:", e.message);
     return null;
