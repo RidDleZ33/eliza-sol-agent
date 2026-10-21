@@ -1,8 +1,8 @@
 import { watchlistService } from "./WatchlistService.ts";
 import { getHouseKeypair } from "../utils/wallet.ts";
-import { getSolanaRpcUrl } from "../utils/env.ts";
+import { getSolanaRpcUrl, isDryRun } from "../utils/env.ts";
 import { logger } from "./LoggerService.ts";
-import { configService } from "./ConfigService.ts";
+
 
 export class CrashRecoveryService {
   async reconcilePositions() {
@@ -14,13 +14,13 @@ export class CrashRecoveryService {
       log("[CrashRecovery] Reconciling positions...");
 
       // Determine current mode
-      const isDryRun = configService.getBoolean("DRY_RUN_MODE");
-      const recoveryMode = isDryRun ? "DRY_RUN" : "LIVE";
+      const isDryRunMode = isDryRun();
+      const recoveryMode = isDryRunMode ? "DRY_RUN" : "LIVE";
       log(`[CrashRecovery] Recovery mode: ${recoveryMode}`);
 
       // Get positions matching current mode by tx signature prefix
       let positionsToRecover: any[];
-      if (isDryRun) {
+      if (isDryRunMode) {
         positionsToRecover = await watchlistService.getOpenPositions(true);
       } else {
         positionsToRecover = await watchlistService.getOpenPositions(false);
@@ -29,7 +29,7 @@ export class CrashRecoveryService {
 
       for (const position of positionsToRecover) {
         try {
-          if (isDryRun) {
+          if (isDryRunMode) {
             // Dry run positions are simulated - just confirm they're restored
             log(`[CrashRecovery] [DRY_RUN] Position ${position.symbol} restored (simulated)`);
           } else {

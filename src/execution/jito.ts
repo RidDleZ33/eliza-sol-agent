@@ -11,6 +11,7 @@ import {
 } from "@solana/web3.js";
 import bs58 from "bs58";
 import { env } from "../utils/env.ts";
+import { logger } from "../services/LoggerService.ts";
 
 const JITO_TIP_ACCOUNTS = [
   "96gYZGLnJYVFmbjzopPSU6QiEV5fGqZNyN9nmNhvrZU5",
@@ -30,10 +31,11 @@ function randomTipAccount(): string {
 export async function sendJitoSellBundle(
   swapTx: VersionedTransaction,
   keypair: Keypair,
-  blockhash: string,
   tipLamports: number
 ): Promise<string | null> {
   try {
+    // Phase 24E: reuse swap's blockhash — Jito rejects bundles with different blockhashes
+    const blockhash = swapTx.message.recentBlockhash;
     const tipAccount = randomTipAccount();
 
     // Build tip transaction
@@ -69,25 +71,25 @@ export async function sendJitoSellBundle(
     });
 
     if (!response.ok) {
-      console.warn(`[jito] bundle send failed HTTP ${response.status}`);
+      logger.warn("EXECUTION", "jito", `bundle send failed HTTP ${response.status}`);
       return null;
     }
 
     const result = await response.json();
     if (!result || !result.result) {
-      console.warn("[jito] bundle send missing result", result);
+      logger.warn("EXECUTION", "jito", "bundle send missing result", { result });
       return null;
     }
 
     // Return swap signature (base58)
     const swapSig = swapTx.signatures[0];
     if (!swapSig) {
-      console.warn("[jito] swap tx missing signature");
+      logger.warn("EXECUTION", "jito", "swap tx missing signature");
       return null;
     }
     return bs58.encode(swapSig);
   } catch (e: any) {
-    console.warn("[jito] bundle send error:", e.message);
+    logger.warn("EXECUTION", "jito", "bundle send error", { error: e.message });
     return null;
   }
 }

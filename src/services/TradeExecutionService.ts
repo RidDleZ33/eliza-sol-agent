@@ -171,7 +171,6 @@ export class TradeExecutionService {
         const jitoSig = await sendJitoSellBundle(
           decoded,
           keypair,
-          blockhash,
           getJitoTipLamports()
         );
         if (jitoSig) {
