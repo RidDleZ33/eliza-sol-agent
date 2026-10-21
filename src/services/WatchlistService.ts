@@ -538,7 +538,7 @@ class WatchlistService {
     pxQuote?: number;
     pxMark?: number;
     txSig?: string;
-    status: "QUOTED" | "FILLED" | "FAILED" | "PAPER";
+    status: "QUOTED" | "FILLED" | "FAILED" | "PAPER" | "CLOSED_EXTERNALLY";
     reason?: string;
   }): Promise<number> {
     try {
