@@ -4,13 +4,13 @@ import { tradeExecutionService } from "./services/TradeExecutionService.ts";
 import { evaluateGammaConsensus } from "./evaluators/GammaConsensusEvaluator.ts";
 import { crashRecoveryService } from "./services/CrashRecoveryService.ts";
 import { positionManagerService } from "./services/PositionManagerService.ts";
-import { env, ingestFlag, getDexscreenerTrendingPeriod, getBirdeyeApiKey, getIngestionInterval } from "./utils/env.ts";
+import { env, ingestFlag, getDexscreenerTrendingPeriod, getBirdeyeApiKey, getIngestionInterval, isDryRun, getMaxTradeSizeSol } from "./utils/env.ts";
 import { ingestionManager } from "./services/ingestion/IngestionManager.ts";
 import { telegramAdminBot } from "./services/TelegramAdminBot.ts";
 import { watchlistService } from "./services/WatchlistService.ts";
 import { logger } from "./services/LoggerService.ts";
 import { runInterlock } from "./boot/interlock.ts";
-import { isDryRun } from "./utils/env.ts";
+import { getHouseSolBalance, getHouseKeypair } from "./utils/wallet.ts";
 import { tier, can } from "./entitlements/tier.ts";
 
 let shuttingDown = false;
@@ -108,6 +108,25 @@ async function main() {
   // Phase 0F: boot interlock — compute and log mode, fail closed on LIVE if checks fail
   const interlock = runInterlock();
 
+  // Phase 24F: house balance check (live only)
+  let houseBalance: number | null = null;
+  let balanceLabel = "Wallet: check failed";
+  if (!isDryRun()) {
+    houseBalance = await getHouseSolBalance();
+    if (houseBalance === null) {
+      logger.warn("EXECUTION", "Index", "house balance check failed");
+    } else {
+      const kp = getHouseKeypair();
+      logger.info("EXECUTION", "Index", "[boot] house balance", { balance: houseBalance, pubkey: kp?.publicKey.toBase58() });
+      balanceLabel = `Wallet: ${houseBalance.toFixed(4)} SOL`;
+      if (houseBalance === 0) {
+        logger.warn("EXECUTION", "Index", "wallet unfunded");
+      } else if (houseBalance < getMaxTradeSizeSol()) {
+        logger.warn("EXECUTION", "Index", "balance below max trade size");
+      }
+    }
+  }
+
   // Phase 5A: entitlement gate — operator runs executor; lower tiers exit here
   if (!can("run_executor")) {
     logger.info("CONFIG", "Index", `entitlement tier ${tier()} cannot run executor; exiting`);
@@ -135,7 +154,7 @@ async function main() {
       telegramAdminBot.start().then(async () => {
         const timestamp = new Date().toISOString();
         const modeLabel = isDryRun() ? "DRY_RUN" : "LIVE";
-        const message = `AI Committee War Room Started\nTime: ${timestamp}\n\nAgents: Alpha, Beta, Gamma\nMonitoring Solana ecosystem\nConsensus room active\nMode: ${modeLabel}`;
+        const message = `AI Committee War Room Started\nTime: ${timestamp}\n\nAgents: Alpha, Beta, Gamma\nMonitoring Solana ecosystem\nConsensus room active\nMode: ${modeLabel}\n${balanceLabel}`;
         try {
           await telegramAdminBot.sendToChat(message);
           logger.info("TELEGRAM", "Index", "Startup notification sent to Telegram");

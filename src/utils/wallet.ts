@@ -1,5 +1,5 @@
 import { Connection, Keypair } from "@solana/web3.js";
-import { env } from "./env.ts";
+import { getSolanaRpcUrl } from "./env.ts";
 import { logger } from "../services/LoggerService.ts";
 
 export function createConnection(): Connection {
@@ -76,4 +76,16 @@ export function getHouseKeypair(): Keypair | null {
 // Deprecated alias kept for compile compatibility.
 export function getGammaKeypair(): Keypair | null {
   return getHouseKeypair();
+}
+
+export async function getHouseSolBalance(): Promise<number | null> {
+  const kp = getHouseKeypair();
+  if (!kp) return null;
+  try {
+    const conn = new Connection(getSolanaRpcUrl(), { commitment: "confirmed" });
+    const bal = await conn.getBalance(kp.publicKey);
+    return bal / 1e9;
+  } catch (e) {
+    return null;
+  }
 }

@@ -6,6 +6,8 @@ import { watchlistService } from "./WatchlistService.ts";
 import { aggregateBook } from "./TradeBookService.ts";
 import { resetSessionPnl } from "../execution/risk.ts";
 import { TelegramDashboardFormatter } from "../utils/TelegramDashboardFormatter.ts";
+import { isDryRun } from "../utils/env.ts";
+import { getHouseSolBalance } from "../utils/wallet.ts";
 import { tier, can } from "../entitlements/tier.ts";
 
 const ADMIN_BOT_VERSION = "2.4.0";
@@ -705,7 +707,19 @@ export class TelegramAdminBot {
       await ctx.replyWithChatAction("typing");
       const metrics = await watchlistService.getDashboardMetrics();
       const formattedHtml = TelegramDashboardFormatter.formatDashboard(metrics);
-      await ctx.reply(formattedHtml, { parse_mode: "HTML" });
+
+      // Phase 24F: prepend house balance line when live
+      let prefix = "";
+      if (!isDryRun()) {
+        const balance = await getHouseSolBalance();
+        if (balance === null) {
+          prefix = "💼 Wallet: check failed\n";
+        } else {
+          prefix = `💼 Wallet: ${balance.toFixed(4)} SOL\n`;
+        }
+      }
+
+      await ctx.reply(prefix + formattedHtml, { parse_mode: "HTML" });
     } catch (e) {
       logger.error("TELEGRAM", "TelegramAdminBot", "Failed to generate dashboard", { error: e.message });
       await ctx.reply(`⚠️ Dashboard generation error: ${e.message}`);
