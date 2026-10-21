@@ -262,7 +262,7 @@ export class MigrationEdgeWatcher implements IngestionWatcher {
       const ok = await watchlistService.addDiscoveredToken(mint, item.symbol, 0, SOURCE);
       if (ok) {
         logger.info("INGESTION", this.name, "insert", { mint, symbol: item.symbol, liq: item.liquidity, top10: item.top10Rate });
-        this.maybePaperBuy(mint, item.symbol);
+        this.maybeBuy(mint, item.symbol);
       }
       toDrop.push(mint);
     }
