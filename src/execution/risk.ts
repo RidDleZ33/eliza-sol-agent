@@ -4,7 +4,7 @@
 import { logger } from "../services/LoggerService.ts";
 import { telegramAdminBot } from "../services/TelegramAdminBot.ts";
 import { watchlistService } from "../services/WatchlistService.ts";
-import { getMaxTradeSizeSol, getMaxDeployedSol, getMaxDailyLossSol, getKillSwitch } from "../utils/env.ts";
+import { getMaxTradeSizeSol, getMaxDeployedSol, getMaxDailyLossSol, getKillSwitch, isDryRun } from "../utils/env.ts";
 
 // ---- Circuit breaker (simple state machine) ----
 type BreakerState = "closed" | "open" | "half-open";
@@ -90,7 +90,7 @@ export function resetSessionPnl(): void {
 }
 
 export async function getOpenPositionSol(): Promise<number> {
-  const positions = await watchlistService.getActivePositions();
+  const positions = await watchlistService.getActivePositions(isDryRun());
   let total = 0.0;
   for (const p of positions) {
     total += (p as any).amount_sol ?? 0.0;

@@ -999,10 +999,24 @@ class WatchlistService {
     return this.getOpenPositions(isDryRun);
   }
 
-  getActivePositionsCount(): number {
-    return this.db
+  getActivePositionsCount(isDryRun?: boolean): number {
+    if (isDryRun === true) {
+      const row = this.db
+        .prepare("SELECT COUNT(*) as count FROM positions WHERE status = 'OPEN' AND buy_tx_signature LIKE 'DRY_RUN_BUY_%'")
+        .get();
+      return row.count;
+    }
+    if (isDryRun === false) {
+      const row = this.db
+        .prepare("SELECT COUNT(*) as count FROM positions WHERE status = 'OPEN' AND buy_tx_signature NOT LIKE 'DRY_RUN_%'")
+        .get();
+      return row.count;
+    }
+    // All open positions when mode is omitted
+    const row = this.db
       .prepare("SELECT COUNT(*) as count FROM positions WHERE status = 'OPEN'")
-      .get().count;
+      .get();
+    return row.count;
   }
 
   async getOpenPositions(isDryRun?: boolean): Promise<any[]> {
@@ -1069,7 +1083,20 @@ class WatchlistService {
       .run(mintAddress);
   }
 
-  async hasPosition(mintAddress: string): Promise<boolean> {
+  async hasPosition(mintAddress: string, isDryRun?: boolean): Promise<boolean> {
+    if (isDryRun === true) {
+      const result = this.db
+        .prepare("SELECT COUNT(*) as count FROM positions WHERE mint_address = ? AND status = 'OPEN' AND buy_tx_signature LIKE 'DRY_RUN_BUY_%'")
+        .get(mintAddress);
+      return result.count > 0;
+    }
+    if (isDryRun === false) {
+      const result = this.db
+        .prepare("SELECT COUNT(*) as count FROM positions WHERE mint_address = ? AND status = 'OPEN' AND buy_tx_signature NOT LIKE 'DRY_RUN_%'")
+        .get(mintAddress);
+      return result.count > 0;
+    }
+    // Any open row when mode is omitted
     const result = this.db
       .prepare("SELECT COUNT(*) as count FROM positions WHERE mint_address = ? AND status = 'OPEN'")
       .get(mintAddress);

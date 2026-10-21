@@ -643,13 +643,13 @@ export class TradeExecutionService {
     });
 
     try {
-      const positionsCount = watchlistService.getActivePositionsCount();
+      const positionsCount = watchlistService.getActivePositionsCount(isDryRun());
       const maxPositions = configService.getNumber("MAX_CONCURRENT_POSITIONS");
       if (positionsCount >= maxPositions) {
         return { success: false, error: `Max position limit reached (${positionsCount}/${maxPositions})` };
       }
 
-      if (await watchlistService.hasPosition(mintAddress)) {
+      if (await watchlistService.hasPosition(mintAddress, isDryRun())) {
         return { success: false, error: `Already in open position for ${symbol}` };
       }
 

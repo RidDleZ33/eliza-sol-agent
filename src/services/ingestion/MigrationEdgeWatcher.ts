@@ -2,7 +2,7 @@ import { watchlistService } from "../WatchlistService.ts";
 import { configService } from "../ConfigService.ts";
 import { logger } from "../LoggerService.ts";
 import { IngestionWatcher } from "./IngestionWatcher.ts";
-import { getIngestionInterval, getGmgnApiKey, isDryRun } from "../../utils/env.ts";
+import { getIngestionInterval, getGmgnApiKey } from "../../utils/env.ts";
 import { tradeExecutionService } from "../TradeExecutionService.ts";
 
 const SOURCE = "mig_edge";
@@ -12,10 +12,9 @@ const MIN_LIQUIDITY = 25000;
 const MAX_LIQUIDITY = 100000;
 const MIN_HOLDERS = 500;
 
-// Phase 18A: Paper forward test of the majority-migration edge.
+// Phase 18A/24G: Majority-migration edge with live buy.
 // Filter: top 10 and creator status present, liquidity $25k-$100k, 500+ holders.
-// Inserted into watchlist but not routed through Alpha narrative gate.
-// Paper buy only when dry-run is on; live buys are deferred to operator.
+// Inserted into watchlist and routed to executeBuy (paper or live based on mode).
 
 interface PendingItem {
   mint: string;
@@ -203,7 +202,7 @@ export class MigrationEdgeWatcher implements IngestionWatcher {
           inserted++;
           logger.info("INGESTION", this.name, "insert", { mint, symbol, liq, top10: item.top_10_holder_rate });
           // Paper buy if dry-run is on. Do not wake Alpha.
-          this.maybePaperBuy(mint, symbol);
+          this.maybeBuy(mint, symbol);
         }
       }
 
@@ -273,13 +272,8 @@ export class MigrationEdgeWatcher implements IngestionWatcher {
     }
   }
 
-  private async maybePaperBuy(mint: string, symbol: string) {
-    if (!isDryRun()) {
-      logger.info("INGESTION", this.name, "mig_edge skip live", { mint, symbol });
-      return;
-    }
-
-    logger.info("INGESTION", this.name, "mig_edge paper buy", { mint, symbol });
+  private async maybeBuy(mint: string, symbol: string) {
+    logger.info("INGESTION", this.name, "mig_edge buy", { mint, symbol });
     try {
       const result = await tradeExecutionService.executeBuy(
         mint,
@@ -288,12 +282,12 @@ export class MigrationEdgeWatcher implements IngestionWatcher {
         "mig_edge"
       );
       if (result.success) {
-        logger.info("INGESTION", this.name, "Paper buy ok", { mint, symbol });
+        logger.info("INGESTION", this.name, "buy ok", { mint, symbol });
       } else {
-        logger.warn("INGESTION", this.name, "Paper buy failed", { mint, symbol, error: result.error });
+        logger.warn("INGESTION", this.name, "buy failed", { mint, symbol, error: result.error });
       }
     } catch (e: any) {
-      logger.error("INGESTION", this.name, "Paper buy error", { mint, symbol, error: e.message });
+      logger.error("INGESTION", this.name, "buy error", { mint, symbol, error: e.message });
     }
   }
 }
