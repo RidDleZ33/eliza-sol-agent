@@ -9,7 +9,7 @@ import {
   PublicKey,
   TransactionMessage,
 } from "@solana/web3.js";
-import { bs58 } from "@solana/web3.js";
+import bs58 from "bs58";
 import { env } from "../utils/env.ts";
 
 const JITO_TIP_ACCOUNTS = [
