@@ -36,7 +36,9 @@ export class CrashRecoveryService {
             // Live positions need blockchain balance verification
             const balance = await this.getTokenBalance(position.mint_address, logWarn);
             
-            if (balance > 0) {
+            if (balance === null) {
+              logWarn(`[CrashRecovery] [LIVE] Balance check error for ${position.symbol}; skipping position`);
+            } else if (balance > 0) {
               log(`[CrashRecovery] [LIVE] Position ${position.symbol} still active (balance: ${balance})`);
             } else {
               log(`[CrashRecovery] [LIVE] Position ${position.symbol} closed externally (balance: 0)`);
@@ -69,12 +71,12 @@ export class CrashRecoveryService {
     }
   }
 
-  private async getTokenBalance(mintAddress: string, logWarn: any): Promise<number> {
+  private async getTokenBalance(mintAddress: string, logWarn: any): Promise<number | null> {
     const { Connection, PublicKey } = await import("@solana/web3.js");
     const keypair = getHouseKeypair();
     if (!keypair) {
       logWarn("[CrashRecovery] No house keypair available for balance check");
-      return 0;
+      return null;
     }
 
     try {
@@ -95,7 +97,7 @@ export class CrashRecoveryService {
       return Number(tokenAmount.amount);
     } catch (e: any) {
       logWarn(`[CrashRecovery] Balance check failed for ${mintAddress}: ${e.message}`);
-      return 0;
+      return null;
     }
   }
 }
