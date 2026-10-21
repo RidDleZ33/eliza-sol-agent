@@ -1,5 +1,5 @@
 // Phase 1C: Live fill via Jupiter HTTP API + direct Solana RPC.
-// Not wired to Jito; public sendRawTransaction + confirmTransaction.
+// Sells can use Jito bundle when JITO_SELL=true (phase 24B); buys always public.
 // Dry-run: quote only, never builds swap tx or sends.
 
 import {
@@ -10,12 +10,13 @@ import {
 } from "@solana/web3.js";
 import { watchlistService } from "./WatchlistService.ts";
 import { priceActionService } from "./PriceActionService.ts";
-import { isDryRun, getSolanaRpcUrl } from "../utils/env.ts";
+import { isDryRun, getSolanaRpcUrl, getJitoSell, getJitoTipLamports } from "../utils/env.ts";
 import { getHouseKeypair } from "../utils/wallet.ts";
 import { configService } from "./ConfigService.ts";
 import { logger } from "./LoggerService.ts";
 import { telegramAdminBot } from "./TelegramAdminBot.ts";
 import { jupiterQuote, jupiterBuildSwap, SOL_MINT } from "../execution/jupiterApi.ts";
+import { sendJitoSellBundle } from "../execution/jito.ts";
 import {
   checkBuyRisk,
   maxTradeSizeSol,
@@ -140,6 +141,77 @@ export class TradeExecutionService {
 
       // 6b. Capture blockhash BEFORE send (phase 2A: reuse in confirm, no second fetch)
       const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed");
+
+      // Phase 24B: Jito bundle path for sells when JITO_SELL is on
+      if (getJitoSell()) {
+        const jitoSig = await sendJitoSellBundle(
+          decoded,
+          keypair,
+          blockhash,
+          getJitoTipLamports()
+        );
+        if (jitoSig) {
+          logger.info("EXECUTION", "TradeExecution", "[LIVE] SELL sent via jito", {
+            symbol,
+            signature: jitoSig,
+          });
+          // Proceed to confirm with jito signature
+          let sellConfirmError: string | null = null;
+          try {
+            const status = await connection.confirmTransaction(
+              { signature: jitoSig, blockhash, lastValidBlockHeight },
+              "confirmed"
+            );
+            if (status.value.err) {
+              sellConfirmError = `Transaction failed: ${status.value.err.toString()}`;
+            }
+          } catch (e: any) {
+            sellConfirmError = `confirmTransaction failed: ${e.message}`;
+          }
+
+          if (sellConfirmError) {
+            await watchlistService.logTradeRow({
+              clientOrderId: `sell-live:${mintAddress}:${jitoSig}`,
+              mint: mintAddress,
+              symbol,
+              side: "SELL",
+              mode: "LIVE",
+              txSig: jitoSig,
+              status: "FAILED",
+              reason: sellConfirmError,
+            });
+            telegramAdminBot.notifyTrade({ side: "SELL", symbol, status: "FAILED", mint: mintAddress, txSig: jitoSig, reason: sellConfirmError }).catch(() => {});
+            return { success: false, txSignature: jitoSig, error: sellConfirmError };
+          }
+
+          await watchlistService.closePosition(mintAddress, jitoSig);
+
+          logger.info("EXECUTION", "TradeExecution", "[LIVE] SELL completed", {
+            symbol,
+            signature: jitoSig,
+            reason,
+          });
+
+          await watchlistService.logTradeRow({
+            clientOrderId: `sell-live:${mintAddress}:${jitoSig}`,
+            mint: mintAddress,
+            symbol,
+            side: "SELL",
+            mode: "LIVE",
+            solOut: Number(quoteResult.slim.outAmount) / 1e9,
+            txSig: jitoSig,
+            status: "FILLED",
+            reason: reason,
+          });
+          telegramAdminBot.notifyTrade({ side: "SELL", symbol, status: "FILLED", mode: "LIVE", solOut: Number(quoteResult.slim.outAmount) / 1e9, mint: mintAddress, txSig: jitoSig, reason }).catch(() => {});
+
+          return { success: true, txSignature: jitoSig };
+        }
+        // Jito returned null — fall through to public send
+        logger.warn("EXECUTION", "TradeExecution", "[jito] bundle failed, falling back to public send", {
+          symbol,
+        });
+      }
 
       // 7. Send with preflight (RPC breaker)
       if (rpcBreakerOpen()) {

@@ -57,6 +57,7 @@ const EnvSchema = z.object({
   RUGCHECK_API_URL: z.string().default("https://api.rugcheck.xyz/v1/tokens"),
   MIN_LIQUIDITY_USD: z.string().default("10000"),
   MAX_TOP10_CONCENTRATION_PCT: z.string().default("25"),
+  JITO_SELL: z.string().default("false"),
   JITO_TIP_LAMPORTS: z.string().default("100000"),
   PRIORITY_FEE_MAX_LAMPORTS: z.string().default("500000"),
   MAX_CONCURRENT_POSITIONS: z.string().default("3"),
@@ -166,6 +167,10 @@ export function getMinLiquidityUsd(): number {
 
 export function getMaxTop10ConcentrationPct(): number {
   return parseInt(env.MAX_TOP10_CONCENTRATION_PCT);
+}
+
+export function getJitoSell(): boolean {
+  return env.JITO_SELL === "true" || env.JITO_SELL === "1";
 }
 
 export function getJitoTipLamports(): number {
