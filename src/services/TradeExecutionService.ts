@@ -48,6 +48,30 @@ export class TradeExecutionService {
   }
 
   /**
+   * Phase 24C: One-shot check if a sent signature actually landed after a confirm timeout.
+   * Never retries the send. "unknown" means we can't tell yet — treat as failed.
+   */
+  private async signatureLanded(
+    connection: Connection,
+    signature: string
+  ): Promise<"ok" | "err" | "unknown"> {
+    try {
+      const result = await connection.getSignatureStatuses([signature], {
+        searchTransactionHistory: true,
+      });
+      const entry = result.value?.[0];
+      if (!entry) return "unknown";
+      if (entry.err) return "err";
+      if (entry.confirmationStatus === "confirmed" || entry.confirmationStatus === "finalized") {
+        return "ok";
+      }
+      return "unknown";
+    } catch {
+      return "unknown";
+    }
+  }
+
+  /**
    * Phase 1B: Live sell with simulate-send-confirm.
    */
   private async executeLiveSell(
@@ -170,18 +194,25 @@ export class TradeExecutionService {
           }
 
           if (sellConfirmError) {
-            await watchlistService.logTradeRow({
-              clientOrderId: `sell-live:${mintAddress}:${jitoSig}`,
-              mint: mintAddress,
-              symbol,
-              side: "SELL",
-              mode: "LIVE",
-              txSig: jitoSig,
-              status: "FAILED",
-              reason: sellConfirmError,
-            });
-            telegramAdminBot.notifyTrade({ side: "SELL", symbol, status: "FAILED", mint: mintAddress, txSig: jitoSig, reason: sellConfirmError }).catch(() => {});
-            return { success: false, txSignature: jitoSig, error: sellConfirmError };
+            // Phase 24C: confirm timed out but tx may have landed late
+            const landResult = await this.signatureLanded(connection, jitoSig);
+            if (landResult === "ok") {
+              logger.info("EXECUTION", "TradeExecution", "[LIVE] SELL late land", { symbol, signature: jitoSig });
+            } else {
+              sellConfirmError = `${sellConfirmError} (late=${landResult})`;
+              await watchlistService.logTradeRow({
+                clientOrderId: `sell-live:${mintAddress}:${jitoSig}`,
+                mint: mintAddress,
+                symbol,
+                side: "SELL",
+                mode: "LIVE",
+                txSig: jitoSig,
+                status: "FAILED",
+                reason: sellConfirmError,
+              });
+              telegramAdminBot.notifyTrade({ side: "SELL", symbol, status: "FAILED", mint: mintAddress, txSig: jitoSig, reason: sellConfirmError }).catch(() => {});
+              return { success: false, txSignature: jitoSig, error: sellConfirmError };
+            }
           }
 
           await watchlistService.closePosition(mintAddress, jitoSig);
@@ -251,23 +282,29 @@ export class TradeExecutionService {
       }
 
       if (sellConfirmError) {
-        // Phase 2A: FAILED journal row
-        await watchlistService.logTradeRow({
-          clientOrderId: `sell-live:${mintAddress}:${signature}`,
-          mint: mintAddress,
-          symbol,
-          side: "SELL",
-          mode: "LIVE",
-          txSig: signature,
-          status: "FAILED",
-          reason: sellConfirmError,
-        });
-        telegramAdminBot.notifyTrade({ side: "SELL", symbol, status: "FAILED", mint: mintAddress, txSig: signature, reason: sellConfirmError }).catch(() => {});
-        return {
-          success: false,
-          txSignature: signature,
-          error: sellConfirmError,
-        };
+        // Phase 24C: confirm timed out but tx may have landed late
+        const landResult = await this.signatureLanded(connection, signature);
+        if (landResult === "ok") {
+          logger.info("EXECUTION", "TradeExecution", "[LIVE] SELL late land", { symbol, signature });
+        } else {
+          sellConfirmError = `${sellConfirmError} (late=${landResult})`;
+          await watchlistService.logTradeRow({
+            clientOrderId: `sell-live:${mintAddress}:${signature}`,
+            mint: mintAddress,
+            symbol,
+            side: "SELL",
+            mode: "LIVE",
+            txSig: signature,
+            status: "FAILED",
+            reason: sellConfirmError,
+          });
+          telegramAdminBot.notifyTrade({ side: "SELL", symbol, status: "FAILED", mint: mintAddress, txSig: signature, reason: sellConfirmError }).catch(() => {});
+          return {
+            success: false,
+            txSignature: signature,
+            error: sellConfirmError,
+          };
+        }
       }
 
       // 9. Close position in watchlist
@@ -425,24 +462,30 @@ export class TradeExecutionService {
       }
 
       if (confirmError) {
-        // Phase 2A: FAILED journal row
-        await watchlistService.logTradeRow({
-          clientOrderId: `buy-live:${mintAddress}:${signature}`,
-          mint: mintAddress,
-          symbol,
-          side: "BUY",
-          mode: "LIVE",
-          solIn: tradeSize,
-          txSig: signature,
-          status: "FAILED",
-          reason: confirmError,
-        });
-        telegramAdminBot.notifyTrade({ side: "BUY", symbol, status: "FAILED", mode: "LIVE", solIn: tradeSize, mint: mintAddress, txSig: signature, reason: confirmError }).catch(() => {});
-        return {
-          success: false,
-          txSignature: signature,
-          error: confirmError,
-        };
+        // Phase 24C: confirm timed out but tx may have landed late
+        const landResult = await this.signatureLanded(connection, signature);
+        if (landResult === "ok") {
+          logger.info("EXECUTION", "TradeExecution", "[LIVE] BUY late land", { symbol, signature });
+        } else {
+          confirmError = `${confirmError} (late=${landResult})`;
+          await watchlistService.logTradeRow({
+            clientOrderId: `buy-live:${mintAddress}:${signature}`,
+            mint: mintAddress,
+            symbol,
+            side: "BUY",
+            mode: "LIVE",
+            solIn: tradeSize,
+            txSig: signature,
+            status: "FAILED",
+            reason: confirmError,
+          });
+          telegramAdminBot.notifyTrade({ side: "BUY", symbol, status: "FAILED", mode: "LIVE", solIn: tradeSize, mint: mintAddress, txSig: signature, reason: confirmError }).catch(() => {});
+          return {
+            success: false,
+            txSignature: signature,
+            error: confirmError,
+          };
+        }
       }
 
       // Phase 2A: FILLED journal row
