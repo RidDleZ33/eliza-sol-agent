@@ -1,5 +1,5 @@
 import { Connection, Keypair } from "@solana/web3.js";
-import { getSolanaRpcUrl } from "./env.ts";
+import { env, getSolanaRpcUrl } from "./env.ts";
 import { logger } from "../services/LoggerService.ts";
 
 export function createConnection(): Connection {
