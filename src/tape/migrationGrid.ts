@@ -1812,6 +1812,118 @@ function main() {
     console.log(`${key}: n=${b.n} tp=${tpPct.toFixed(1)}% rug=${rugPct.toFixed(1)}% rug<5m=${b.rug5m} rug<30m=${b.rug30m}`);
   }
 
+  // Stall vs TP: does a 45s no-new-high exit catch rugs or cut winners?
+  console.log("\n=== Stall vs TP ===");
+
+  let stallBeforeTp = 0;
+  let tpBeforeStall = 0;
+  let rugNoStall = 0;
+  let neitherStall = 0;
+  interface StallMint {
+    mint: string;
+    outcome: "tp_first" | "rug_first" | "neither";
+    stallPrice: number;
+    stallIdx: number;
+    six: any;
+  }
+  const stallMints: StallMint[] = [];
+
+  for (const rt of rugTpData) {
+    const clockInfo = clocks.get(rt.mint);
+    if (!clockInfo) continue;
+    const six = getSixHourTicks(rt.mint, clockInfo.clockMs, clockInfo.pairAddress);
+    if (six.entry === null || six.ticks.length === 0) continue;
+
+    const entry = six.entry;
+    const entryPrice = entry.price_usd;
+    const sixHourEnd = entry.observed_at_ms + 6 * 60 * 60 * 1000;
+
+    let runningPeak = entryPrice;
+    let lastHighMs = entry.observed_at_ms;
+    let stallIdx = -1;
+    let stallPrice = 0;
+    let tpHit = false;
+    let rugHit = false;
+
+    for (let i = 0; i < six.ticks.length; i++) {
+      const t = six.ticks[i];
+      if (t.observed_at_ms > sixHourEnd) break;
+
+      if (!tpHit && t.price_usd >= entryPrice * 1.3) {
+        tpHit = true;
+      }
+      if (!rugHit && t.price_usd <= entryPrice * 0.5) {
+        rugHit = true;
+      }
+
+      if (!tpHit && !rugHit) {
+        if (t.price_usd > runningPeak) {
+          runningPeak = t.price_usd;
+          lastHighMs = t.observed_at_ms;
+        }
+        const gapSec = (t.observed_at_ms - lastHighMs) / 1000;
+        if (gapSec >= 45) {
+          stallIdx = i;
+          stallPrice = t.price_usd;
+          break;
+        }
+      }
+
+      if (tpHit || rugHit) break;
+    }
+
+    if (stallIdx >= 0 && !tpHit) {
+      stallBeforeTp++;
+      stallMints.push({ mint: rt.mint, outcome: rt.outcome, stallPrice, stallIdx, six });
+    } else if (tpHit) {
+      tpBeforeStall++;
+    } else if (rugHit) {
+      rugNoStall++;
+    } else {
+      neitherStall++;
+    }
+  }
+
+  const stallN = stallBeforeTp + tpBeforeStall + rugNoStall + neitherStall;
+  console.log(`stall_before_tp: n=${stallBeforeTp} (${((stallBeforeTp / stallN) * 100).toFixed(1)}%)`);
+  console.log(`tp_before_stall: n=${tpBeforeStall} (${((tpBeforeStall / stallN) * 100).toFixed(1)}%)`);
+  console.log(`rug_no_stall: n=${rugNoStall} (${((rugNoStall / stallN) * 100).toFixed(1)}%)`);
+  console.log(`neither: n=${neitherStall} (${((neitherStall / stallN) * 100).toFixed(1)}%)`);
+
+  let stallRugFirst = 0;
+  let stallTpFirst = 0;
+  for (const s of stallMints) {
+    if (s.outcome === "rug_first") stallRugFirst++;
+    if (s.outcome === "tp_first") stallTpFirst++;
+  }
+  console.log(`stall_before_tp that were rug_first: n=${stallRugFirst} (${stallBeforeTp > 0 ? ((stallRugFirst / stallBeforeTp) * 100).toFixed(1) : "0.0"}% of stall_before_tp)`);
+  console.log(`stall_before_tp that were tp_first: n=${stallTpFirst} (${stallBeforeTp > 0 ? ((stallTpFirst / stallBeforeTp) * 100).toFixed(1) : "0.0"}% of stall_before_tp)`);
+
+  console.log("\n=== Left after the stall ===");
+  if (stallMints.length > 0) {
+    const leftPcts: number[] = [];
+    let went30 = 0;
+    let went100 = 0;
+    for (const s of stallMints) {
+      let laterPeak = s.stallPrice;
+      let i = s.stallIdx + 1;
+      while (i < s.six.ticks.length) {
+        const t = s.six.ticks[i];
+        if (t.observed_at_ms > s.six.entry.observed_at_ms + 6 * 60 * 60 * 1000) break;
+        if (t.price_usd > laterPeak) laterPeak = t.price_usd;
+        i++;
+      }
+      const left = laterPeak / s.stallPrice - 1;
+      leftPcts.push(left * 100);
+      if (left >= 0.3) went30++;
+      if (left >= 1.0) went100++;
+    }
+    const medLeft = median(leftPcts);
+    console.log(`n=${stallMints.length} medianLeft=${medLeft.toFixed(1)}% went+30%=${((went30 / stallMints.length) * 100).toFixed(1)}% went+100%=${((went100 / stallMints.length) * 100).toFixed(1)}%`);
+  } else {
+    console.log("n=0");
+  }
+
   // Sample of high-liquidity rug-first names
   console.log("\n=== Fat book rug sample (>=100k, rug_first) ===");
   let fatCount = 0;
