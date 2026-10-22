@@ -48,6 +48,23 @@ export class TradeExecutionService {
   }
 
   /**
+   * Phase 24I: Read the actual tx fee in SOL from a confirmed transaction.
+   * Returns null on any failure or if meta is missing.
+   */
+  private async txFeeSol(connection: Connection, signature: string): Promise<number | null> {
+    try {
+      const tx = await connection.getTransaction(signature, {
+        commitment: "confirmed",
+        maxSupportedTransactionVersion: 0,
+      });
+      if (!tx?.meta?.fee) return null;
+      return tx.meta.fee / 1e9;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * Phase 24C: One-shot check if a sent signature actually landed after a confirm timeout.
    * Never retries the send. "unknown" means we can't tell yet — treat as failed.
    */
@@ -222,6 +239,8 @@ export class TradeExecutionService {
             reason,
           });
 
+          // Phase 24I: fee from jito sell success
+          const jitoFee = await this.txFeeSol(connection, jitoSig);
           await watchlistService.logTradeRow({
             clientOrderId: `sell-live:${mintAddress}:${jitoSig}`,
             mint: mintAddress,
@@ -232,6 +251,7 @@ export class TradeExecutionService {
             txSig: jitoSig,
             status: "FILLED",
             reason: reason,
+            ...(jitoFee !== null ? { feeSol: jitoFee } : {}),
           });
           telegramAdminBot.notifyTrade({ side: "SELL", symbol, status: "FILLED", mode: "LIVE", solOut: Number(quoteResult.slim.outAmount) / 1e9, mint: mintAddress, txSig: jitoSig, reason }).catch(() => {});
 
@@ -315,6 +335,8 @@ export class TradeExecutionService {
         reason,
       });
 
+      // Phase 24I: fee from sell success
+      const sellFee = await this.txFeeSol(connection, signature);
       // Phase 2A: FILLED journal row
       await watchlistService.logTradeRow({
         clientOrderId: `sell-live:${mintAddress}:${signature}`,
@@ -326,6 +348,7 @@ export class TradeExecutionService {
         txSig: signature,
         status: "FILLED",
         reason: reason,
+        ...(sellFee !== null ? { feeSol: sellFee } : {}),
       });
       telegramAdminBot.notifyTrade({ side: "SELL", symbol, status: "FILLED", mode: "LIVE", solOut: Number(quoteResult.slim.outAmount) / 1e9, mint: mintAddress, txSig: signature, reason }).catch(() => {});
 
@@ -465,6 +488,21 @@ export class TradeExecutionService {
         const landResult = await this.signatureLanded(connection, signature);
         if (landResult === "ok") {
           logger.info("EXECUTION", "TradeExecution", "[LIVE] BUY late land", { symbol, signature });
+          // Phase 24I: fee from late-land success
+          const fee = await this.txFeeSol(connection, signature);
+          await watchlistService.logTradeRow({
+            clientOrderId: `buy-live:${mintAddress}:${signature}`,
+            mint: mintAddress,
+            symbol,
+            side: "BUY",
+            mode: "LIVE",
+            solIn: tradeSize,
+            solOut: 0,
+            txSig: signature,
+            status: "FILLED",
+            reason: buyReason,
+            ...(fee !== null ? { feeSol: fee } : {}),
+          });
         } else {
           confirmError = `${confirmError} (late=${landResult})`;
           await watchlistService.logTradeRow({
@@ -487,6 +525,8 @@ export class TradeExecutionService {
         }
       }
 
+      // Phase 24I: fee from normal success
+      const buyFee = await this.txFeeSol(connection, signature);
       // Phase 2A: FILLED journal row
       await watchlistService.logTradeRow({
         clientOrderId: `buy-live:${mintAddress}:${signature}`,
@@ -499,6 +539,7 @@ export class TradeExecutionService {
         txSig: signature,
         status: "FILLED",
         reason: buyReason,
+        ...(buyFee !== null ? { feeSol: buyFee } : {}),
       });
       telegramAdminBot.notifyTrade({ side: "BUY", symbol, status: "FILLED", mode: "LIVE", solIn: tradeSize, mint: mintAddress, txSig: signature }).catch(() => {});
 

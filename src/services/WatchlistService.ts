@@ -261,6 +261,18 @@ class WatchlistService {
         this.db.exec("ALTER TABLE watched_tokens ADD COLUMN dex_pair_at INTEGER");
         logger.info("WATCHLIST", "migrateSchema", "Added dex_pair_at column");
       }
+
+      // Phase 24I: fee_sol column on trades
+      try {
+        const tradesColumns = this.db.prepare("PRAGMA table_info(trades)").all() as any[];
+        const tradesColumnNames = new Set(tradesColumns.map(c => c.name));
+        if (!tradesColumnNames.has('fee_sol')) {
+          this.db.exec("ALTER TABLE trades ADD COLUMN fee_sol REAL");
+          logger.info("WATCHLIST", "migrateSchema", "Added fee_sol column to trades");
+        }
+      } catch (e: any) {
+        logger.warn("WATCHLIST", "migrateSchema", "fee_sol column migration failed", { error: e.message });
+      }
     } catch (e: any) {
       console.error(`[WATCHLIST][migrateSchema] Migration failed: ${e.message}`);
     }
@@ -537,6 +549,7 @@ class WatchlistService {
     qtyRaw?: string;
     solIn?: number;
     solOut?: number;
+    feeSol?: number;
     pxQuote?: number;
     pxMark?: number;
     txSig?: string;
@@ -547,8 +560,8 @@ class WatchlistService {
       const stmt = this.db.prepare(`
         INSERT INTO trades
           (client_order_id, mint, symbol, side, mode, qty_raw, sol_in, sol_out,
-           px_quote, px_mark, tx_sig, status, reason, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           fee_sol, px_quote, px_mark, tx_sig, status, reason, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       const result = stmt.run(
         trade.clientOrderId,
@@ -559,6 +572,7 @@ class WatchlistService {
         trade.qtyRaw ?? null,
         trade.solIn ?? null,
         trade.solOut ?? null,
+        trade.feeSol ?? null,
         trade.pxQuote ?? null,
         trade.pxMark ?? null,
         trade.txSig ?? null,
@@ -1130,7 +1144,7 @@ class WatchlistService {
       const book = aggregateBook(null);
       totalTrips = book.trips.length;
       for (const trip of book.trips) {
-        totalRealizedPnlSol += trip.pnl_sol;
+        totalRealizedPnlSol += trip.net_sol;
         if (trip.pnl_sol > 0) winningTrips++;
       }
     } catch (e) {

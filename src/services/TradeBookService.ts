@@ -6,7 +6,9 @@ interface ClosedTrip {
   sell_at: number;
   sol_in: number;
   sol_out: number;
+  fee_sol: number;
   pnl_sol: number;
+  net_sol: number;
   exit_fam: string;
   pa_src: string;
   ingest: string;
@@ -99,6 +101,7 @@ export function aggregateTrips(
     const idx = list.indexOf(best);
     if (idx >= 0) list.splice(idx, 1);
     const buyTs = best.created_at < 1e12 ? best.created_at * 1000 : best.created_at;
+    const feeSol = (best.fee_sol || 0) + (sell.fee_sol || 0);
     const pnl = sell.sol_out - best.sol_in;
     const exitFam = classifyExit(sell.reason);
     let stopAgeBucket: string | null = null;
@@ -111,7 +114,9 @@ export function aggregateTrips(
       sell_at: sellTs,
       sol_in: best.sol_in,
       sol_out: sell.sol_out,
+      fee_sol: feeSol,
       pnl_sol: pnl,
+      net_sol: pnl - feeSol,
       exit_fam: exitFam,
       pa_src: classifyPaSrc(sell.reason, best.reason),
       ingest: classifyIngest(watchedIngest.get(sell.mint) || null),
@@ -138,11 +143,13 @@ export function formatBook(trips: ClosedTrip[]): string[] {
     return ["BOOK empty"];
   }
   const totalPnl = trips.reduce((s, t) => s + t.pnl_sol, 0);
+  const totalNet = trips.reduce((s, t) => s + t.net_sol, 0);
   const wins = trips.filter((t) => t.pnl_sol > 0).length;
   const wr = (wins / trips.length) * 100;
   const sign = totalPnl >= 0 ? "+" : "";
+  const signNet = totalNet >= 0 ? "+" : "";
   const lines: string[] = [
-    `BOOK  n=${trips.length}  pnl=${sign}${totalPnl.toFixed(2)} SOL  wr=${wr.toFixed(0)}%`
+    `BOOK  n=${trips.length}  pnl=${sign}${totalPnl.toFixed(2)}  net=${signNet}${totalNet.toFixed(2)} SOL  wr=${wr.toFixed(0)}%`
   ];
 
   const exitBuckets = new Map<string, { n: number; pnl: number }>();
@@ -216,13 +223,13 @@ export function aggregateBook(hoursBack: number | null): {
 } {
   const db = watchlistService.getDb();
   const sells = db.prepare(
-    `SELECT id, mint, symbol, side, sol_in, sol_out, reason, created_at
+    `SELECT id, mint, symbol, side, sol_in, sol_out, fee_sol, reason, created_at
      FROM trades
      WHERE side = 'SELL' AND sol_out IS NOT NULL
      ORDER BY created_at ASC`
   ).all() as any[];
   const buyRows = db.prepare(
-    `SELECT id, mint, side, sol_in, reason, created_at
+    `SELECT id, mint, side, sol_in, fee_sol, reason, created_at
      FROM trades
      WHERE side = 'BUY' AND sol_in IS NOT NULL`
   ).all() as any[];
