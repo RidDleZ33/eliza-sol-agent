@@ -1165,6 +1165,7 @@ function main() {
       } else if (field === "same_slot_buyers") {
         const clockInfo = clocks.get(rt.mint);
         if (!clockInfo) continue;
+        if (clockInfo.sameSlotBuyers <= 0) continue;
         value = clockInfo.sameSlotBuyers;
       } else {
         const parsed = parseMigration(rt.rawJson);
@@ -1383,6 +1384,7 @@ function main() {
       } else if (field === "same_slot_buyers") {
         const clockInfo = clocks.get(rt.mint);
         if (!clockInfo) continue;
+        if (clockInfo.sameSlotBuyers <= 0) continue;
         value = clockInfo.sameSlotBuyers;
       } else {
         const parsed = parseMigration(rt.rawJson);
@@ -1531,7 +1533,7 @@ function main() {
 
   for (const rt of rugTpData) {
     const clockInfo = clocks.get(rt.mint);
-    if (!clockInfo || clockInfo.sameSlotBuyers == null) continue;
+    if (!clockInfo || clockInfo.sameSlotBuyers == null || clockInfo.sameSlotBuyers <= 0) continue;
 
     const same = clockInfo.sameSlotBuyers;
     let bucketKey: string;

@@ -364,11 +364,16 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
 
                 // Same-slot walk: run only if not already counted
                 let slotCount: number | null = p.same_slot_buyers;
+                let slotPermanent = false;
                 if (slotCount === null && tickRow.pair_address) {
                   try {
-                    slotCount = await countSameSlotBuyers(p.mint, tickRow.pair_address);
+                    const slotResult = await countSameSlotBuyers(p.mint, tickRow.pair_address);
+                    slotCount = slotResult.count;
+                    slotPermanent = slotResult.permanent;
                     if (slotCount !== null) {
                       console.log(`[tape] slot mint=${p.mint} count=${slotCount}`);
+                    } else if (slotPermanent) {
+                      console.log(`[tape] slot mint=${p.mint} permanent failure`);
                     }
                   } catch (e: any) {
                     console.log(`[tape] slot skip mint=${p.mint} reason=exception ${e.message}`);
@@ -384,7 +389,7 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
                     nuke.pool_sol,
                     nuke.nuke_ratio,
                     nuke.unique_buyers_5m,
-                    slotCount,
+                    slotPermanent ? -1 : slotCount,
                     nuke.top_holder_pct,
                     nuke.top_holder_tag,
                     nuke.top5_sol,
@@ -398,6 +403,12 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
                     UPDATE migrations SET same_slot_buyers=? WHERE mint=?
                   `);
                   slotStmt.run(slotCount, p.mint);
+                } else if (slotPermanent) {
+                  // Permanent slot failure, no nuke ratio
+                  const slotStmt = db.prepare(`
+                    UPDATE migrations SET same_slot_buyers=-1 WHERE mint=?
+                  `);
+                  slotStmt.run(p.mint);
                 }
 
                 // If same_slot_buyers was already set and nuke didn't call RPC, this mint is done
@@ -549,22 +560,27 @@ async function getNukeSnapshot(
   return result;
 }
 
+interface SlotWalkResult {
+  count: number | null;
+  permanent: boolean;
+}
+
 async function countSameSlotBuyers(
   mint: string,
   pairAddress: string | null
-): Promise<number | null> {
-  if (!pairAddress) return null;
+): Promise<SlotWalkResult> {
+  if (!pairAddress) return { count: null, permanent: false };
 
   const rpcUrl = getSolanaRpcUrl();
   if (!rpcUrl) {
     console.log(`[tape] slot skip mint=${mint} reason=no_rpc`);
-    return null;
+    return { count: null, permanent: false };
   }
 
   // Check backoff
   if (Date.now() < rpcBackoffUntil) {
     console.log(`[tape] slot skip mint=${mint} reason=rpc_backoff`);
-    return null;
+    return { count: null, permanent: false };
   }
 
   const PAGE_LIMIT = 20;
@@ -602,7 +618,7 @@ async function countSameSlotBuyers(
           rpcBackoffUntil = Date.now() + 60 * 1000;
         }
         console.log(`[tape] slot skip mint=${mint} reason=sig_${sigResp.status}`);
-        return null;
+        return { count: null, permanent: false };
       }
 
       const sigJson = await sigResp.json();
@@ -611,7 +627,7 @@ async function countSameSlotBuyers(
         // Empty page means we've hit the beginning of history
         if (page === 0) {
           console.log(`[tape] slot skip mint=${mint} reason=no_sigs`);
-          return null;
+          return { count: null, permanent: true };
         }
         break;
       }
@@ -654,28 +670,28 @@ async function countSameSlotBuyers(
         rpcBackoffUntil = Date.now() + 60 * 1000;
       }
       console.log(`[tape] slot skip mint=${mint} reason=tx_${txResp.status}`);
-      return null;
+      return { count: null, permanent: false };
     }
 
     const txJson = await txResp.json();
     const tx = txJson?.result?.transaction;
     if (!tx) {
       console.log(`[tape] slot skip mint=${mint} reason=no_tx`);
-      return null;
+      return { count: null, permanent: true };
     }
 
     // Count unique signers
     const signers = tx?.signatures;
     if (!Array.isArray(signers)) {
       console.log(`[tape] slot skip mint=${mint} reason=no_signatures`);
-      return null;
+      return { count: null, permanent: true };
     }
 
-    return signers.length;
+    return { count: signers.length, permanent: false };
   } catch (e: any) {
     rpcBackoffUntil = Date.now() + 60 * 1000;
     console.log(`[tape] slot skip mint=${mint} reason=slot_error ${e.message}`);
-    return null;
+    return { count: null, permanent: false };
   }
 }
 
