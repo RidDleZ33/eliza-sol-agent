@@ -587,10 +587,11 @@ async function countSameSlotBuyers(
   const MAX_PAGES = 2;
 
   let beforeSig: string | undefined = undefined;
-  let firstSig = "";
+  const allSigs: any[] = [];
+  let migrationSlot: number | null = null;
 
   try {
-    // Walk backward through history to find the first transaction
+    // Walk backward through history, collecting all signature objects
     for (let page = 0; page < MAX_PAGES; page++) {
       await Bun.sleep(250);
       const params: any[] = [pairAddress, { limit: PAGE_LIMIT }];
@@ -632,9 +633,12 @@ async function countSameSlotBuyers(
         break;
       }
 
-      // Oldest sig in this page
-      const oldestInPage = sigs[sigs.length - 1].signature;
-      firstSig = oldestInPage;
+      // Collect all sig objects from this page
+      allSigs.push(...sigs);
+
+      // Oldest sig in this page — track its slot as migration slot
+      const oldestInPage = sigs[sigs.length - 1];
+      migrationSlot = oldestInPage.slot;
 
       // If page returned fewer than limit, we've hit the end
       if (sigs.length < PAGE_LIMIT) {
@@ -642,52 +646,18 @@ async function countSameSlotBuyers(
       }
 
       // Move back to next page
-      beforeSig = oldestInPage;
+      beforeSig = oldestInPage.signature;
     }
 
-    // Step 2: getTransaction on the first (oldest) signature
-    await Bun.sleep(250);
-    const txBody = JSON.stringify({
-      jsonrpc: "2.0",
-      id: 1,
-      method: "getTransaction",
-      params: [firstSig, {
-        encoding: "json",
-        maxSupportedTransactionVersion: 0,
-      }],
-    });
-
-    const txResp = await fetch(rpcUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: txBody,
-    });
-
-    if (!txResp.ok) {
-      if (txResp.status === 429) {
-        rpcBackoffUntil = Date.now() + 2000;
-      } else {
-        rpcBackoffUntil = Date.now() + 60 * 1000;
-      }
-      console.log(`[tape] slot skip mint=${mint} reason=tx_${txResp.status}`);
-      return { count: null, permanent: false };
-    }
-
-    const txJson = await txResp.json();
-    const tx = txJson?.result?.transaction;
-    if (!tx) {
-      console.log(`[tape] slot skip mint=${mint} reason=no_tx`);
+    // migrationSlot is the slot of the oldest signature (the migration tx)
+    if (migrationSlot === null) {
+      console.log(`[tape] slot skip mint=${mint} reason=no_sigs`);
       return { count: null, permanent: true };
     }
 
-    // Count unique signers
-    const signers = tx?.signatures;
-    if (!Array.isArray(signers)) {
-      console.log(`[tape] slot skip mint=${mint} reason=no_signatures`);
-      return { count: null, permanent: true };
-    }
-
-    return { count: signers.length, permanent: false };
+    // Count how many collected signatures share the migration slot
+    const count = allSigs.filter(s => s.slot === migrationSlot).length;
+    return { count, permanent: false };
   } catch (e: any) {
     rpcBackoffUntil = Date.now() + 60 * 1000;
     console.log(`[tape] slot skip mint=${mint} reason=slot_error ${e.message}`);
