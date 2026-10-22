@@ -595,12 +595,17 @@ async function countSameSlotBuyers(
       });
 
       if (!sigResp.ok) {
-        rpcBackoffUntil = Date.now() + 60 * 1000;
+        if (sigResp.status === 429) {
+          rpcBackoffUntil = Date.now() + 2000;
+        } else {
+          rpcBackoffUntil = Date.now() + 60 * 1000;
+        }
         console.log(`[tape] slot skip mint=${mint} reason=sig_${sigResp.status}`);
         return null;
       }
 
       const sigJson = await sigResp.json();
+      await Bun.sleep(250);
       const sigs = sigJson?.result;
       if (!Array.isArray(sigs) || sigs.length === 0) {
         // Empty page means we've hit the beginning of history
@@ -642,12 +647,17 @@ async function countSameSlotBuyers(
     });
 
     if (!txResp.ok) {
-      rpcBackoffUntil = Date.now() + 60 * 1000;
+      if (txResp.status === 429) {
+        rpcBackoffUntil = Date.now() + 2000;
+      } else {
+        rpcBackoffUntil = Date.now() + 60 * 1000;
+      }
       console.log(`[tape] slot skip mint=${mint} reason=tx_${txResp.status}`);
       return null;
     }
 
     const txJson = await txResp.json();
+    await Bun.sleep(250);
     const tx = txJson?.result?.transaction;
     if (!tx) {
       console.log(`[tape] slot skip mint=${mint} reason=no_tx`);
