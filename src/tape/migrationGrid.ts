@@ -1571,6 +1571,247 @@ function main() {
     console.log(`${key}: n=${b.n} tp=${tpPct.toFixed(1)}% rug=${rugPct.toFixed(1)}% rug<5m=${b.rug5m} rug<30m=${b.rug30m}`);
   }
 
+  // Flow before the rug: buy velocity, no new high, sell acceleration
+  // Measure at the rug tick for names that rug within 60s, else at entry+60s
+
+  console.log("\n=== Buy velocity before the rug ===");
+  const buyVelBuckets: Record<string, { n: number; tp: number; rug: number; rug5m: number; rug30m: number }> = {
+    "buy drop": { n: 0, tp: 0, rug: 0, rug5m: 0, rug30m: 0 },
+    "buy flat": { n: 0, tp: 0, rug: 0, rug5m: 0, rug30m: 0 },
+    "buy up": { n: 0, tp: 0, rug: 0, rug5m: 0, rug30m: 0 },
+  };
+
+  for (const rt of rugTpData) {
+    const clockInfo = clocks.get(rt.mint);
+    if (!clockInfo) continue;
+    const six = getSixHourTicks(rt.mint, clockInfo.clockMs, clockInfo.pairAddress);
+    if (six.entry === null || six.ticks.length === 0) continue;
+
+    const entry = six.entry;
+    const entryPrice = entry.price_usd;
+
+    // Determine measure tick: if rug < 60s, use last tick at or before rug
+    let measureTick: Tick | null = null;
+    let timeToRugMin: number | null = null;
+
+    if (rt.outcome === "rug_first" && rt.timeToRug != null && rt.timeToRug < 1) {
+      // Rug within 60s — find last tick at or before the rug tick
+      const rugMs = entry.observed_at_ms + (rt.timeToRug * 60 * 1000);
+      for (const t of six.ticks) {
+        if (t.observed_at_ms <= rugMs) {
+          measureTick = t;
+        }
+      }
+      if (measureTick === null) measureTick = entry;
+    } else {
+      // Otherwise use first tick at or after entry+60s
+      const sixtyMs = entry.observed_at_ms + 60 * 1000;
+      for (const t of six.ticks) {
+        if (t.observed_at_ms >= sixtyMs) {
+          measureTick = t;
+          break;
+        }
+      }
+    }
+
+    if (measureTick === null) continue;
+
+    const buyDelta = measureTick.tx_5m_buys - entry.tx_5m_buys;
+
+    // Outcome classification
+    let tp = 0;
+    let rug = 0;
+    let rug5m = 0;
+    let rug30m = 0;
+    if (rt.outcome === "tp_first") {
+      tp = 1;
+    } else if (rt.outcome === "rug_first") {
+      rug = 1;
+      if (rt.timeToRug != null && rt.timeToRug < 5) rug5m = 1;
+      if (rt.timeToRug != null && rt.timeToRug < 30) rug30m = 1;
+    }
+
+    let bucketKey: string;
+    if (buyDelta < -5) bucketKey = "buy drop";
+    else if (buyDelta <= 5) bucketKey = "buy flat";
+    else bucketKey = "buy up";
+
+    const b = buyVelBuckets[bucketKey];
+    b.n++;
+    b.tp += tp;
+    b.rug += rug;
+    b.rug5m += rug5m;
+    b.rug30m += rug30m;
+  }
+
+  for (const key of ["buy drop", "buy flat", "buy up"]) {
+    const b = buyVelBuckets[key];
+    const tpPct = b.n > 0 ? (b.tp / b.n) * 100 : 0;
+    const rugPct = b.n > 0 ? (b.rug / b.n) * 100 : 0;
+    console.log(`${key}: n=${b.n} tp=${tpPct.toFixed(1)}% rug=${rugPct.toFixed(1)}% rug<5m=${b.rug5m} rug<30m=${b.rug30m}`);
+  }
+
+  console.log("\n=== No new high before the rug ===");
+  interface NoHighBucket {
+    n: number;
+    tp: number;
+    rug: number;
+    rug5m: number;
+    rug30m: number;
+  }
+  const noHighBuckets: Record<string, NoHighBucket> = {
+    "gap <15s": { n: 0, tp: 0, rug: 0, rug5m: 0, rug30m: 0 },
+    "gap 15-45s": { n: 0, tp: 0, rug: 0, rug5m: 0, rug30m: 0 },
+    "gap >=45s": { n: 0, tp: 0, rug: 0, rug5m: 0, rug30m: 0 },
+  };
+
+  for (const rt of rugTpData) {
+    const clockInfo = clocks.get(rt.mint);
+    if (!clockInfo) continue;
+    const six = getSixHourTicks(rt.mint, clockInfo.clockMs, clockInfo.pairAddress);
+    if (six.entry === null || six.ticks.length === 0) continue;
+
+    const entry = six.entry;
+    const entryPrice = entry.price_usd;
+
+    let measureTick: Tick | null = null;
+    if (rt.outcome === "rug_first" && rt.timeToRug != null && rt.timeToRug < 1) {
+      const rugMs = entry.observed_at_ms + (rt.timeToRug * 60 * 1000);
+      for (const t of six.ticks) {
+        if (t.observed_at_ms <= rugMs) {
+          measureTick = t;
+        }
+      }
+      if (measureTick === null) measureTick = entry;
+    } else {
+      const sixtyMs = entry.observed_at_ms + 60 * 1000;
+      for (const t of six.ticks) {
+        if (t.observed_at_ms >= sixtyMs) {
+          measureTick = t;
+          break;
+        }
+      }
+    }
+
+    if (measureTick === null) continue;
+
+    // Walk from entry to measure tick, find last new high
+    let lastHigh = entry.price_usd;
+    let lastHighMs = entry.observed_at_ms;
+    for (const t of six.ticks) {
+      if (t.observed_at_ms > measureTick.observed_at_ms) break;
+      if (t.price_usd > lastHigh) {
+        lastHigh = t.price_usd;
+        lastHighMs = t.observed_at_ms;
+      }
+    }
+
+    const gapSec = (measureTick.observed_at_ms - lastHighMs) / 1000;
+
+    let tp = 0;
+    let rug = 0;
+    let rug5m = 0;
+    let rug30m = 0;
+    if (rt.outcome === "tp_first") {
+      tp = 1;
+    } else if (rt.outcome === "rug_first") {
+      rug = 1;
+      if (rt.timeToRug != null && rt.timeToRug < 5) rug5m = 1;
+      if (rt.timeToRug != null && rt.timeToRug < 30) rug30m = 1;
+    }
+
+    let bucketKey: string;
+    if (gapSec < 15) bucketKey = "gap <15s";
+    else if (gapSec < 45) bucketKey = "gap 15-45s";
+    else bucketKey = "gap >=45s";
+
+    const b = noHighBuckets[bucketKey];
+    b.n++;
+    b.tp += tp;
+    b.rug += rug;
+    b.rug5m += rug5m;
+    b.rug30m += rug30m;
+  }
+
+  for (const key of ["gap <15s", "gap 15-45s", "gap >=45s"]) {
+    const b = noHighBuckets[key];
+    const tpPct = b.n > 0 ? (b.tp / b.n) * 100 : 0;
+    const rugPct = b.n > 0 ? (b.rug / b.n) * 100 : 0;
+    console.log(`${key}: n=${b.n} tp=${tpPct.toFixed(1)}% rug=${rugPct.toFixed(1)}% rug<5m=${b.rug5m} rug<30m=${b.rug30m}`);
+  }
+
+  console.log("\n=== Sell acceleration before the rug ===");
+  const sellAccelBuckets: Record<string, NoHighBucket> = {
+    "sells lead": { n: 0, tp: 0, rug: 0, rug5m: 0, rug30m: 0 },
+    "even": { n: 0, tp: 0, rug: 0, rug5m: 0, rug30m: 0 },
+    "buys lead": { n: 0, tp: 0, rug: 0, rug5m: 0, rug30m: 0 },
+  };
+
+  for (const rt of rugTpData) {
+    const clockInfo = clocks.get(rt.mint);
+    if (!clockInfo) continue;
+    const six = getSixHourTicks(rt.mint, clockInfo.clockMs, clockInfo.pairAddress);
+    if (six.entry === null || six.ticks.length === 0) continue;
+
+    const entry = six.entry;
+    const entryPrice = entry.price_usd;
+
+    let measureTick: Tick | null = null;
+    if (rt.outcome === "rug_first" && rt.timeToRug != null && rt.timeToRug < 1) {
+      const rugMs = entry.observed_at_ms + (rt.timeToRug * 60 * 1000);
+      for (const t of six.ticks) {
+        if (t.observed_at_ms <= rugMs) {
+          measureTick = t;
+        }
+      }
+      if (measureTick === null) measureTick = entry;
+    } else {
+      const sixtyMs = entry.observed_at_ms + 60 * 1000;
+      for (const t of six.ticks) {
+        if (t.observed_at_ms >= sixtyMs) {
+          measureTick = t;
+          break;
+        }
+      }
+    }
+
+    if (measureTick === null) continue;
+
+    const buyDelta = measureTick.tx_5m_buys - entry.tx_5m_buys;
+    const sellDelta = measureTick.tx_5m_sells - entry.tx_5m_sells;
+
+    let tp = 0;
+    let rug = 0;
+    let rug5m = 0;
+    let rug30m = 0;
+    if (rt.outcome === "tp_first") {
+      tp = 1;
+    } else if (rt.outcome === "rug_first") {
+      rug = 1;
+      if (rt.timeToRug != null && rt.timeToRug < 5) rug5m = 1;
+      if (rt.timeToRug != null && rt.timeToRug < 30) rug30m = 1;
+    }
+
+    let bucketKey: string;
+    if (sellDelta > buyDelta + 5) bucketKey = "sells lead";
+    else if (Math.abs(sellDelta - buyDelta) <= 5) bucketKey = "even";
+    else bucketKey = "buys lead";
+
+    const b = sellAccelBuckets[bucketKey];
+    b.n++;
+    b.tp += tp;
+    b.rug += rug;
+    b.rug5m += rug5m;
+    b.rug30m += rug30m;
+  }
+
+  for (const key of ["sells lead", "even", "buys lead"]) {
+    const b = sellAccelBuckets[key];
+    const tpPct = b.n > 0 ? (b.tp / b.n) * 100 : 0;
+    const rugPct = b.n > 0 ? (b.rug / b.n) * 100 : 0;
+    console.log(`${key}: n=${b.n} tp=${tpPct.toFixed(1)}% rug=${rugPct.toFixed(1)}% rug<5m=${b.rug5m} rug<30m=${b.rug30m}`);
+  }
+
   // Sample of high-liquidity rug-first names
   console.log("\n=== Fat book rug sample (>=100k, rug_first) ===");
   let fatCount = 0;
