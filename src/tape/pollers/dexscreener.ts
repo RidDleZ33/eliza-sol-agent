@@ -333,7 +333,7 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
             // RPC backoff active; skip snapshot this poll
           } else {
             const pending = db.prepare(`
-              SELECT mint, pair_created_at_ms FROM migrations
+              SELECT mint, pair_created_at_ms, same_slot_buyers FROM migrations
               WHERE nuke_ratio IS NULL AND pair_created_at_ms IS NOT NULL
                 AND pair_created_at_ms <= ?
               ORDER BY pair_created_at_ms ASC
@@ -362,9 +362,9 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
                   tickRow.liq_quote || 0
                 );
 
-                // Same-slot walk: run whenever pair_address is set, regardless of nuke ratio
-                let slotCount: number | null = null;
-                if (tickRow.pair_address) {
+                // Same-slot walk: run only if not already counted
+                let slotCount: number | null = p.same_slot_buyers;
+                if (slotCount === null && tickRow.pair_address) {
                   try {
                     slotCount = await countSameSlotBuyers(p.mint, tickRow.pair_address);
                     if (slotCount !== null) {
@@ -398,6 +398,12 @@ export async function pollDexScreener(runId: number): Promise<PollerResult> {
                     UPDATE migrations SET same_slot_buyers=? WHERE mint=?
                   `);
                   slotStmt.run(slotCount, p.mint);
+                }
+
+                // If same_slot_buyers was already set and nuke didn't call RPC, this mint is done
+                // for this poll — continue to the next pending row instead of blocking others.
+                if (p.same_slot_buyers !== null && !nuke.rpc_called) {
+                  continue;
                 }
 
                 // Only break after an RPC-backed snapshot. Early returns (no_pool_sol, no_price)
