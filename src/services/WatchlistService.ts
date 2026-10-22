@@ -5,9 +5,11 @@ import { existsSync, mkdirSync } from "fs";
 import {
   getMaxTrendingTokens,
   getMaxTopTraders,
+  isDryRun,
 } from "../utils/env.ts";
 import { logger } from "./LoggerService.ts";
 import { configService } from "./ConfigService.ts";
+import { aggregateBook } from "./TradeBookService.ts";
 
 
 export interface WatchedToken {
@@ -1107,8 +1109,7 @@ class WatchlistService {
    * Generates comprehensive metrics for Telegram Admin Dashboard
    */
   async getDashboardMetrics(): Promise<DashboardMetrics> {
-    const openPositions = this.db.prepare("SELECT * FROM positions WHERE status = 'OPEN'").all() as any[];
-    const closedPositions = this.db.prepare("SELECT * FROM positions WHERE status = 'CLOSED'").all() as any[];
+    const openPositions = this.getOpenPositions(isDryRun()) as any[];
     const recentJournal = this.db.prepare("SELECT * FROM trade_journal ORDER BY created_at DESC LIMIT 5").all() as any[];
 
     // Pipeline counts
@@ -1121,17 +1122,21 @@ class WatchlistService {
     const countMap: Record<string, number> = {};
     counts.forEach(c => countMap[c.status] = c.count);
 
-    // Calculate Realized Stats
-    let totalRealizedPnlUsd = 0;
-    let winningTrades = 0;
-    closedPositions.forEach((pos) => {
-      const pnl = pos.realized_pnl_usd || 0;
-      totalRealizedPnlUsd += pnl;
-      if (pnl > 0) winningTrades++;
-    });
-
-    const totalClosed = closedPositions.length;
-    const winRatePct = totalClosed > 0 ? (winningTrades / totalClosed) * 100 : 0;
+    // Calculate Realized Stats from book trips (not positions table)
+    let totalRealizedPnlSol = 0;
+    let winningTrips = 0;
+    let totalTrips = 0;
+    try {
+      const book = aggregateBook(null);
+      totalTrips = book.trips.length;
+      for (const trip of book.trips) {
+        totalRealizedPnlSol += trip.pnl_sol;
+        if (trip.pnl_sol > 0) winningTrips++;
+      }
+    } catch (e) {
+      logger.warn("WATCHLIST", "getDashboardMetrics", "aggregateBook failed, defaulting to zero realized");
+    }
+    const winRatePct = totalTrips > 0 ? (winningTrips / totalTrips) * 100 : 0;
 
     // Calculate Active Positions & Live Unrealized PnL
     let totalSolDeployed = 0;
@@ -1210,9 +1215,9 @@ class WatchlistService {
         max_positions: maxPositions,
         total_sol_deployed: parseFloat(totalSolDeployed.toFixed(3)),
         unrealized_pnl_sol: parseFloat(totalUnrealizedPnlUsd.toFixed(4)),
-        realized_pnl_usd: parseFloat(totalRealizedPnlUsd.toFixed(4)),
+        realized_pnl_usd: parseFloat(totalRealizedPnlSol.toFixed(4)),
         win_rate_pct: parseFloat(winRatePct.toFixed(1)),
-        total_trades_closed: totalClosed,
+        total_trades_closed: totalTrips,
       },
       positions: positionMetrics,
       pipeline: {
