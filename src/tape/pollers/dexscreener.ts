@@ -568,7 +568,7 @@ async function countSameSlotBuyers(
   }
 
   const PAGE_LIMIT = 20;
-  const MAX_PAGES = 10;
+  const MAX_PAGES = 2;
 
   let beforeSig: string | undefined = undefined;
   let firstSig = "";
@@ -576,6 +576,7 @@ async function countSameSlotBuyers(
   try {
     // Walk backward through history to find the first transaction
     for (let page = 0; page < MAX_PAGES; page++) {
+      await Bun.sleep(250);
       const params: any[] = [pairAddress, { limit: PAGE_LIMIT }];
       if (beforeSig) {
         params[1].before = beforeSig;
@@ -605,7 +606,6 @@ async function countSameSlotBuyers(
       }
 
       const sigJson = await sigResp.json();
-      await Bun.sleep(250);
       const sigs = sigJson?.result;
       if (!Array.isArray(sigs) || sigs.length === 0) {
         // Empty page means we've hit the beginning of history
@@ -630,6 +630,7 @@ async function countSameSlotBuyers(
     }
 
     // Step 2: getTransaction on the first (oldest) signature
+    await Bun.sleep(250);
     const txBody = JSON.stringify({
       jsonrpc: "2.0",
       id: 1,
@@ -657,7 +658,6 @@ async function countSameSlotBuyers(
     }
 
     const txJson = await txResp.json();
-    await Bun.sleep(250);
     const tx = txJson?.result?.transaction;
     if (!tx) {
       console.log(`[tape] slot skip mint=${mint} reason=no_tx`);
