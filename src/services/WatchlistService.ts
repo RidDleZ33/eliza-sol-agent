@@ -1109,7 +1109,7 @@ class WatchlistService {
    * Generates comprehensive metrics for Telegram Admin Dashboard
    */
   async getDashboardMetrics(): Promise<DashboardMetrics> {
-    const openPositions = this.getOpenPositions(isDryRun()) as any[];
+    const openPositions = await this.getOpenPositions(isDryRun());
     const recentJournal = this.db.prepare("SELECT * FROM trade_journal ORDER BY created_at DESC LIMIT 5").all() as any[];
 
     // Pipeline counts
