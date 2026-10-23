@@ -1941,7 +1941,7 @@ function main() {
   console.log(`stall_before_tp that were tp_first: n=${stall45.stallTpFirst} (${stall45.stallBeforeTp > 0 ? ((stall45.stallTpFirst / stall45.stallBeforeTp) * 100).toFixed(1) : "0.0"}% of stall_before_tp)`);
 
   console.log("\n=== Left after the stall ===");
-  console.log(`n=${stall45.stallBeforeTp} medianLeft=${stall45.medLeft.toFixed(1)}% went+30%=${stall45.stallBeforeTp > 0 ? ((stall45.went30 / stall45.stallBeforeTp) * 100).toFixed(1) : "0.0"}%`);
+  console.log(`n=${stall45.stallBeforeTp} medianLeft=${stall45.medLeft.toFixed(1)}% went+30%=${stall45.stallBeforeTp > 0 ? ((stall45.went30 / stall45.stallBeforeTp) * 100).toFixed(1) : "0.0"}% went+100%=${stall45.stallBeforeTp > 0 ? ((stall45.went100 / stall45.stallBeforeTp) * 100).toFixed(1) : "0.0"}%`);
 
   // Stall time sweep
   console.log("\n=== Stall time sweep ===");
