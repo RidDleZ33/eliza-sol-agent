@@ -1965,6 +1965,121 @@ function main() {
     console.log(`${gap}s: stall_before_tp=${res.stallBeforeTp} rug_first=${rugFirstPct}% tp_first=${tpFirstPct}% medianLeft=${res.medLeft.toFixed(1)}% went+30%=${went30Pct}%`);
   }
 
+  // Stall return: per-mint exit return at the stall gap, not just counts
+  console.log("\n=== Stall return ===");
+  function scoreStallReturn(mint: string, gapSec: number) {
+    const clockInfo = clocks.get(mint);
+    if (!clockInfo) return null;
+    const six = cachedSix(mint, clockInfo.clockMs, clockInfo.pairAddress);
+    if (six.entry === null || six.ticks.length === 0) return null;
+
+    const entryPrice = six.entry.price_usd;
+    const sixHourEnd = six.entry.observed_at_ms + 6 * 60 * 60 * 1000;
+
+    let runningPeak = entryPrice;
+    let lastHighMs = six.entry.observed_at_ms;
+    let tpHit = false;
+    let rugHit = false;
+
+    for (const t of six.ticks) {
+      if (t.observed_at_ms > sixHourEnd) break;
+
+      if (!tpHit && t.price_usd >= entryPrice * 1.3) {
+        tpHit = true;
+        break;
+      }
+      if (!rugHit && t.price_usd <= entryPrice * 0.5) {
+        rugHit = true;
+        break;
+      }
+
+      if (t.price_usd > runningPeak) {
+        runningPeak = t.price_usd;
+        lastHighMs = t.observed_at_ms;
+      }
+      const gap = (t.observed_at_ms - lastHighMs) / 1000;
+      if (gap >= gapSec) {
+        return t.price_usd / entryPrice - 1;
+      }
+    }
+    return null;
+  }
+
+  for (const gap of [45, 60, 90, 120, 180, 300]) {
+    const returns: number[] = [];
+    for (const md of mintData) {
+      const ret = scoreStallReturn(md.mint, gap);
+      if (ret !== null) returns.push(ret);
+    }
+    if (returns.length === 0) {
+      console.log(`${gap}s: n=0`);
+      continue;
+    }
+    const med = median(returns) * 100;
+    const green = (returns.filter(r => r > 0).length / returns.length) * 100;
+    console.log(`${gap}s: n=${returns.length} medianReturn=${med.toFixed(1)}% green=${green.toFixed(1)}%`);
+  }
+
+  // Time to peak: where does the peak fall within the 6-hour window?
+  console.log("\n=== Time to peak ===");
+  const timeToPeakBuckets = {
+    "<5m": { n: 0 },
+    "5-15m": { n: 0 },
+    "15-30m": { n: 0 },
+    "30-60m": { n: 0 },
+    ">=60m": { n: 0 },
+  };
+  const peaksWithin30m: string[] = [];
+
+  for (const md of mintData) {
+    const clockInfo = clocks.get(md.mint);
+    if (!clockInfo) continue;
+    const six = cachedSix(md.mint, clockInfo.clockMs, clockInfo.pairAddress);
+    if (six.entry === null || six.peak === 0) continue;
+
+    const timeToPeakMin = (six.peakMs - six.entry.observed_at_ms) / 60000;
+
+    if (timeToPeakMin < 5) {
+      timeToPeakBuckets["<5m"].n++;
+    } else if (timeToPeakMin < 15) {
+      timeToPeakBuckets["5-15m"].n++;
+    } else if (timeToPeakMin < 30) {
+      timeToPeakBuckets["15-30m"].n++;
+    } else if (timeToPeakMin < 60) {
+      timeToPeakBuckets["30-60m"].n++;
+    } else {
+      timeToPeakBuckets[">=60m"].n++;
+    }
+
+    if (timeToPeakMin < 30) {
+      peaksWithin30m.push(md.mint);
+    }
+  }
+
+  const peakN = Object.values(timeToPeakBuckets).reduce((s, b) => s + b.n, 0);
+
+  for (const key of ["<5m", "5-15m", "15-30m", "30-60m", ">=60m"]) {
+    const pct = peakN > 0 ? (timeToPeakBuckets[key].n / peakN) * 100 : 0;
+    console.log(`${key}: n=${timeToPeakBuckets[key].n} (${pct.toFixed(1)}%)`);
+  }
+
+  // Cross: stall return on names that peak inside 30 minutes
+  console.log("\n=== Stall return on peaks inside 30m ===");
+  for (const gap of [45, 90, 180]) {
+    const returns: number[] = [];
+    for (const mint of peaksWithin30m) {
+      const ret = scoreStallReturn(mint, gap);
+      if (ret !== null) returns.push(ret);
+    }
+    if (returns.length === 0) {
+      console.log(`${gap}s: n=0`);
+      continue;
+    }
+    const med = median(returns) * 100;
+    const green = (returns.filter(r => r > 0).length / returns.length) * 100;
+    console.log(`${gap}s: n=${returns.length} medianReturn=${med.toFixed(1)}% green=${green.toFixed(1)}%`);
+  }
+
   // Sample of high-liquidity rug-first names
   console.log("\n=== Fat book rug sample (>=100k, rug_first) ===");
   let fatCount = 0;
