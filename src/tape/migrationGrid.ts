@@ -1896,6 +1896,7 @@ function main() {
     // Left-on-the-table: later peak out to entry+6h from stall price
     let medLeft = 0;
     let went30 = 0;
+    let went100 = 0;
     if (stallMints.length > 0) {
       const leftPcts: number[] = [];
       for (const s of stallMints) {
@@ -1910,6 +1911,7 @@ function main() {
         const left = laterPeak / s.stallPrice - 1;
         leftPcts.push(left * 100);
         if (left >= 0.3) went30++;
+        if (left >= 1.0) went100++;
       }
       medLeft = median(leftPcts);
     }
@@ -1924,6 +1926,7 @@ function main() {
       stallN,
       medLeft,
       went30,
+      went100,
     };
   }
 
