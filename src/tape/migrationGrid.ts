@@ -2239,6 +2239,66 @@ function main() {
   console.log(`60s clock caught: n=${clockCaught} of ${rugFirstN} rug_first (${rugFirstN > 0 ? ((clockCaught / rugFirstN) * 100).toFixed(1) : "0.0"}%)`);
   console.log(`45s stalls inside 60s: n=${stallInside60s} of ${totalStallExits} stall exits (${totalStallExits > 0 ? ((stallInside60s / totalStallExits) * 100).toFixed(1) : "0.0"}%)`);
 
+  // Clock length sweep
+  console.log("\n=== Clock length sweep ===");
+  const clockLengths = [60, 120, 180, 300];
+  for (const clockSec of clockLengths) {
+    const clockMsOffset = clockSec * 1000;
+    const sweepReturns: number[] = [];
+    let sweepCaught = 0;
+    let sweepRugFirstN = 0;
+
+    for (const md of mintData) {
+      const clockInfo = clocks.get(md.mint);
+      if (!clockInfo) continue;
+      const six = cachedSix(md.mint, clockInfo.clockMs, clockInfo.pairAddress);
+      if (six.entry === null || six.ticks.length === 0) continue;
+
+      const entryPrice = six.entry.price_usd;
+      const clockMs = six.entry.observed_at_ms + clockMsOffset;
+
+      // Find last tick at or before clock exit
+      let exitTick: Tick | null = null;
+      for (let i = six.ticks.length - 1; i >= 0; i--) {
+        if (six.ticks[i].observed_at_ms <= clockMs) {
+          exitTick = six.ticks[i];
+          break;
+        }
+      }
+      if (exitTick === null) continue; // no tick by clock exit
+
+      const ret = exitTick.price_usd / entryPrice - 1;
+      sweepReturns.push(ret);
+
+      // Rug caught if rug tick is after clock exit
+      const rt = rugTpData.find(r => r.mint === md.mint);
+      if (rt && rt.outcome === "rug_first") {
+        sweepRugFirstN++;
+        // Find rug tick
+        let rugTick: Tick | null = null;
+        for (const t of six.ticks) {
+          if (t.price_usd <= entryPrice * 0.5) {
+            rugTick = t;
+            break;
+          }
+        }
+        if (rugTick !== null && rugTick.observed_at_ms > clockMs) {
+          sweepCaught++;
+        }
+      }
+    }
+
+    if (sweepReturns.length === 0) {
+      console.log(`${clockSec}s: n=0`);
+      continue;
+    }
+
+    const med = median(sweepReturns) * 100;
+    const green = (sweepReturns.filter(r => r > 0).length / sweepReturns.length) * 100;
+    const rugsPct = sweepRugFirstN > 0 ? ((sweepCaught / sweepRugFirstN) * 100).toFixed(1) : "0.0";
+    console.log(`${clockSec}s: n=${sweepReturns.length} median=${med.toFixed(1)}% green=${green.toFixed(1)}% rugsCaught=${sweepCaught} of ${sweepRugFirstN} (${rugsPct}%)`);
+  }
+
   // Sample of high-liquidity rug-first names
   console.log("\n=== Fat book rug sample (>=100k, rug_first) ===");
   let fatCount = 0;
