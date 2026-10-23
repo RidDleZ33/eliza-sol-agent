@@ -2080,6 +2080,165 @@ function main() {
     console.log(`${gap}s: n=${returns.length} medianReturn=${med.toFixed(1)}% green=${green.toFixed(1)}%`);
   }
 
+  // Stall or TP vs 60s clock
+  console.log("\n=== Stall or TP vs 60s clock ===");
+  function scoreStrategyAndClock(mint: string, gapSec: number) {
+    const clockInfo = clocks.get(mint);
+    if (!clockInfo) return null;
+    const six = cachedSix(mint, clockInfo.clockMs, clockInfo.pairAddress);
+    if (six.entry === null || six.ticks.length === 0) return null;
+
+    const entryPrice = six.entry.price_usd;
+    const entryMs = six.entry.observed_at_ms;
+    const sixHourEnd = entryMs + 6 * 60 * 60 * 1000;
+    const clockMs = entryMs + 60 * 1000;
+
+    // Find 60s clock exit price (last tick at or before entry+60s)
+    let clockPrice: number | null = null;
+    for (let i = six.ticks.length - 1; i >= 0; i--) {
+      if (six.ticks[i].observed_at_ms <= clockMs) {
+        clockPrice = six.ticks[i].price_usd;
+        break;
+      }
+    }
+    if (clockPrice === null) return null; // no tick by 60s
+
+    // Walk ticks: tp exit first, then stall exit, then 6h price
+    let runningPeak = entryPrice;
+    let lastHighMs = entryMs;
+    let strategyReturn: number | null = null;
+    let lastTickPrice = entryPrice;
+
+    for (const t of six.ticks) {
+      if (t.observed_at_ms > sixHourEnd) break;
+      lastTickPrice = t.price_usd;
+
+      // TP exit at +30%
+      if (t.price_usd >= entryPrice * 1.30) {
+        strategyReturn = 0.30;
+        break;
+      }
+
+      if (t.price_usd > runningPeak) {
+        runningPeak = t.price_usd;
+        lastHighMs = t.observed_at_ms;
+      }
+
+      // Stall exit
+      const gap = (t.observed_at_ms - lastHighMs) / 1000;
+      if (gap >= gapSec) {
+        strategyReturn = t.price_usd / entryPrice - 1;
+        break;
+      }
+    }
+
+    if (strategyReturn === null) {
+      strategyReturn = lastTickPrice / entryPrice - 1;
+    }
+
+    return { strategy: strategyReturn, clock: clockPrice / entryPrice - 1 };
+  }
+
+  for (const gap of [45, 90, 180]) {
+    const returns: number[] = [];
+    for (const md of mintData) {
+      const res = scoreStrategyAndClock(md.mint, gap);
+      if (res !== null) returns.push(res.strategy);
+    }
+    if (returns.length === 0) {
+      console.log(`${gap}s stall+tp: n=0`);
+      continue;
+    }
+    const med = median(returns) * 100;
+    const green = (returns.filter(r => r > 0).length / returns.length) * 100;
+    console.log(`${gap}s stall+tp: n=${returns.length} median=${med.toFixed(1)}% green=${green.toFixed(1)}%`);
+  }
+
+  // Clock line (same for all gaps)
+  const clockReturns: number[] = [];
+  for (const md of mintData) {
+    const res = scoreStrategyAndClock(md.mint, 45);
+    if (res !== null) clockReturns.push(res.clock);
+  }
+  if (clockReturns.length > 0) {
+    const med = median(clockReturns) * 100;
+    const green = (clockReturns.filter(r => r > 0).length / clockReturns.length) * 100;
+    console.log(`60s clock: n=${clockReturns.length} median=${med.toFixed(1)}% green=${green.toFixed(1)}%`);
+  } else {
+    console.log("60s clock: n=0");
+  }
+
+  // Rugs caught
+  console.log("\n=== Rugs caught ===");
+  const rugFirstMints: string[] = [];
+  for (const rt of rugTpData) {
+    if (rt.outcome === "rug_first") {
+      rugFirstMints.push(rt.mint);
+    }
+  }
+
+  let stallCaught = 0;
+  let stallInside60s = 0;
+  let clockCaught = 0;
+  let totalStallExits = 0;
+
+  for (const mint of rugFirstMints) {
+    const clockInfo = clocks.get(mint);
+    if (!clockInfo) continue;
+    const six = cachedSix(mint, clockInfo.clockMs, clockInfo.pairAddress);
+    if (six.entry === null || six.ticks.length === 0) continue;
+
+    const entryPrice = six.entry.price_usd;
+    const entryMs = six.entry.observed_at_ms;
+    const clockMs = entryMs + 60 * 1000;
+
+    // Find the rug tick
+    let rugTick: Tick | null = null;
+    for (const t of six.ticks) {
+      if (t.price_usd <= entryPrice * 0.5) {
+        rugTick = t;
+        break;
+      }
+    }
+    if (rugTick === null) continue;
+
+    // Clock exits before the rug? (rug tick after entry+60s)
+    if (rugTick.observed_at_ms > clockMs) {
+      clockCaught++;
+    }
+
+    // 45s stall exits before the rug tick?
+    let runningPeak = entryPrice;
+    let lastHighMs = entryMs;
+    let stallBeforeRug = false;
+    let stallMs = 0;
+    for (const t of six.ticks) {
+      if (t.observed_at_ms > rugTick.observed_at_ms) break;
+      if (t.price_usd > runningPeak) {
+        runningPeak = t.price_usd;
+        lastHighMs = t.observed_at_ms;
+      }
+      const gap = (t.observed_at_ms - lastHighMs) / 1000;
+      if (gap >= 45) {
+        stallBeforeRug = true;
+        stallMs = t.observed_at_ms;
+        totalStallExits++;
+        break;
+      }
+    }
+    if (stallBeforeRug) {
+      stallCaught++;
+      if (stallMs <= clockMs) {
+        stallInside60s++;
+      }
+    }
+  }
+
+  const rugFirstN = rugFirstMints.length;
+  console.log(`45s stall caught: n=${stallCaught} of ${rugFirstN} rug_first (${rugFirstN > 0 ? ((stallCaught / rugFirstN) * 100).toFixed(1) : "0.0"}%)`);
+  console.log(`60s clock caught: n=${clockCaught} of ${rugFirstN} rug_first (${rugFirstN > 0 ? ((clockCaught / rugFirstN) * 100).toFixed(1) : "0.0"}%)`);
+  console.log(`45s stalls inside 60s: n=${stallInside60s} of ${totalStallExits} stall exits (${totalStallExits > 0 ? ((stallInside60s / totalStallExits) * 100).toFixed(1) : "0.0"}%)`);
+
   // Sample of high-liquidity rug-first names
   console.log("\n=== Fat book rug sample (>=100k, rug_first) ===");
   let fatCount = 0;
