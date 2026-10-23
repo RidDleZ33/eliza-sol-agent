@@ -1812,13 +1812,9 @@ function main() {
     console.log(`${key}: n=${b.n} tp=${tpPct.toFixed(1)}% rug=${rugPct.toFixed(1)}% rug<5m=${b.rug5m} rug<30m=${b.rug30m}`);
   }
 
-  // Stall vs TP: does a 45s no-new-high exit catch rugs or cut winners?
-  console.log("\n=== Stall vs TP ===");
+  // Stall vs TP: does a no-new-high exit catch rugs or cut winners?
+  // Reusable analysis for a given stall gap in seconds.
 
-  let stallBeforeTp = 0;
-  let tpBeforeStall = 0;
-  let rugNoStall = 0;
-  let neitherStall = 0;
   interface StallMint {
     mint: string;
     outcome: "tp_first" | "rug_first" | "neither";
@@ -1826,102 +1822,132 @@ function main() {
     stallIdx: number;
     six: any;
   }
-  const stallMints: StallMint[] = [];
 
-  for (const rt of rugTpData) {
-    const clockInfo = clocks.get(rt.mint);
-    if (!clockInfo) continue;
-    const six = getSixHourTicks(rt.mint, clockInfo.clockMs, clockInfo.pairAddress);
-    if (six.entry === null || six.ticks.length === 0) continue;
+  function analyzeStallGap(gapSec: number) {
+    let stallBeforeTp = 0;
+    let tpBeforeStall = 0;
+    let rugNoStall = 0;
+    let neitherStall = 0;
+    const stallMints: StallMint[] = [];
 
-    const entry = six.entry;
-    const entryPrice = entry.price_usd;
-    const sixHourEnd = entry.observed_at_ms + 6 * 60 * 60 * 1000;
+    for (const rt of rugTpData) {
+      const clockInfo = clocks.get(rt.mint);
+      if (!clockInfo) continue;
+      const six = getSixHourTicks(rt.mint, clockInfo.clockMs, clockInfo.pairAddress);
+      if (six.entry === null || six.ticks.length === 0) continue;
 
-    let runningPeak = entryPrice;
-    let lastHighMs = entry.observed_at_ms;
-    let stallIdx = -1;
-    let stallPrice = 0;
-    let tpHit = false;
-    let rugHit = false;
+      const entry = six.entry;
+      const entryPrice = entry.price_usd;
+      const sixHourEnd = entry.observed_at_ms + 6 * 60 * 60 * 1000;
 
-    for (let i = 0; i < six.ticks.length; i++) {
-      const t = six.ticks[i];
-      if (t.observed_at_ms > sixHourEnd) break;
+      let runningPeak = entryPrice;
+      let lastHighMs = entry.observed_at_ms;
+      let stallIdx = -1;
+      let stallPrice = 0;
+      let tpHit = false;
+      let rugHit = false;
 
-      if (!tpHit && t.price_usd >= entryPrice * 1.3) {
-        tpHit = true;
-      }
-      if (!rugHit && t.price_usd <= entryPrice * 0.5) {
-        rugHit = true;
-      }
+      for (let i = 0; i < six.ticks.length; i++) {
+        const t = six.ticks[i];
+        if (t.observed_at_ms > sixHourEnd) break;
 
-      if (!tpHit && !rugHit) {
-        if (t.price_usd > runningPeak) {
-          runningPeak = t.price_usd;
-          lastHighMs = t.observed_at_ms;
+        if (!tpHit && t.price_usd >= entryPrice * 1.3) {
+          tpHit = true;
         }
-        const gapSec = (t.observed_at_ms - lastHighMs) / 1000;
-        if (gapSec >= 45) {
-          stallIdx = i;
-          stallPrice = t.price_usd;
-          break;
+        if (!rugHit && t.price_usd <= entryPrice * 0.5) {
+          rugHit = true;
         }
+
+        if (!tpHit && !rugHit) {
+          if (t.price_usd > runningPeak) {
+            runningPeak = t.price_usd;
+            lastHighMs = t.observed_at_ms;
+          }
+          const gap = (t.observed_at_ms - lastHighMs) / 1000;
+          if (gap >= gapSec) {
+            stallIdx = i;
+            stallPrice = t.price_usd;
+            break;
+          }
+        }
+
+        if (tpHit || rugHit) break;
       }
 
-      if (tpHit || rugHit) break;
+      if (stallIdx >= 0 && !tpHit) {
+        stallBeforeTp++;
+        stallMints.push({ mint: rt.mint, outcome: rt.outcome, stallPrice, stallIdx, six });
+      } else if (tpHit) {
+        tpBeforeStall++;
+      } else if (rugHit) {
+        rugNoStall++;
+      } else {
+        neitherStall++;
+      }
     }
 
-    if (stallIdx >= 0 && !tpHit) {
-      stallBeforeTp++;
-      stallMints.push({ mint: rt.mint, outcome: rt.outcome, stallPrice, stallIdx, six });
-    } else if (tpHit) {
-      tpBeforeStall++;
-    } else if (rugHit) {
-      rugNoStall++;
-    } else {
-      neitherStall++;
+    let stallRugFirst = 0;
+    let stallTpFirst = 0;
+    for (const s of stallMints) {
+      if (s.outcome === "rug_first") stallRugFirst++;
+      if (s.outcome === "tp_first") stallTpFirst++;
     }
+
+    // Left-on-the-table: later peak out to entry+6h from stall price
+    let medLeft = 0;
+    let went30 = 0;
+    if (stallMints.length > 0) {
+      const leftPcts: number[] = [];
+      for (const s of stallMints) {
+        let laterPeak = s.stallPrice;
+        let i = s.stallIdx + 1;
+        while (i < s.six.ticks.length) {
+          const t = s.six.ticks[i];
+          if (t.observed_at_ms > s.six.entry.observed_at_ms + 6 * 60 * 60 * 1000) break;
+          if (t.price_usd > laterPeak) laterPeak = t.price_usd;
+          i++;
+        }
+        const left = laterPeak / s.stallPrice - 1;
+        leftPcts.push(left * 100);
+        if (left >= 0.3) went30++;
+      }
+      medLeft = median(leftPcts);
+    }
+
+    return {
+      stallBeforeTp,
+      tpBeforeStall,
+      rugNoStall,
+      neitherStall,
+      stallRugFirst,
+      stallTpFirst,
+      stallN,
+      medLeft,
+      went30,
+    };
   }
 
-  const stallN = stallBeforeTp + tpBeforeStall + rugNoStall + neitherStall;
-  console.log(`stall_before_tp: n=${stallBeforeTp} (${((stallBeforeTp / stallN) * 100).toFixed(1)}%)`);
-  console.log(`tp_before_stall: n=${tpBeforeStall} (${((tpBeforeStall / stallN) * 100).toFixed(1)}%)`);
-  console.log(`rug_no_stall: n=${rugNoStall} (${((rugNoStall / stallN) * 100).toFixed(1)}%)`);
-  console.log(`neither: n=${neitherStall} (${((neitherStall / stallN) * 100).toFixed(1)}%)`);
-
-  let stallRugFirst = 0;
-  let stallTpFirst = 0;
-  for (const s of stallMints) {
-    if (s.outcome === "rug_first") stallRugFirst++;
-    if (s.outcome === "tp_first") stallTpFirst++;
-  }
-  console.log(`stall_before_tp that were rug_first: n=${stallRugFirst} (${stallBeforeTp > 0 ? ((stallRugFirst / stallBeforeTp) * 100).toFixed(1) : "0.0"}% of stall_before_tp)`);
-  console.log(`stall_before_tp that were tp_first: n=${stallTpFirst} (${stallBeforeTp > 0 ? ((stallTpFirst / stallBeforeTp) * 100).toFixed(1) : "0.0"}% of stall_before_tp)`);
+  // 45s block (unchanged output)
+  console.log("\n=== Stall vs TP ===");
+  const stall45 = analyzeStallGap(45, rugTpData.length);
+  console.log(`stall_before_tp: n=${stall45.stallBeforeTp} (${((stall45.stallBeforeTp / stall45.stallN) * 100).toFixed(1)}%)`);
+  console.log(`tp_before_stall: n=${stall45.tpBeforeStall} (${((stall45.tpBeforeStall / stall45.stallN) * 100).toFixed(1)}%)`);
+  console.log(`rug_no_stall: n=${stall45.rugNoStall} (${((stall45.rugNoStall / stall45.stallN) * 100).toFixed(1)}%)`);
+  console.log(`neither: n=${stall45.neitherStall} (${((stall45.neitherStall / stall45.stallN) * 100).toFixed(1)}%)`);
+  console.log(`stall_before_tp that were rug_first: n=${stall45.stallRugFirst} (${stall45.stallBeforeTp > 0 ? ((stall45.stallRugFirst / stall45.stallBeforeTp) * 100).toFixed(1) : "0.0"}% of stall_before_tp)`);
+  console.log(`stall_before_tp that were tp_first: n=${stall45.stallTpFirst} (${stall45.stallBeforeTp > 0 ? ((stall45.stallTpFirst / stall45.stallBeforeTp) * 100).toFixed(1) : "0.0"}% of stall_before_tp)`);
 
   console.log("\n=== Left after the stall ===");
-  if (stallMints.length > 0) {
-    const leftPcts: number[] = [];
-    let went30 = 0;
-    let went100 = 0;
-    for (const s of stallMints) {
-      let laterPeak = s.stallPrice;
-      let i = s.stallIdx + 1;
-      while (i < s.six.ticks.length) {
-        const t = s.six.ticks[i];
-        if (t.observed_at_ms > s.six.entry.observed_at_ms + 6 * 60 * 60 * 1000) break;
-        if (t.price_usd > laterPeak) laterPeak = t.price_usd;
-        i++;
-      }
-      const left = laterPeak / s.stallPrice - 1;
-      leftPcts.push(left * 100);
-      if (left >= 0.3) went30++;
-      if (left >= 1.0) went100++;
-    }
-    const medLeft = median(leftPcts);
-    console.log(`n=${stallMints.length} medianLeft=${medLeft.toFixed(1)}% went+30%=${((went30 / stallMints.length) * 100).toFixed(1)}% went+100%=${((went100 / stallMints.length) * 100).toFixed(1)}%`);
-  } else {
-    console.log("n=0");
+  console.log(`n=${stall45.stallBeforeTp} medianLeft=${stall45.medLeft.toFixed(1)}% went+30%=${stall45.stallBeforeTp > 0 ? ((stall45.went30 / stall45.stallBeforeTp) * 100).toFixed(1) : "0.0"}%`);
+
+  // Stall time sweep
+  console.log("\n=== Stall time sweep ===");
+  for (const gap of [60, 90, 120, 180, 300]) {
+    const res = analyzeStallGap(gap, rugTpData.length);
+    const rugFirstPct = res.stallBeforeTp > 0 ? ((res.stallRugFirst / res.stallBeforeTp) * 100).toFixed(1) : "0.0";
+    const tpFirstPct = res.stallBeforeTp > 0 ? ((res.stallTpFirst / res.stallBeforeTp) * 100).toFixed(1) : "0.0";
+    const went30Pct = res.stallBeforeTp > 0 ? ((res.went30 / res.stallBeforeTp) * 100).toFixed(1) : "0.0";
+    console.log(`${gap}s: stall_before_tp=${res.stallBeforeTp} rug_first=${rugFirstPct}% tp_first=${tpFirstPct}% medianLeft=${res.medLeft.toFixed(1)}% went+30%=${went30Pct}%`);
   }
 
   // Sample of high-liquidity rug-first names
