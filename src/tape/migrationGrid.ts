@@ -699,6 +699,16 @@ function main() {
   }
   const runners: RunnerInfo[] = [];
 
+  // Cache six-hour ticks by mint to avoid re-reading day files
+  const sixCache = new Map<string, ReturnType<typeof getSixHourTicks>>();
+  function cachedSix(mint: string, clockMs: number, pairAddress: string) {
+    const hit = sixCache.get(mint);
+    if (hit) return hit;
+    const six = getSixHourTicks(mint, clockMs, pairAddress);
+    sixCache.set(mint, six);
+    return six;
+  }
+
   let i = 0;
   for (const [mint, clockInfo] of clocks.entries()) {
     i++;
@@ -728,7 +738,7 @@ function main() {
 
     const entryBuySell = entry.tx_5m_sells > 0 ? entry.tx_5m_buys / entry.tx_5m_sells : null;
     // Compute 6h runner for this mint
-    const six = getSixHourTicks(mint, clockInfo.clockMs, clockInfo.pairAddress);
+    const six = cachedSix(mint, clockInfo.clockMs, clockInfo.pairAddress);
     let runner = 0;
     if (six.entry !== null && six.peak > 0) {
       runner = six.peak / six.entry.price_usd - 1;
@@ -1061,7 +1071,7 @@ function main() {
   for (const md of mintData) {
     const clockInfo = clocks.get(md.mint);
     if (!clockInfo) continue;
-    const six = getSixHourTicks(md.mint, clockInfo.clockMs, clockInfo.pairAddress);
+    const six = cachedSix(md.mint, clockInfo.clockMs, clockInfo.pairAddress);
     if (six.entry === null || six.ticks.length === 0) continue;
 
     const entryPrice = six.entry.price_usd;
@@ -1209,7 +1219,7 @@ function main() {
   for (const md of mintData) {
     const clockInfo = clocks.get(md.mint);
     if (!clockInfo) continue;
-    const six = getSixHourTicks(md.mint, clockInfo.clockMs, clockInfo.pairAddress);
+    const six = cachedSix(md.mint, clockInfo.clockMs, clockInfo.pairAddress);
     if (six.entry === null || six.ticks.length === 0) continue;
 
     const entryPrice = six.entry.price_usd;
@@ -1281,7 +1291,7 @@ function main() {
     if (rt.outcome !== "rug_first") continue;
     const clockInfo = clocks.get(rt.mint);
     if (!clockInfo) continue;
-    const six = getSixHourTicks(rt.mint, clockInfo.clockMs, clockInfo.pairAddress);
+    const six = cachedSix(rt.mint, clockInfo.clockMs, clockInfo.pairAddress);
     if (six.entry === null) continue;
     const entryPrice = six.entry.price_usd;
     let timeToRug: number | null = null;
@@ -1451,7 +1461,7 @@ function main() {
       b.tpFirst++;
     } else if (rt.outcome === "rug_first") {
       b.rugFirst++;
-      const six = getSixHourTicks(rt.mint, clockInfo.clockMs, clockInfo.pairAddress);
+      const six = cachedSix(rt.mint, clockInfo.clockMs, clockInfo.pairAddress);
       if (six.entry === null) continue;
       const entryPrice = six.entry.price_usd;
       let timeToRug: number | null = null;
@@ -1499,7 +1509,7 @@ function main() {
       b.tpFirst++;
     } else if (rt.outcome === "rug_first") {
       b.rugFirst++;
-      const six = getSixHourTicks(rt.mint, clockInfo.clockMs, clockInfo.pairAddress);
+      const six = cachedSix(rt.mint, clockInfo.clockMs, clockInfo.pairAddress);
       if (six.entry === null) continue;
       const entryPrice = six.entry.price_usd;
       let timeToRug: number | null = null;
@@ -1549,7 +1559,7 @@ function main() {
       b.tpFirst++;
     } else if (rt.outcome === "rug_first") {
       b.rugFirst++;
-      const six = getSixHourTicks(rt.mint, clockInfo.clockMs, clockInfo.pairAddress);
+      const six = cachedSix(rt.mint, clockInfo.clockMs, clockInfo.pairAddress);
       if (six.entry === null) continue;
       const entryPrice = six.entry.price_usd;
       let timeToRug: number | null = null;
@@ -1584,7 +1594,7 @@ function main() {
   for (const rt of rugTpData) {
     const clockInfo = clocks.get(rt.mint);
     if (!clockInfo) continue;
-    const six = getSixHourTicks(rt.mint, clockInfo.clockMs, clockInfo.pairAddress);
+    const six = cachedSix(rt.mint, clockInfo.clockMs, clockInfo.pairAddress);
     if (six.entry === null || six.ticks.length === 0) continue;
 
     const entry = six.entry;
@@ -1668,7 +1678,7 @@ function main() {
   for (const rt of rugTpData) {
     const clockInfo = clocks.get(rt.mint);
     if (!clockInfo) continue;
-    const six = getSixHourTicks(rt.mint, clockInfo.clockMs, clockInfo.pairAddress);
+    const six = cachedSix(rt.mint, clockInfo.clockMs, clockInfo.pairAddress);
     if (six.entry === null || six.ticks.length === 0) continue;
 
     const entry = six.entry;
@@ -1750,7 +1760,7 @@ function main() {
   for (const rt of rugTpData) {
     const clockInfo = clocks.get(rt.mint);
     if (!clockInfo) continue;
-    const six = getSixHourTicks(rt.mint, clockInfo.clockMs, clockInfo.pairAddress);
+    const six = cachedSix(rt.mint, clockInfo.clockMs, clockInfo.pairAddress);
     if (six.entry === null || six.ticks.length === 0) continue;
 
     const entry = six.entry;
@@ -1833,7 +1843,7 @@ function main() {
     for (const rt of rugTpData) {
       const clockInfo = clocks.get(rt.mint);
       if (!clockInfo) continue;
-      const six = getSixHourTicks(rt.mint, clockInfo.clockMs, clockInfo.pairAddress);
+      const six = cachedSix(rt.mint, clockInfo.clockMs, clockInfo.pairAddress);
       if (six.entry === null || six.ticks.length === 0) continue;
 
       const entry = six.entry;
@@ -1893,6 +1903,8 @@ function main() {
       if (s.outcome === "tp_first") stallTpFirst++;
     }
 
+    const stallN = stallBeforeTp + tpBeforeStall + rugNoStall + neitherStall;
+
     // Left-on-the-table: later peak out to entry+6h from stall price
     let medLeft = 0;
     let went30 = 0;
@@ -1932,7 +1944,7 @@ function main() {
 
   // 45s block (unchanged output)
   console.log("\n=== Stall vs TP ===");
-  const stall45 = analyzeStallGap(45, rugTpData.length);
+  const stall45 = analyzeStallGap(45);
   console.log(`stall_before_tp: n=${stall45.stallBeforeTp} (${((stall45.stallBeforeTp / stall45.stallN) * 100).toFixed(1)}%)`);
   console.log(`tp_before_stall: n=${stall45.tpBeforeStall} (${((stall45.tpBeforeStall / stall45.stallN) * 100).toFixed(1)}%)`);
   console.log(`rug_no_stall: n=${stall45.rugNoStall} (${((stall45.rugNoStall / stall45.stallN) * 100).toFixed(1)}%)`);
@@ -1946,7 +1958,7 @@ function main() {
   // Stall time sweep
   console.log("\n=== Stall time sweep ===");
   for (const gap of [60, 90, 120, 180, 300]) {
-    const res = analyzeStallGap(gap, rugTpData.length);
+    const res = analyzeStallGap(gap);
     const rugFirstPct = res.stallBeforeTp > 0 ? ((res.stallRugFirst / res.stallBeforeTp) * 100).toFixed(1) : "0.0";
     const tpFirstPct = res.stallBeforeTp > 0 ? ((res.stallTpFirst / res.stallBeforeTp) * 100).toFixed(1) : "0.0";
     const went30Pct = res.stallBeforeTp > 0 ? ((res.went30 / res.stallBeforeTp) * 100).toFixed(1) : "0.0";
@@ -1962,7 +1974,7 @@ function main() {
     if (fatCount >= 8) break;
     const clockInfo = clocks.get(rt.mint);
     if (!clockInfo) continue;
-    const six = getSixHourTicks(rt.mint, clockInfo.clockMs, clockInfo.pairAddress);
+    const six = cachedSix(rt.mint, clockInfo.clockMs, clockInfo.pairAddress);
     if (six.entry === null) continue;
     const entryPrice = six.entry.price_usd;
     let minPrice = entryPrice;
@@ -1989,7 +2001,7 @@ function main() {
     if (thinCount >= 8) break;
     const clockInfo = clocks.get(rt.mint);
     if (!clockInfo) continue;
-    const six = getSixHourTicks(rt.mint, clockInfo.clockMs, clockInfo.pairAddress);
+    const six = cachedSix(rt.mint, clockInfo.clockMs, clockInfo.pairAddress);
     if (six.entry === null) continue;
     const entryPrice = six.entry.price_usd;
     let minPrice = entryPrice;
