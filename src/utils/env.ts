@@ -341,3 +341,10 @@ export function getTapeKeepaliveHours(): number {
   const raw = parseFloat(env.TAPE_KEEPALIVE_HOURS);
   return Number.isFinite(raw) && raw > 0 ? raw : 1;
 }
+
+// Phase 23D: stall exit — sell if no new high for this many seconds
+export function getStallSec(): number {
+  const raw = parseFloat(env.STALL_SEC);
+  if (raw === 0) return 0; // explicitly off
+  return Number.isFinite(raw) && raw > 0 ? raw : 45;
+}
