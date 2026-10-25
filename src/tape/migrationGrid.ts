@@ -2349,6 +2349,77 @@ function main() {
   }
   console.log(`thin sample shown=${thinCount}`);
 
+  // Pool drop threshold sweep: which drop % exits rugs sooner without cutting winners
+  console.log("\n=== Pool drop threshold ===");
+  const thresholds = [20, 30, 40, 50];
+  for (const pct of thresholds) {
+    const exitPct = pct / 100;
+    const returns: number[] = [];
+    let fastRugs = 0;
+    let recovered = 0;
+
+    for (const md of mintData) {
+      const clockInfo = clocks.get(md.mint);
+      if (!clockInfo) continue;
+      const six = cachedSix(md.mint, clockInfo.clockMs, clockInfo.pairAddress);
+      if (six.entry === null || six.ticks.length === 0) continue;
+
+      const entryPrice = six.entry.price_usd;
+      const entryLiqQuote = six.entry.liq_quote;
+      if (entryLiqQuote <= 0) continue;
+
+      let dropExitTick: Tick | null = null;
+      let dropExitIdx = -1;
+
+      for (let i = 0; i < six.ticks.length; i++) {
+        const t = six.ticks[i];
+        // Exit at +30% means we never take the drop exit
+        if (t.price_usd >= entryPrice * 1.30) break;
+        if (t.liq_quote > 0) {
+          const drop = 1 - (t.liq_quote / entryLiqQuote);
+          if (drop >= exitPct) {
+            dropExitTick = t;
+            dropExitIdx = i;
+            break;
+          }
+        }
+      }
+
+      if (dropExitTick === null) continue;
+
+      const exitReturn = dropExitTick.price_usd / entryPrice - 1;
+      returns.push(exitReturn);
+
+      // Fast rug: -50% inside 3 minutes of entry
+      for (const t of six.ticks) {
+        if (t.price_usd <= entryPrice * 0.5) {
+          const timeToRug = (t.observed_at_ms - six.entry.observed_at_ms) / (60 * 1000);
+          if (timeToRug <= 3) {
+            fastRugs++;
+          }
+          break;
+        }
+      }
+
+      // Recovered: went on to hit +30% after the exit tick
+      for (let i = dropExitIdx + 1; i < six.ticks.length; i++) {
+        if (six.ticks[i].price_usd >= entryPrice * 1.30) {
+          recovered++;
+          break;
+        }
+      }
+    }
+
+    if (returns.length === 0) {
+      console.log(`${pct}%: n=0`);
+      continue;
+    }
+    const med = median(returns) * 100;
+    const fastPct = (fastRugs / returns.length) * 100;
+    const recPct = (recovered / returns.length) * 100;
+    console.log(`${pct}%: n=${returns.length} medianReturn=${med.toFixed(1)}% fastRug=${fastPct.toFixed(1)}% recovered=${recPct.toFixed(1)}%`);
+  }
+
 }
 
 main();
