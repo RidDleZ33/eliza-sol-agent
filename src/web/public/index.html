@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>eliza-sol-agent</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0f0f0f; color: #e0e0e0; }
+        .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 10px; border-bottom: 1px solid #333; }
+        .header h1 { font-size: 1.5em; color: #4fc3f7; }
+        .tabs { display: flex; gap: 5px; }
+        .tab { padding: 8px 16px; background: #1a1a1a; border: 1px solid #333; border-radius: 4px; cursor: pointer; font-size: 0.9em; }
+        .tab.active { background: #4fc3f7; color: #000; }
+        .panel { display: none; }
+        .panel.active { display: block; }
+        .card { background: #1a1a1a; border: 1px solid #333; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+        .card h2 { font-size: 1.1em; margin-bottom: 12px; color: #4fc3f7; }
+        button { padding: 6px 12px; background: #333; color: #e0e0e0; border: 1px solid #555; border-radius: 4px; cursor: pointer; margin-right: 5px; }
+        button:hover { background: #444; }
+        button.primary { background: #4fc3f7; color: #000; }
+        button.danger { background: #f44336; color: #fff; }
+        button.success { background: #4caf50; color: #fff; }
+        input, textarea, select { background: #0f0f0f; border: 1px solid #444; color: #e0e0e0; padding: 6px 10px; border-radius: 4px; font-size: 0.9em; }
+        textarea { font-family: monospace; width: 100%; min-height: 300px; resize: vertical; }
+        .grid { display: grid; gap: 16px; }
+        .grid-2 { grid-template-columns: 1fr 1fr; }
+        .grid-3 { grid-template-columns: 1fr 1fr 1fr; }
+        .stat { text-align: center; }
+        .stat-value { font-size: 2em; font-weight: bold; color: #4fc3f7; }
+        .stat-label { font-size: 0.8em; color: #888; text-transform: uppercase; }
+        .strategy-item { display: flex; justify-content: space-between; align-items: center; padding: 12px; background: #0f0f0f; border: 1px solid #333; border-radius: 4px; margin-bottom: 8px; }
+        .strategy-name { font-weight: bold; }
+        .status { padding: 2px 8px; border-radius: 10px; font-size: 0.8em; }
+        .status-enabled { background: #4caf50; color: #fff; }
+        .status-draft { background: #ff9800; color: #000; }
+        .console { background: #000; color: #0f0; font-family: 'Courier New', monospace; font-size: 0.85em; padding: 12px; border-radius: 4px; max-height: 300px; overflow-y: auto; line-height: 1.4; }
+        .console-line { white-space: pre-wrap; }
+        .chart-container { position: relative; height: 300px; }
+        .loading { color: #888; font-style: italic; }
+        .error { color: #f44336; }
+        .success-msg { color: #4caf50; }
+        .field { margin-bottom: 12px; }
+        .field label { display: block; margin-bottom: 4px; font-size: 0.9em; color: #aaa; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid #333; }
+        th { background: #1a1a1a; color: #4fc3f7; font-size: 0.85em; text-transform: uppercase; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🤖 eliza-sol-agent</h1>
+            <div class="tabs">
+                <div class="tab active" data-tab="strategies">Strategies</div>
+                <div class="tab" data-tab="backtest">Backtest</div>
+                <div class="tab" data-tab="swarm">Swarm</div>
+                <div class="tab" data-tab="console">Console</div>
+            </div>
+        </div>
+
+        <!-- Strategies Panel -->
+        <div id="strategies" class="panel active">
+            <div class="card">
+                <h2>Strategy List</h2>
+                <div id="strategy-list"></div>
+            </div>
+            <div class="card">
+                <h2>New Strategy</h2>
+                <div class="field">
+                    <label>Recipe JSON</label>
+                    <textarea id="recipe-json">{
+  "version": 1,
+  "name": "my_strategy",
+  "sources": ["mig_edge"],
+  "gates": [
+    {"field": "liquidity", "op": "gte", "value": 100000},
+    {"field": "top10_pct", "op": "lte", "value": 30}
+  ],
+  "exits": {
+    "tp_pct": 30,
+    "stop_pct": 15,
+    "clock_sec": 3600
+  }
+}</textarea>
+                </div>
+                <button class="primary" onclick="createStrategy()">Create / Update</button>
+                <span id="recipe-msg"></span>
+            </div>
+        </div>
+
+        <!-- Backtest Panel -->
+        <div id="backtest" class="panel">
+            <div class="card">
+                <h2>Run Backtest</h2>
+                <div class="field">
+                    <label>Window (hours)</label>
+                    <input type="number" id="bt-window" value="24" style="width: 100px;">
+                </div>
+                <button class="primary" onclick="runBacktest()">Run Backtest</button>
+                <span id="bt-msg"></span>
+            </div>
+            <div class="card">
+                <h2>Results</h2>
+                <div id="bt-results">
+                    <p class="loading">Run a backtest to see results.</p>
+                </div>
+            </div>
+            <div class="card">
+                <h2>Chart</h2>
+                <div class="chart-container">
+                    <canvas id="bt-chart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Swarm Panel -->
+        <div id="swarm" class="panel">
+            <div class="card">
+                <h2>Swarm Status</h2>
+                <div id="swarm-status" class="loading">Loading...</div>
+                <div style="margin-top: 12px;">
+                    <button class="success" onclick="swarmStart()">Start</button>
+                    <button class="danger" onclick="swarmStop()">Stop</button>
+                    <button onclick="swarmRestart()">Restart</button>
+                    <span id="swarm-msg"></span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Console Panel -->
+        <div id="console" class="panel">
+            <div class="card">
+                <h2>Console Log</h2>
+                <div id="console-output" class="console">
+                    <div class="console-line">Loading logs...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let btChart = null;
+        let consoleInterval = null;
+        let swarmInterval = null;
+        let strategiesInterval = null;
+
+        // Tab switching
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+                tab.classList.add('active');
+                document.getElementById(tab.dataset.tab).classList.add('active');
+            });
+        });
+
+        // Strategies
+        async function loadStrategies() {
+            try {
+                const res = await fetch('/strategies');
+                const data = await res.json();
+                const list = document.getElementById('strategy-list');
+                if (data.ok && data.strategies.length > 0) {
+                    list.innerHTML = data.strategies.map(s => `
+                        <div class="strategy-item">
+                            <span>
+                                <span class="strategy-name">${s.name || s.id}</span>
+                                <span class="status status-${s.status}">${s.status}</span>
+                            </span>
+                            <span>
+                                ${s.status === 'draft' ?
+                                    `<button class="success" onclick="enableStrategy('${s.id}')">Enable</button>` :
+                                    `<button class="danger" onclick="disableStrategy('${s.id}')">Disable</button>`
+                                }
+                            </span>
+                        </div>
+                    `).join('');
+                } else {
+                    list.innerHTML = '<p class="loading">No strategies yet.</p>';
+                }
+            } catch (e) {
+                document.getElementById('strategy-list').innerHTML = `<p class="error">Error: ${e.message}</p>`;
+            }
+        }
+
+        async function createStrategy() {
+            const json = document.getElementById('recipe-json').value;
+            const msg = document.getElementById('recipe-msg');
+            try {
+                const recipe = JSON.parse(json);
+                const res = await fetch('/strategies', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: json
+                });
+                const data = await res.json();
+                if (data.ok) {
+                    msg.innerHTML = `<span class="success-msg">Created: ${data.id}</span>`;
+                    loadStrategies();
+                } else {
+                    msg.innerHTML = `<span class="error">${JSON.stringify(data.error)}</span>`;
+                }
+            } catch (e) {
+                msg.innerHTML = `<span class="error">Invalid JSON: ${e.message}</span>`;
+            }
+        }
+
+        async function enableStrategy(id) {
+            const res = await fetch(`/strategies/${id}/enable`, { method: 'POST' });
+            const data = await res.json();
+            if (data.ok) loadStrategies();
+        }
+
+        async function disableStrategy(id) {
+            const res = await fetch(`/strategies/${id}/disable`, { method: 'POST' });
+            const data = await res.json();
+            if (data.ok) loadStrategies();
+        }
+
+        // Backtest
+        async function runBacktest() {
+            const window = document.getElementById('bt-window').value;
+            const msg = document.getElementById('bt-msg');
+            const results = document.getElementById('bt-results');
+            msg.innerHTML = '<span class="loading">Running...</span>';
+            results.innerHTML = '';
+
+            try {
+                const res = await fetch('/backtest', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ window_hours: parseInt(window) })
+                });
+                const data = await res.json();
+                if (data.ok) {
+                    msg.innerHTML = '';
+                    renderBacktestResults(data.result);
+                } else {
+                    msg.innerHTML = `<span class="error">${data.error}</span>`;
+                }
+            } catch (e) {
+                msg.innerHTML = `<span class="error">Error: ${e.message}</span>`;
+            }
+        }
+
+        function renderBacktestResults(result) {
+            const results = document.getElementById('bt-results');
+            if (!result) {
+                results.innerHTML = '<p class="loading">No backtest data available.</p>';
+                return;
+            }
+
+            // Try to render whatever structure the backtest returns
+            if (result.summary) {
+                const s = result.summary;
+                let html = '<div class="grid grid-3">';
+                if (typeof s === 'object') {
+                    for (const [key, value] of Object.entries(s)) {
+                        html += `
+                            <div class="stat">
+                                <div class="stat-value">${typeof value === 'number' ? value.toFixed(2) : value}</div>
+                                <div class="stat-label">${key}</div>
+                            </div>
+                        `;
+                    }
+                }
+                html += '</div>';
+
+                if (result.buckets && Array.isArray(result.buckets)) {
+                    html += '<table><tr><th>Bucket</th><th>N</th><th>Win Rate</th></tr>';
+                    for (const b of result.buckets) {
+                        html += `<tr><td>${b.label || JSON.stringify(b)}</td><td>${b.n}</td><td>${(b.win_rate || 0).toFixed(2)}</td></tr>`;
+                    }
+                    html += '</table>';
+                    renderChart(result.buckets);
+                }
+
+                results.innerHTML = html;
+            } else {
+                results.innerHTML = `<pre>${JSON.stringify(result, null, 2)}</pre>`;
+            }
+        }
+
+        function renderChart(buckets) {
+            if (btChart) btChart.destroy();
+
+            const labels = buckets.map(b => b.label || JSON.stringify(b));
+            const nData = buckets.map(b => b.n || 0);
+            const winData = buckets.map(b => (b.win_rate || 0) * 100);
+
+            btChart = new Chart(document.getElementById('bt-chart'), {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: 'Win Rate %',
+                            data: winData,
+                            backgroundColor: 'rgba(79, 195, 247, 0.6)',
+                            borderColor: '#4fc3f7',
+                            yAxisID: 'y'
+                        },
+                        {
+                            label: 'N',
+                            data: nData,
+                            type: 'line',
+                            borderColor: '#ff9800',
+                            yAxisID: 'y1'
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: { type: 'linear', position: 'left', title: { display: true, text: 'Win Rate %' } },
+                        y1: { type: 'linear', position: 'right', title: { display: true, text: 'N' }, grid: { drawOnChartArea: false } }
+                    }
+                }
+            });
+        }
+
+        // Swarm
+        async function loadSwarmStatus() {
+            try {
+                const res = await fetch('/swarm/status');
+                const data = await res.json();
+                const status = document.getElementById('swarm-status');
+                if (data.ok) {
+                    status.innerHTML = `
+                        <div class="grid grid-3">
+                            <div class="stat">
+                                <div class="stat-value">${data.matching ? '🟢 Running' : '🔴 Stopped'}</div>
+                                <div class="stat-label">Matching</div>
+                            </div>
+                            <div class="stat">
+                                <div class="stat-value">${data.recipes_enabled}</div>
+                                <div class="stat-label">Recipes Enabled</div>
+                            </div>
+                            <div class="stat">
+                                <div class="stat-value">${data.dry_run ? 'Dry Run' : 'Live'}</div>
+                                <div class="stat-label">Mode</div>
+                            </div>
+                        </div>
+                    `;
+                }
+            } catch (e) {
+                document.getElementById('swarm-status').innerHTML = `<p class="error">Error: ${e.message}</p>`;
+            }
+        }
+
+        async function swarmStart() {
+            const msg = document.getElementById('swarm-msg');
+            try {
+                const res = await fetch('/swarm/start', { method: 'POST' });
+                const data = await res.json();
+                msg.innerHTML = data.ok ? '<span class="success-msg">Started</span>' : `<span class="error">${data.error}</span>`;
+                loadSwarmStatus();
+            } catch (e) {
+                msg.innerHTML = `<span class="error">${e.message}</span>`;
+            }
+        }
+
+        async function swarmStop() {
+            const msg = document.getElementById('swarm-msg');
+            try {
+                const res = await fetch('/swarm/stop', { method: 'POST' });
+                const data = await res.json();
+                msg.innerHTML = data.ok ? '<span class="success-msg">Stopped</span>' : `<span class="error">${data.error}</span>`;
+                loadSwarmStatus();
+            } catch (e) {
+                msg.innerHTML = `<span class="error">${e.message}</span>`;
+            }
+        }
+
+        async function swarmRestart() {
+            const msg = document.getElementById('swarm-msg');
+            try {
+                const res = await fetch('/swarm/restart', { method: 'POST' });
+                const data = await res.json();
+                msg.innerHTML = data.ok ? '<span class="success-msg">Restarted</span>' : `<span class="error">${data.error}</span>`;
+                loadSwarmStatus();
+            } catch (e) {
+                msg.innerHTML = `<span class="error">${e.message}</span>`;
+            }
+        }
+
+        // Console
+        async function loadConsole() {
+            try {
+                const res = await fetch('/logs/tail?n=100');
+                const data = await res.json();
+                const output = document.getElementById('console-output');
+                if (data.ok) {
+                    const lines = data.lines.split('\n').filter(l => l.trim());
+                    output.innerHTML = lines.map(l => `<div class="console-line">${escapeHtml(l)}</div>`).join('');
+                    output.scrollTop = output.scrollHeight;
+                }
+            } catch (e) {
+                // ignore
+            }
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Init
+        loadStrategies();
+        loadSwarmStatus();
+        loadConsole();
+
+        strategiesInterval = setInterval(loadStrategies, 10000);
+        swarmInterval = setInterval(loadSwarmStatus, 5000);
+        consoleInterval = setInterval(loadConsole, 2000);
+    </script>
+</body>
+</html>

@@ -6,12 +6,57 @@ import { can } from "../entitlements/tier.ts";
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 
+
 export const app = new Hono();
+
+// Static files for UI (Bun-compatible)
+const PUBLIC_DIR = join(process.cwd(), "src", "web", "public");
+
+app.get("/ui", async (c) => {
+  const filePath = join(PUBLIC_DIR, "index.html");
+  try {
+    if (!existsSync(filePath)) {
+      return c.body("Not found", 404);
+    }
+    const file = Bun.file(filePath);
+    const arrayBuf = await file.arrayBuffer();
+    return c.body(new Uint8Array(arrayBuf), 200, { "Content-Type": "text/html" });
+  } catch (e: any) {
+    return c.body(`Error: ${e.message}`, 500);
+  }
+});
+
+app.get("/ui/*", async (c) => {
+  const path = c.req.path;
+  const filename = path.replace("/ui/", "");
+  const filePath = join(PUBLIC_DIR, filename);
+  try {
+    if (!existsSync(filePath)) {
+      return c.body("Not found", 404);
+    }
+    const file = Bun.file(filePath);
+    const ext = filename.split(".").pop() || "";
+    let contentType = "text/html";
+    if (ext === "js") contentType = "application/javascript";
+    else if (ext === "css") contentType = "text/css";
+    else if (ext === "json") contentType = "application/json";
+    else if (ext === "png") contentType = "image/png";
+    else if (ext === "jpg" || ext === "jpeg") contentType = "image/jpeg";
+    const arrayBuf = await file.arrayBuffer();
+    return c.body(new Uint8Array(arrayBuf), 200, { "Content-Type": contentType });
+  } catch (e: any) {
+    return c.body(`Error: ${e.message}`, 500);
+  }
+});
 
 // Auth middleware: if WEB_TOKEN is set, require Bearer header. Otherwise open on 127.0.0.1 only.
 const WEB_TOKEN = process.env.WEB_TOKEN;
 app.use("*", (c, next) => {
   if (WEB_TOKEN) {
+    // Skip auth for static UI files
+    if (c.req.path.startsWith("/ui/")) {
+      return next();
+    }
     const auth = c.req.header("Authorization");
     if (auth !== `Bearer ${WEB_TOKEN}`) {
       return c.json({ ok: false, error: "unauthorized" }, 401);
