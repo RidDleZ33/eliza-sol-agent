@@ -69,6 +69,7 @@ bun run start          # desk. dry-run unless you flip it
 bun run tape           # recorder. separate process. no buys
 bun run tape:migrations
 bun run tape:grid
+bun run web          # web API on localhost:3000
 bun test
 ```
 
