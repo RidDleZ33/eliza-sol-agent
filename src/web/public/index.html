@@ -89,6 +89,18 @@
                 <button class="primary" onclick="createStrategy()">Create / Update</button>
                 <span id="recipe-msg"></span>
             </div>
+            <div class="card">
+                <h2>AI Assistant</h2>
+                <p style="font-size:0.8em;color:#888;margin-bottom:8px;">Describe strategy changes in natural language. The AI will validate and update your recipe.</p>
+                <div id="ai-chat" class="console" style="min-height:150px;max-height:300px;margin-bottom:8px;">
+                    <div class="console-line" style="color:#4fc3f7;">AI: I can help build strategies. Try "add a holders >= 500 gate and a 30% TP"</div>
+                </div>
+                <div style="display:flex;gap:5px;">
+                    <input type="text" id="ai-input" placeholder="Describe strategy change..." style="flex:1;" onkeydown="if(event.key==='Enter')sendAIMessage()">
+                    <button class="primary" onclick="sendAIMessage()">Send</button>
+                </div>
+                <span id="ai-msg"></span>
+            </div>
         </div>
 
         <!-- Backtest Panel -->
@@ -408,6 +420,81 @@
             const div = document.createElement('div');
             div.textContent = text;
             return div.innerHTML;
+        }
+
+        // AI Chat
+        let aiMessages = [];
+
+        function addAiMessage(role, content) {
+            const chat = document.getElementById('ai-chat');
+            const line = document.createElement('div');
+            line.className = 'console-line';
+            if (role === 'user') {
+                line.style.color = '#ff9800';
+                line.textContent = `You: ${content}`;
+            } else if (role === 'tool') {
+                line.style.color = '#4caf50';
+                line.textContent = `🔧 ${content}`;
+            } else {
+                line.style.color = '#4fc3f7';
+                line.textContent = `AI: ${content}`;
+            }
+            chat.appendChild(line);
+            chat.scrollTop = chat.scrollHeight;
+        }
+
+        async function sendAIMessage() {
+            const input = document.getElementById('ai-input');
+            const msg = document.getElementById('ai-msg');
+            const text = input.value.trim();
+            if (!text) return;
+
+            input.value = '';
+            addAiMessage('user', text);
+            msg.innerHTML = '<span class="loading">Thinking...</span>';
+
+            // Get current recipe for context
+            let recipe = null;
+            try {
+                recipe = JSON.parse(document.getElementById('recipe-json').value);
+            } catch (e) {
+                // ignore
+            }
+
+            try {
+                const res = await fetch('/ai/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        messages: [{ role: 'user', content: text }],
+                        recipe: recipe
+                    })
+                });
+                const data = await res.json();
+                if (data.ok) {
+                    msg.innerHTML = '';
+                    addAiMessage('assistant', data.assistant);
+
+                    // Handle tool results
+                    if (data.tool_results && data.tool_results.length > 0) {
+                        for (const tr of data.tool_results) {
+                            if (tr.name === 'validate_recipe' && tr.result.ok) {
+                                addAiMessage('tool', 'Recipe validated successfully');
+                            } else if (tr.name === 'suggest_mutation' && tr.result.ok && tr.result.recipe) {
+                                addAiMessage('tool', `Suggested recipe: ${JSON.stringify(tr.result.recipe)}`);
+                                // Update the recipe editor with the suggestion
+                                document.getElementById('recipe-json').value = JSON.stringify(tr.result.recipe, null, 2);
+                            } else if (!tr.result.ok) {
+                                addAiMessage('tool', `Error: ${tr.result.errors?.join(', ')}`);
+                            }
+                        }
+                    }
+                } else {
+                    msg.innerHTML = `<span class="error">${data.error}</span>`;
+                }
+            } catch (e) {
+                msg.innerHTML = `<span class="error">Error: ${e.message}</span>`;
+            }
         }
 
         // Init

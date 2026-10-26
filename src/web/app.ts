@@ -5,6 +5,7 @@ import { recipesEvaluator } from "../services/RecipesEvaluator.ts";
 import { can } from "../entitlements/tier.ts";
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
+import { aiRouter } from "./ai.ts";
 
 
 export const app = new Hono();
@@ -215,6 +216,9 @@ app.post("/swarm/restart", (c) => {
     return c.json({ ok: false, error: e.message }, 500);
   }
 });
+
+// AI assistant routes
+app.route("/ai", aiRouter);
 
 // Logs tail
 app.get("/logs/tail", (c) => {
