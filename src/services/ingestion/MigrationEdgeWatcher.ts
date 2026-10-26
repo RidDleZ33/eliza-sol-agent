@@ -203,7 +203,16 @@ export class MigrationEdgeWatcher implements IngestionWatcher {
           inserted++;
           logger.info("INGESTION", this.name, "insert", { mint, symbol, liq, top10: item.top_10_holder_rate });
           // Paper buy if dry-run is on. Do not wake Alpha.
-          this.maybeBuy(mint, symbol);
+          const facts: any = {
+            mint,
+            symbol,
+            source: SOURCE,
+            liq_usd: liq,
+            holders: item.holder_count,
+            top10_rate: item.top_10_holder_rate,
+            creator_status: item.creator_token_status,
+          };
+          this.maybeBuy(mint, symbol, facts);
         }
       }
 
@@ -263,7 +272,16 @@ export class MigrationEdgeWatcher implements IngestionWatcher {
       const ok = await watchlistService.addDiscoveredToken(mint, item.symbol, 0, SOURCE);
       if (ok) {
         logger.info("INGESTION", this.name, "insert", { mint, symbol: item.symbol, liq: item.liquidity, top10: item.top10Rate });
-        this.maybeBuy(mint, item.symbol);
+        const facts: any = {
+          mint,
+          symbol: item.symbol,
+          source: SOURCE,
+          liq_usd: item.liquidity,
+          holders: item.holderCount,
+          top10_rate: item.top10Rate,
+          creator_status: item.creatorStatus,
+        };
+        this.maybeBuy(mint, item.symbol, facts);
       }
       toDrop.push(mint);
     }

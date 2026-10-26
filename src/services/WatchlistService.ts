@@ -128,23 +128,23 @@ class WatchlistService {
 
       if (!columnNames.has('alpha_decision')) {
         this.db.exec("ALTER TABLE watched_tokens ADD COLUMN alpha_decision TEXT");
-        logger.info("WATCHLIST", "migrateSchema", "Added alpha_decision column");
+        console.log("[WATCHLIST][migrateSchema] Added alpha_decision column");
       }
       if (!columnNames.has('alpha_confidence')) {
         this.db.exec("ALTER TABLE watched_tokens ADD COLUMN alpha_confidence REAL");
-        logger.info("WATCHLIST", "migrateSchema", "Added alpha_confidence column");
+        console.log("[WATCHLIST][migrateSchema] Added alpha_confidence column");
       }
       if (!columnNames.has('alpha_narrative_score')) {
         this.db.exec("ALTER TABLE watched_tokens ADD COLUMN alpha_narrative_score REAL");
-        logger.info("WATCHLIST", "migrateSchema", "Added alpha_narrative_score column");
+        console.log("[WATCHLIST][migrateSchema] Added alpha_narrative_score column");
       }
       if (!columnNames.has('alpha_organicity_score')) {
         this.db.exec("ALTER TABLE watched_tokens ADD COLUMN alpha_organicity_score REAL");
-        logger.info("WATCHLIST", "migrateSchema", "Added alpha_organicity_score column");
+        console.log("[WATCHLIST][migrateSchema] Added alpha_organicity_score column");
       }
       if (!columnNames.has('alpha_category')) {
         this.db.exec("ALTER TABLE watched_tokens ADD COLUMN alpha_category TEXT");
-        logger.info("WATCHLIST", "migrateSchema", "Added alpha_category column");
+        console.log("[WATCHLIST][migrateSchema] Added alpha_category column");
       }
       if (!columnNames.has('alpha_reasoning')) {
         this.db.exec("ALTER TABLE watched_tokens ADD COLUMN alpha_reasoning TEXT");
@@ -192,9 +192,9 @@ class WatchlistService {
             created_at INTEGER NOT NULL
           )
         `);
-        logger.info("WATCHLIST", "migrateSchema", "trades journal table ready");
+        console.log("[WATCHLIST][migrateSchema] trades journal table ready");
       } catch (e: any) {
-        logger.warn("WATCHLIST", "migrateSchema", "trades table creation failed", { error: e.message });
+        console.warn(`[WATCHLIST][migrateSchema] trades table creation failed: ${e.message}`);
       }
 
       // Position price tracking columns
@@ -203,19 +203,19 @@ class WatchlistService {
 
       if (!positionColumnNames.has('current_price_usd')) {
         this.db.exec("ALTER TABLE positions ADD COLUMN current_price_usd REAL DEFAULT 0");
-        logger.info("WATCHLIST", "migrateSchema", "Added current_price_usd column to positions");
+        console.log("[WATCHLIST][migrateSchema] Added current_price_usd column to positions");
       }
       if (!positionColumnNames.has('unrealized_pnl_usd')) {
         this.db.exec("ALTER TABLE positions ADD COLUMN unrealized_pnl_usd REAL DEFAULT 0");
-        logger.info("WATCHLIST", "migrateSchema", "Added unrealized_pnl_usd column to positions");
+        console.log("[WATCHLIST][migrateSchema] Added unrealized_pnl_usd column to positions");
       }
       if (!positionColumnNames.has('unrealized_pnl_pct')) {
         this.db.exec("ALTER TABLE positions ADD COLUMN unrealized_pnl_pct REAL DEFAULT 0");
-        logger.info("WATCHLIST", "migrateSchema", "Added unrealized_pnl_pct column to positions");
+        console.log("[WATCHLIST][migrateSchema] Added unrealized_pnl_pct column to positions");
       }
       if (!positionColumnNames.has('last_updated')) {
         this.db.exec("ALTER TABLE positions ADD COLUMN last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP");
-        logger.info("WATCHLIST", "migrateSchema", "Added last_updated column to positions");
+        console.log("[WATCHLIST][migrateSchema] Added last_updated column to positions");
       }
 
       // Phase 3C: add beta_top10_pct column to watched_tokens
@@ -223,43 +223,43 @@ class WatchlistService {
       const watchedColumnNames = new Set(watchedColumns.map(c => c.name));
       if (!watchedColumnNames.has('beta_top10_pct')) {
         this.db.exec("ALTER TABLE watched_tokens ADD COLUMN beta_top10_pct REAL DEFAULT 0");
-        logger.info("WATCHLIST", "migrateSchema", "Added beta_top10_pct column to watched_tokens");
+        console.log("[WATCHLIST][migrateSchema] Added beta_top10_pct column to watched_tokens");
       }
       if (!watchedColumnNames.has('gamma_last_decision')) {
         this.db.exec("ALTER TABLE watched_tokens ADD COLUMN gamma_last_decision TEXT");
-        logger.info("WATCHLIST", "migrateSchema", "Added gamma_last_decision column");
+        console.log("[WATCHLIST][migrateSchema] Added gamma_last_decision column");
       }
       if (!watchedColumnNames.has('gamma_last_conviction')) {
         this.db.exec("ALTER TABLE watched_tokens ADD COLUMN gamma_last_conviction REAL");
-        logger.info("WATCHLIST", "migrateSchema", "Added gamma_last_conviction column");
+        console.log("[WATCHLIST][migrateSchema] Added gamma_last_conviction column");
       }
       if (!watchedColumnNames.has('gamma_last_reasons')) {
         this.db.exec("ALTER TABLE watched_tokens ADD COLUMN gamma_last_reasons TEXT");
-        logger.info("WATCHLIST", "migrateSchema", "Added gamma_last_reasons column");
+        console.log("[WATCHLIST][migrateSchema] Added gamma_last_reasons column");
       }
       if (!watchedColumnNames.has('gamma_last_pa_json')) {
         this.db.exec("ALTER TABLE watched_tokens ADD COLUMN gamma_last_pa_json TEXT");
-        logger.info("WATCHLIST", "migrateSchema", "Added gamma_last_pa_json column");
+        console.log("[WATCHLIST][migrateSchema] Added gamma_last_pa_json column");
       }
       if (!watchedColumnNames.has('gamma_last_hv')) {
         this.db.exec("ALTER TABLE watched_tokens ADD COLUMN gamma_last_hv REAL");
-        logger.info("WATCHLIST", "migrateSchema", "Added gamma_last_hv column");
+        console.log("[WATCHLIST][migrateSchema] Added gamma_last_hv column");
       }
       if (!watchedColumnNames.has('gamma_last_regime')) {
         this.db.exec("ALTER TABLE watched_tokens ADD COLUMN gamma_last_regime TEXT");
-        logger.info("WATCHLIST", "migrateSchema", "Added gamma_last_regime column");
+        console.log("[WATCHLIST][migrateSchema] Added gamma_last_regime column");
       }
       if (!watchedColumnNames.has('gamma_last_at')) {
         this.db.exec("ALTER TABLE watched_tokens ADD COLUMN gamma_last_at INTEGER");
-        logger.info("WATCHLIST", "migrateSchema", "Added gamma_last_at column");
+        console.log("[WATCHLIST][migrateSchema] Added gamma_last_at column");
       }
       if (!watchedColumnNames.has('dex_pair_json')) {
         this.db.exec("ALTER TABLE watched_tokens ADD COLUMN dex_pair_json TEXT");
-        logger.info("WATCHLIST", "migrateSchema", "Added dex_pair_json column");
+        console.log("[WATCHLIST][migrateSchema] Added dex_pair_json column");
       }
       if (!watchedColumnNames.has('dex_pair_at')) {
         this.db.exec("ALTER TABLE watched_tokens ADD COLUMN dex_pair_at INTEGER");
-        logger.info("WATCHLIST", "migrateSchema", "Added dex_pair_at column");
+        console.log("[WATCHLIST][migrateSchema] Added dex_pair_at column");
       }
 
       // Phase 24I: fee_sol column on trades
@@ -268,10 +268,10 @@ class WatchlistService {
         const tradesColumnNames = new Set(tradesColumns.map(c => c.name));
         if (!tradesColumnNames.has('fee_sol')) {
           this.db.exec("ALTER TABLE trades ADD COLUMN fee_sol REAL");
-          logger.info("WATCHLIST", "migrateSchema", "Added fee_sol column to trades");
+          console.log("[WATCHLIST][migrateSchema] Added fee_sol column to trades");
         }
       } catch (e: any) {
-        logger.warn("WATCHLIST", "migrateSchema", "fee_sol column migration failed", { error: e.message });
+        console.warn(`[WATCHLIST][migrateSchema] fee_sol column migration failed: ${e.message}`);
       }
     } catch (e: any) {
       console.error(`[WATCHLIST][migrateSchema] Migration failed: ${e.message}`);
