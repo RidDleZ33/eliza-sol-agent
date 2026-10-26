@@ -1035,3 +1035,9 @@ THIN mint=FBBN2GJe.. liq=3,978 entry=0.000004 min=0.000004 max=0.000010
 THIN mint=BGarXEj9.. liq=7,242 entry=0.000011 min=0.000006 max=0.000021
 THIN mint=EKpELcGm.. liq=8,080 entry=0.000013 min=0.000002 max=0.000035
 thin sample shown=8
+
+=== Pool drop threshold ===
+20%: n=3355 medianReturn=-65.8% fastRug=43.6% recovered=9.7%
+30%: n=3155 medianReturn=-76.8% fastRug=46.3% recovered=5.8%
+40%: n=3026 medianReturn=-80.6% fastRug=48.0% recovered=3.5%
+50%: n=2898 medianReturn=-83.1% fastRug=49.7% recovered=2.1%

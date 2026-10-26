@@ -314,6 +314,7 @@ class WatchlistService {
         exit_price_usd REAL DEFAULT 0,
         realized_pnl_usd REAL DEFAULT 0,
         amount_sol REAL DEFAULT 0,
+        strategy_id TEXT DEFAULT NULL,
         status TEXT DEFAULT 'OPEN',
         peak_price_usd REAL DEFAULT 0,
         entered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -1054,12 +1055,12 @@ class WatchlistService {
       .all();
   }
 
-  async addPosition(mintAddress: string, symbol: string, buyTxSignature: string, entryPriceUsd: number, amountSol: number) {
+  async addPosition(mintAddress: string, symbol: string, buyTxSignature: string, entryPriceUsd: number, amountSol: number, strategyId?: string) {
     this.db
       .prepare(
-        "INSERT INTO positions (mint_address, symbol, buy_tx_signature, entry_price_usd, amount_sol, status, entered_at) VALUES (?, ?, ?, ?, ?, 'OPEN', CURRENT_TIMESTAMP)"
+        "INSERT INTO positions (mint_address, symbol, buy_tx_signature, entry_price_usd, amount_sol, strategy_id, status, entered_at) VALUES (?, ?, ?, ?, ?, ?, 'OPEN', CURRENT_TIMESTAMP)"
       )
-      .run(mintAddress, symbol, buyTxSignature, entryPriceUsd, amountSol);
+      .run(mintAddress, symbol, buyTxSignature, entryPriceUsd, amountSol, strategyId);
   }
 
   async updatePositionStatus(mintAddress: string, status: string, exitPriceUsd?: number, realizedPnl?: number, sellTxSignature?: string) {

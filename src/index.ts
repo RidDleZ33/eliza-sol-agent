@@ -1,6 +1,7 @@
 import { requestAlphaTick } from "./evaluators/AlphaNarrativeEvaluator.ts";
 import { evaluateBetaContract } from "./evaluators/BetaContractEvaluator.ts";
 import { tradeExecutionService } from "./services/TradeExecutionService.ts";
+import { recipesEvaluator } from "./services/RecipesEvaluator.ts";
 import { evaluateGammaConsensus } from "./evaluators/GammaConsensusEvaluator.ts";
 import { crashRecoveryService } from "./services/CrashRecoveryService.ts";
 import { positionManagerService } from "./services/PositionManagerService.ts";
@@ -142,14 +143,11 @@ async function main() {
   }
 
   // Start position manager for auto-exit rules
-  // Phase 25A: load enabled recipes if flag is set (default off)
+  // PHASE 25B: Evaluate candidates through enabled recipes when flag is set (default off)
   const recipesEnabled = process.env.RECIPES_ENABLED === "1";
   if (recipesEnabled) {
-    const recipes = loadEnabledRecipes();
-    logger.info("RECIPES", "Index", "loaded enabled recipes", { count: recipes.length });
-    for (const r of recipes) {
-      logger.info("RECIPES", "Index", "recipe", { id: r.id, name: r.recipe.name, sources: r.recipe.sources });
-    }
+    recipesEvaluator.startMatching();
+    logger.info("RECIPES", "Index", "evaluating enabled recipes", { count: recipesEvaluator.getEnabledCount() });
   } else {
     logger.info("RECIPES", "Index", "recipe system disabled (RECIPES_ENABLED not set)");
   }

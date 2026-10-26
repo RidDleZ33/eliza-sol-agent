@@ -585,7 +585,8 @@ export class TradeExecutionService {
         symbol,
         signature,
         effectivePrice,
-        tradeSize
+        tradeSize,
+        strategyId
       );
 
       logger.info("EXECUTION", "TradeExecution", "[LIVE] BUY completed", {
@@ -674,7 +675,8 @@ export class TradeExecutionService {
     symbol: string,
     convictionScore: number = 0.75,
     triggerType: string = "Committee Consensus",
-    deskReason?: string
+    deskReason?: string,
+    strategyId?: string
   ): Promise<TradeExecutionResult> {
     logger.info("EXECUTION", "TradeExecution", "Starting conviction-backed buy execution", {
       symbol,
@@ -761,7 +763,7 @@ export class TradeExecutionService {
         }
 
         const txSignature = "DRY_RUN_BUY_" + Date.now();
-        await watchlistService.addPosition(mintAddress, symbol, txSignature, effectivePrice, tradeSize);
+        await watchlistService.addPosition(mintAddress, symbol, txSignature, effectivePrice, tradeSize, strategyId);
         logger.info("EXECUTION", "TradeExecution", "[DRY_RUN] BUY position opened (no tx sent)", {
           symbol,
           signature: txSignature,

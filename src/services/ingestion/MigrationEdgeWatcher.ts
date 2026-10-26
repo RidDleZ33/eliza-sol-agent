@@ -4,6 +4,7 @@ import { logger } from "../LoggerService.ts";
 import { IngestionWatcher } from "./IngestionWatcher.ts";
 import { getIngestionInterval, getGmgnApiKey } from "../../utils/env.ts";
 import { tradeExecutionService } from "../TradeExecutionService.ts";
+import { recipesEvaluator, type CandidateFacts } from "../RecipesEvaluator.ts";
 
 const SOURCE = "mig_edge";
 const ENDPOINT = "https://openapi.gmgn.ai/v1/trenches";
@@ -272,17 +273,46 @@ export class MigrationEdgeWatcher implements IngestionWatcher {
     }
   }
 
-  private async maybeBuy(mint: string, symbol: string) {
+  private async maybeBuy(mint: string, symbol: string, facts?: any) {
     logger.info("INGESTION", this.name, "mig_edge buy", { mint, symbol });
+
+    // PHASE 25B: Evaluate candidate through enabled recipes before buying
+    let strategyId: string | undefined;
+    if (facts) {
+      const candidate: CandidateFacts = {
+        mint,
+        symbol,
+        source: SOURCE,
+        liq_usd: facts.liq_usd,
+        holders: facts.holders,
+        top10_rate: facts.top10_rate,
+        creator_status: facts.creator_status,
+        nuke_ratio: facts.nuke_ratio,
+      };
+
+      const matches = recipesEvaluator.evaluateCandidate(candidate);
+      const passing = matches.filter(m => m.pass);
+
+      if (passing.length > 0) {
+        strategyId = passing[0].recipeId;
+        logger.info("RECIPES", "maybeBuy", "candidate matched recipe", { mint, symbol, strategyId });
+      } else if (matches.length > 0) {
+        // Evaluated but no match — fall through to hardcoded path
+        logger.info("RECIPES", "maybeBuy", "candidate evaluated, no recipe match", { mint, symbol });
+      }
+    }
+
     try {
       const result = await tradeExecutionService.executeBuy(
         mint,
         symbol,
         0.75,
-        "mig_edge"
+        "mig_edge",
+        undefined,
+        strategyId
       );
       if (result.success) {
-        logger.info("INGESTION", this.name, "buy ok", { mint, symbol });
+        logger.info("INGESTION", this.name, "buy ok", { mint, symbol, strategyId });
       } else {
         logger.warn("INGESTION", this.name, "buy failed", { mint, symbol, error: result.error });
       }
