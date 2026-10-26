@@ -4,14 +4,14 @@
 // Future phases add wallet pay-to-upgrade.
 
 export type Tier = "operator" | "desk" | "feed" | "free";
-export type Feature = "run_executor" | "run_tape" | "view_trades" | "run_replay";
+export type Feature = "run_executor" | "run_tape" | "view_trades" | "run_replay" | "manage_strategies" | "run_backtest";
 
 const TIER = (process.env.ENTITLEMENT_TIER as Tier) || "operator";
 
 // Tier hierarchy: operator > desk > feed > free
 // Higher tiers include all lower tier features plus their own.
 export const FEATURES: Record<Tier, Set<Feature>> = {
-  operator: new Set(["run_executor", "run_tape", "view_trades", "run_replay"]),
+  operator: new Set(["run_executor", "run_tape", "view_trades", "run_replay", "manage_strategies", "run_backtest"]),
   desk:     new Set(["run_tape", "view_trades", "run_replay"]),
   feed:     new Set(["view_trades"]),
   free:     new Set(),

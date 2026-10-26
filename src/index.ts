@@ -1,4 +1,5 @@
 import { requestAlphaTick } from "./evaluators/AlphaNarrativeEvaluator.ts";
+import { app } from "./web/app.ts";
 import { evaluateBetaContract } from "./evaluators/BetaContractEvaluator.ts";
 import { tradeExecutionService } from "./services/TradeExecutionService.ts";
 import { recipesEvaluator } from "./services/RecipesEvaluator.ts";
@@ -238,6 +239,16 @@ async function main() {
   logger.info("INGESTION", "Index", `ingest sources: ds_latest=${dsLatest} ds_trending=${dsTrending} period=${period} bullish=${bullish} birdeye=${birdeyeLabel} new_listing=${newListingLabel} phantom=${phantom}`);
 
   logger.info("CONFIG", "Index", "AI Committee services initialized.");
+
+  // PHASE 26A: Web API - same-process Hono server on port 3000
+  const WEB_PORT = parseInt(process.env.WEB_PORT || "3000", 10);
+  const WEB_HOST = process.env.WEB_HOST || "127.0.0.1";
+  const webServer = Bun.serve({
+    fetch: app.fetch,
+    port: WEB_PORT,
+    hostname: WEB_HOST,
+  });
+  logger.info("WEB", "Index", `web API listening on ${WEB_HOST}:${WEB_PORT}`);
 
   // Register shutdown handlers
   process.on("SIGINT", () => shutdown("SIGINT"));

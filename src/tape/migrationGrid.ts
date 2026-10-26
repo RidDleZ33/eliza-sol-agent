@@ -34,7 +34,7 @@ interface MigrationClockInfo {
   sameSlotBuyers: number | null;
 }
 
-function collectMigrationClocks(): Map<string, MigrationClockInfo> {
+export function collectMigrationClocks(): Map<string, MigrationClockInfo> {
   const clocks = new Map<string, MigrationClockInfo>();
 
   if (!existsSync(TAPE_DIR)) {
@@ -253,7 +253,7 @@ function getSixHourTicks(mint: string, clockMs: number, pairAddress: string) {
   return { entry: entryTick, ticks: allTicks, peak, peakMs };
 }
 
-function getTicksForMint(mint: string, clockMs: number, pairAddress: string) {
+export function getTicksForMint(mint: string, clockMs: number, pairAddress: string) {
   if (!existsSync(TAPE_DIR)) {
     return { entry: null as Tick | null, ticks: [] as Tick[] };
   }
