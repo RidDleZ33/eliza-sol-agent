@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>eliza-sol-agent</title>
+    <title>RidSolBot</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -52,7 +52,7 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>🤖 eliza-sol-agent</h1>
+            <h1>🤖 RidSolBot</h1>
             <div class="tabs">
                 <div class="tab active" data-tab="strategies">Strategies</div>
                 <div class="tab" data-tab="backtest">Backtest</div>
@@ -76,8 +76,11 @@
   "name": "my_strategy",
   "sources": ["mig_edge"],
   "gates": [
-    {"field": "liquidity", "op": "gte", "value": 100000},
-    {"field": "top10_pct", "op": "lte", "value": 30}
+    {"field": "liq_usd", "op": "gte", "value": 25000},
+    {"field": "liq_usd", "op": "lte", "value": 100000},
+    {"field": "holders", "op": "gte", "value": 500},
+    {"field": "top10", "op": "present"},
+    {"field": "creator_close", "op": "present"}
   ],
   "exits": {
     "tp_pct": 30,

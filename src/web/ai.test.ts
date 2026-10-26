@@ -1,4 +1,4 @@
-import { describe, test, expect } from "@stdlib/testing";
+import { describe, test, expect } from "bun:test";
 import { RecipeSchema } from "../recipes/schema.ts";
 import { compileRecipe } from "../recipes/compile.ts";
 

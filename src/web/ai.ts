@@ -97,6 +97,19 @@ const TOOLS = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "sample_tape",
+      description: "Run a quick backtest on recent tape data using the current recipe to estimate how it would have performed. Returns n (clocks), policies with median return and hit rate.",
+      parameters: {
+        type: "object",
+        properties: {
+          window_hours: { type: "integer", description: "Optional window in hours (default 24)" },
+        },
+      },
+    },
+  },
 ];
 
 // Tool executor
@@ -139,6 +152,25 @@ async function executeTool(name: string, args: any) {
         return { ok: true, errors: [], compiled: true, compiled_info: { sources: compiled.sources, requiredFields: compiled.requiredFields } };
       } catch (e: any) {
         return { ok: false, errors: [{ message: e.message }], compiled: false };
+      }
+    }
+
+    case "sample_tape": {
+      try {
+        const { runBacktest } = await import("../../tape/backtest.ts");
+        const result = await runBacktest(args.window_hours);
+        return {
+          ok: true,
+          n: result.n,
+          policies: result.policies.map((p: any) => ({
+            name: p.name,
+            n: p.n,
+            median: p.median !== null ? p.median : null,
+            hit_rate: p.hit_rate !== null ? p.hit_rate : null,
+          })),
+        };
+      } catch (e: any) {
+        return { ok: false, errors: [e.message] };
       }
     }
 
