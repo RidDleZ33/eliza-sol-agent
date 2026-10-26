@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "name": "mig_edge",
+  "sources": ["mig_edge"],
+  "gates": [
+    { "field": "liq_usd", "op": "gte", "value": 25000 },
+    { "field": "liq_usd", "op": "lte", "value": 100000 },
+    { "field": "holders", "op": "gte", "value": 500 },
+    { "field": "top10", "op": "present" },
+    { "field": "creator_close", "op": "present" }
+  ],
+  "exits": {
+    "tp_pct": 50,
+    "stop_pct": 15,
+    "trail_pct": 10,
+    "clock_sec": 0,
+    "pool_drop_pct": 30
+  },
+  "rules": [],
+  "meta": {
+    "description": "Majority-migration edge: pump.fun -> raydium. Liquidity 25k-100k, 500+ holders, top10 and creator status present."
+  }
+}

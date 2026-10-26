@@ -12,6 +12,7 @@ import { logger } from "./services/LoggerService.ts";
 import { runInterlock } from "./boot/interlock.ts";
 import { getHouseSolBalance, getHouseKeypair } from "./utils/wallet.ts";
 import { tier, can } from "./entitlements/tier.ts";
+import { loadEnabledRecipes } from "./recipes/db.ts";
 
 let shuttingDown = false;
 
@@ -141,6 +142,18 @@ async function main() {
   }
 
   // Start position manager for auto-exit rules
+  // Phase 25A: load enabled recipes if flag is set (default off)
+  const recipesEnabled = process.env.RECIPES_ENABLED === "1";
+  if (recipesEnabled) {
+    const recipes = loadEnabledRecipes();
+    logger.info("RECIPES", "Index", "loaded enabled recipes", { count: recipes.length });
+    for (const r of recipes) {
+      logger.info("RECIPES", "Index", "recipe", { id: r.id, name: r.recipe.name, sources: r.recipe.sources });
+    }
+  } else {
+    logger.info("RECIPES", "Index", "recipe system disabled (RECIPES_ENABLED not set)");
+  }
+
   positionManagerService.start();
 
   tradeExecutionService.runtime = stubRuntime;
