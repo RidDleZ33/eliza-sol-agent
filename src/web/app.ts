@@ -196,13 +196,39 @@ app.get("/backtest/:id", (c) => {
   return c.json({ ok: true, job: job });
 });
 
-async function runBacktestJob(jobId: string, windowHours?: number) {
+// Cap at 6 hours for this slice (backtest reads full tape for window)
+function runBacktestJob(jobId: string, windowHours?: number) {
+  const wh = windowHours || 6;
+  const capped = Math.min(wh, 6);
+  
   try {
-    const { runBacktest } = await import("../tape/backtest.ts");
-    const result = await runBacktest(windowHours);
-    BACKTEST_JOBS.set(jobId, { status: "complete", result, completed_at: Date.now() });
+    const proc = Bun.spawn([
+      "bun", "src/tape/backtest-worker.ts", String(capped)
+    ], {
+      cwd: process.cwd(),
+      stdout: "pipe",
+      stderr: "pipe"
+    });
+    
+    let output = "";
+    proc.stdout.on("data", (chunk) => {
+      output += chunk.toString();
+    });
+    
+    proc.on("exit", (code) => {
+      try {
+        const parsed = JSON.parse(output.trim());
+        if (parsed.ok) {
+          BACKTEST_JOBS.set(jobId, { status: "complete", result: parsed.result, completed_at: Date.now() });
+        } else {
+          BACKTEST_JOBS.set(jobId, { status: "error", error: parsed.error || "backtest failed", completed_at: Date.now() });
+        }
+      } catch (e: any) {
+        BACKTEST_JOBS.set(jobId, { status: "error", error: `worker parse error: ${e.message}`, completed_at: Date.now() });
+      }
+    });
   } catch (e: any) {
-    BACKTEST_JOBS.set(jobId, { status: "error", error: e.message, completed_at: Date.now() });
+    BACKTEST_JOBS.set(jobId, { status: "error", error: `spawn failed: ${e.message}`, completed_at: Date.now() });
   }
 }
 
