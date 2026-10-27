@@ -27,7 +27,7 @@ function stripJsonFence(text: string): string {
 }
 
 export async function llmComplete(
-  prompt: string,
+  prompt: string | Array<{ role: string; content: string }>,
   options?: { json?: boolean; temperature?: number; base_url?: string; api_key?: string; model?: string }
 ): Promise<LlmClientResult> {
   const start = Date.now();
@@ -39,9 +39,12 @@ export async function llmComplete(
   while (attempt <= 1) {
     attempt++;
     try {
+      const messages = typeof prompt === "string"
+        ? [{ role: "user", content: prompt }]
+        : prompt;
       const body: Record<string, unknown> = {
         model: model,
-        messages: [{ role: "user", content: prompt }],
+        messages: messages,
         temperature: options?.temperature ?? 0.2,
       };
       if (options?.json) {
@@ -68,7 +71,7 @@ export async function llmComplete(
       const data = await res.json();
       const content = data?.choices?.[0]?.message?.content ?? "";
       const latency_ms = Date.now() - start;
-      logger.info("LLM", "LlmClient", "completion", { model: model, latency_ms, attempt, ok: true });
+      logger.info("LLM", "LlmClient", "completion", { model, latency_ms, attempt, ok: true });
       return {
         raw: content,
         parsed: tryParse(content),
@@ -77,10 +80,10 @@ export async function llmComplete(
     } catch (e: any) {
       const latency_ms = Date.now() - start;
       if (attempt === 1) {
-        logger.warn("LLM", "LlmClient", "retrying after error", { model: MODEL, latency_ms, error: e.message });
+        logger.warn("LLM", "LlmClient", "retrying after error", { model, latency_ms, error: e.message });
         continue;
       }
-      logger.error("LLM", "LlmClient", "completion failed", { model: MODEL, latency_ms, error: e.message });
+      logger.error("LLM", "LlmClient", "completion failed", { model, latency_ms, error: e.message });
       return { raw: "", parsed: null, latency_ms };
     }
   }

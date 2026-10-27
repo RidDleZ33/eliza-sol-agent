@@ -234,7 +234,7 @@ ${JSON.stringify(recipe, null, 2)}`,
   if (settingsModel) llmOptions.model = settingsModel;
 
   // Call LLM with tools
-  const result = await llmComplete(conversation, llmOptions);
+  const result = await llmComplete(conversation as Array<{ role: string; content: string }>, llmOptions);
   
   // Check for tool calls in response (simple pattern matching for now)
   let tool_calls = [];
