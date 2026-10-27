@@ -8,7 +8,8 @@ import { join } from "path";
 import { aiRouter } from "./ai.ts";
 import { cuRouter } from "./cu.ts";
 import { referralRouter } from "./referral.ts";
-
+import { getSetting, setSetting, getAllSettings, upsertSettings } from "../services/SettingsService.ts";
+import { INGREDIENTS } from "../recipes/ingredients.ts";
 
 export const app = new Hono();
 
@@ -479,4 +480,39 @@ app.get("/logs/tail", (c) => {
   } catch (e: any) {
     return c.json({ ok: false, error: e.message }, 500);
   }
+});
+
+// Settings routes
+app.get("/settings", (c) => {
+  const settings = getAllSettings();
+  // Mask the API key
+  const masked = { ...settings };
+  if (masked.llm_api_key !== null) {
+    masked.llm_api_key = "set";
+  }
+  return c.json({ ok: true, settings: masked });
+});
+
+app.post("/settings", async (c) => {
+  const body = await c.req.json();
+  try {
+    const pairs: Record<string, string> = {};
+    for (const [key, value] of Object.entries(body)) {
+      if (value !== undefined && value !== null) {
+        pairs[key] = typeof value === "string" ? value : JSON.stringify(value);
+      }
+    }
+    const ok = upsertSettings(pairs);
+    if (ok) {
+      return c.json({ ok: true });
+    }
+    return c.json({ ok: false, error: "failed to save settings" }, 500);
+  } catch (e: any) {
+    return c.json({ ok: false, error: e.message }, 500);
+  }
+});
+
+// Ingredients route (shared between AI tool and UI)
+app.get("/ingredients", (c) => {
+  return c.json({ ok: true, ingredients: INGREDIENTS });
 });

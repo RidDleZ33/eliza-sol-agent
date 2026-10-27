@@ -28,16 +28,19 @@ function stripJsonFence(text: string): string {
 
 export async function llmComplete(
   prompt: string,
-  options?: { json?: boolean; temperature?: number }
+  options?: { json?: boolean; temperature?: number; base_url?: string; api_key?: string; model?: string }
 ): Promise<LlmClientResult> {
   const start = Date.now();
   let attempt = 0;
+  const baseUrl = options?.base_url || BASE_URL;
+  const apiKey = options?.api_key || API_KEY;
+  const model = options?.model || MODEL;
 
   while (attempt <= 1) {
     attempt++;
     try {
       const body: Record<string, unknown> = {
-        model: MODEL,
+        model: model,
         messages: [{ role: "user", content: prompt }],
         temperature: options?.temperature ?? 0.2,
       };
@@ -47,11 +50,11 @@ export async function llmComplete(
 
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-      const res = await fetch(`${BASE_URL}/chat/completions`, {
+      const res = await fetch(`${baseUrl}/chat/completions`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${API_KEY}`,
+          Authorization: `Bearer ${apiKey}`,
         },
         body: JSON.stringify(body),
         signal: controller.signal,
@@ -65,7 +68,7 @@ export async function llmComplete(
       const data = await res.json();
       const content = data?.choices?.[0]?.message?.content ?? "";
       const latency_ms = Date.now() - start;
-      logger.info("LLM", "LlmClient", "completion", { model: MODEL, latency_ms, attempt, ok: true });
+      logger.info("LLM", "LlmClient", "completion", { model: model, latency_ms, attempt, ok: true });
       return {
         raw: content,
         parsed: tryParse(content),

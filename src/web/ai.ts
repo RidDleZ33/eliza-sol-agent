@@ -9,6 +9,8 @@ import { Hono } from "hono";
 import { llmComplete } from "../llm/LlmClient.ts";
 import { RecipeSchema } from "../recipes/schema.ts";
 import { compileRecipe } from "../recipes/compile.ts";
+import { INGREDIENTS } from "../recipes/ingredients.ts";
+import { getSetting } from "../services/SettingsService.ts";
 
 export const aiRouter = new Hono();
 
@@ -116,31 +118,7 @@ const TOOLS = [
 async function executeTool(name: string, args: any) {
   switch (name) {
     case "list_ingredients":
-      return {
-        sources: [
-          { name: "mig_edge", desc: "Meme-in-Genesis edge case tokens" },
-          { name: "ds_profile", desc: "DexScreener token profiles" },
-          { name: "ds_boost", desc: "DexScreener boosted tokens" },
-          { name: "custom", desc: "Custom source" },
-        ],
-        gate_fields: [
-          { field: "liq_usd", desc: "Pool liquidity in USD", example: { field: "liq_usd", op: "gte", value: 10000 } },
-          { field: "holders", desc: "Number of holders", example: { field: "holders", op: "gte", value: 500 } },
-          { field: "top10", desc: "Top 10 holders present", example: { field: "top10", op: "present" } },
-          { field: "creator_close", desc: "Creator wallet info present", example: { field: "creator_close", op: "present" } },
-          { field: "nuke_ratio", desc: "Max supply in single wallet", example: { field: "nuke_ratio", op: "lte", value: 0.2 } },
-          { field: "pool_age_sec", desc: "Seconds since pool creation", example: { field: "pool_age_sec", op: "lte", value: 3600 } },
-          { field: "vol_1h", desc: "1-hour volume", example: { field: "vol_1h", op: "gte", value: 100000 } },
-        ],
-        operators: ["gte", "lte", "eq", "present", "absent"],
-        exit_keys: [
-          { key: "tp_pct", desc: "Take-profit percentage", example: 30 },
-          { key: "stop_pct", desc: "Stop-loss percentage", example: 15 },
-          { key: "trail_pct", desc: "Trailing stop percentage", example: 10 },
-          { key: "clock_sec", desc: "Max holding time (seconds)", example: 7200 },
-          { key: "pool_drop_pct", desc: "Exit on pool liquidity drop (%)", example: 50 },
-        ],
-      };
+      return INGREDIENTS;
 
     case "validate_recipe": {
       const result = RecipeSchema.safeParse(args.recipe);
@@ -184,7 +162,16 @@ Instruction: ${args.instruction}
 
 Suggest a complete, valid recipe JSON that implements this change. Return ONLY the JSON object.`;
 
-      const llmResult = await llmComplete(prompt, { json: true });
+      // Use settings for LLM config in suggest_mutation too
+      const settingsBaseUrl = getSetting("llm_base_url");
+      const settingsApiKey = getSetting("llm_api_key");
+      const settingsModel = getSetting("llm_model");
+      const llmOpts: any = { json: true };
+      if (settingsBaseUrl) llmOpts.base_url = settingsBaseUrl;
+      if (settingsApiKey) llmOpts.api_key = settingsApiKey;
+      if (settingsModel) llmOpts.model = settingsModel;
+
+      const llmResult = await llmComplete(prompt, llmOpts);
       if (!llmResult.parsed) {
         return { ok: false, errors: ["LLM failed to produce JSON"], recipe: null };
       }
@@ -236,8 +223,18 @@ ${JSON.stringify(recipe, null, 2)}`,
     });
   }
 
+  // Read settings for LLM config
+  const settingsBaseUrl = getSetting("llm_base_url");
+  const settingsApiKey = getSetting("llm_api_key");
+  const settingsModel = getSetting("llm_model");
+
+  const llmOptions: any = { json: false };
+  if (settingsBaseUrl) llmOptions.base_url = settingsBaseUrl;
+  if (settingsApiKey) llmOptions.api_key = settingsApiKey;
+  if (settingsModel) llmOptions.model = settingsModel;
+
   // Call LLM with tools
-  const result = await llmComplete(conversation);
+  const result = await llmComplete(conversation, llmOptions);
   
   // Check for tool calls in response (simple pattern matching for now)
   let tool_calls = [];

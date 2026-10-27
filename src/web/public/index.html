@@ -17,7 +17,7 @@
         .avatar-menu.open { display: block; }
         .avatar-menu-item { padding: 8px 16px; color: #888; font-size: 0.85em; cursor: pointer; }
         .avatar-menu-item:hover { background: #1a1a1a; color: #e0e0e0; }
-        
+
         .tabs { display: flex; gap: 2px; flex-wrap: nowrap; overflow-x: auto; }
         .tab { padding: 8px 16px; background: transparent; border: none; border-bottom: 2px solid transparent; cursor: pointer; font-size: 0.9em; color: #888; white-space: nowrap; }
         .tab:hover { color: #e0e0e0; }
@@ -58,37 +58,42 @@
         th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid #333; }
         th { background: #0b0d10; color: #888; font-size: 0.8em; text-transform: uppercase; font-weight: 500; }
         @media (max-width: 768px) {
-            .tabs {
-                display: flex;
-                flex-direction: row;
-                overflow-x: auto;
-                width: 100%;
-                margin-top: 8px;
-                position: static;
-            }
+            .tabs { display: flex; flex-direction: row; overflow-x: auto; width: 100%; margin-top: 8px; position: static; }
             .grid-2, .grid-3 { grid-template-columns: 1fr; }
             .header { flex-wrap: wrap; }
             .logo { font-size: 0.28em; }
             .strategy-item { flex-direction: column; align-items: flex-start; gap: 8px; }
         }
+        /* Palette + builder layout */
+        .builder-layout { display: grid; grid-template-columns: 280px 1fr; gap: 16px; }
+        .palette { background: #14171c; border: 1px solid #23272e; border-radius: 6px; padding: 12px; }
+        .palette h3 { font-size: 0.95em; color: #888; margin-bottom: 8px; text-transform: uppercase; font-weight: 500; }
+        .palette-section { margin-bottom: 16px; }
+        .palette-item { padding: 4px 8px; font-size: 0.85em; color: #aaa; margin-bottom: 2px; }
+        .gate-row, .rule-row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+        .gate-row select, .rule-row select, .gate-row input, .rule-row input { flex: 1; }
+        .remove-btn { padding: 4px 8px; font-size: 0.8em; }
+        .json-preview { background: #000; border: 1px solid #23272e; border-radius: 4px; padding: 12px; font-family: 'Courier New', monospace; font-size: 0.8em; color: #0f0; white-space: pre-wrap; min-height: 150px; }
+        .raw-json-toggle { font-size: 0.8em; color: #4fc3f7; cursor: pointer; }
+        .raw-json-toggle:hover { text-decoration: underline; }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-                        <div class="header-left">
+            <div class="header-left">
                 <pre class="logo">██████╗ ██╗██████╗ ███████╗ ██████╗ ██╗     ██████╗  ██████╗ ████████╗
 ██╔══██╗██║██╔══██╗██╔════╝██╔═══██╗██║     ██╔══██╗██╔═══██╗╚══██╔══╝
-██████╔╝██║██║  ██║███████╗██║   ██║██║     ██████╔╝██║   ██║   ██║   
-██╔══██╗██║██║  ██║╚════██║██║   ██║██║     ██╔══██╗██║   ██║   ██║   
-██║  ██║██║██████╔╝███████║╚██████╔╝███████╗██████╔╝╚██████╔╝   ██║   
+██████╔╝██║██║  ██║███████╗██║   ██║██║     ██████╔╝██║   ██║   ██║
+██╔══██╗██║██║  ██║╚════██║██║   ██║██║     ██╔══██╗██║   ██║   ██║
+██║  ██║██║██████╔╝███████║╚██████╔╝███████╗██████╔╝╚██████╔╝   ██║
 ╚═╝  ╚═╝╚═╝╚═════╝ ╚══════╝ ╚═════╝ ╚══════╝╚═════╝  ╚═════╝    ╚═╝</pre>
             </div>
             <div class="avatar" onclick="toggleAvatarMenu()">O
                 <div class="avatar-menu" id="avatar-menu">
                     <div class="avatar-menu-item" onclick="switchTab('dev')">Dev Tools</div>
                     <div class="avatar-menu-item">Profile</div>
-                    <div class="avatar-menu-item">Settings</div>
+                    <div class="avatar-menu-item" onclick="switchTab('settings')">Settings</div>
                     <div class="avatar-menu-item">Logout</div>
                 </div>
             </div>
@@ -111,30 +116,71 @@
             <div class="card">
                 <h2 id="editor-title">New Strategy</h2>
                 <p id="editor-status" style="font-size:0.8em;color:#888;margin-bottom:8px;"></p>
-                <div class="field">
-                    <label>Recipe JSON</label>
-                    <textarea id="recipe-json">{
-  "version": 1,
-  "name": "my_strategy",
-  "sources": ["mig_edge"],
-  "gates": [
-    {"field": "liq_usd", "op": "gte", "value": 25000},
-    {"field": "liq_usd", "op": "lte", "value": 100000},
-    {"field": "holders", "op": "gte", "value": 500},
-    {"field": "top10", "op": "present"},
-    {"field": "creator_close", "op": "present"}
-  ],
-  "exits": {
-    "tp_pct": 30,
-    "stop_pct": 15,
-    "clock_sec": 3600
-  }
-}</textarea>
+                <div class="builder-layout">
+                    <!-- Ingredient Palette -->
+                    <div class="palette" id="ingredient-palette">
+                        <div class="palette-section">
+                            <h3>Sources</h3>
+                            <div id="palette-sources"></div>
+                        </div>
+                        <div class="palette-section">
+                            <h3>Gate Fields</h3>
+                            <div id="palette-gates"></div>
+                        </div>
+                        <div class="palette-section">
+                            <h3>Exit Keys</h3>
+                            <div id="palette-exits"></div>
+                        </div>
+                        <div class="palette-section">
+                            <h3>Operators</h3>
+                            <div id="palette-operators"></div>
+                        </div>
+                    </div>
+                    <!-- Strategy Editor Form -->
+                    <div id="strategy-editor">
+                        <div class="field">
+                            <label>Strategy Name</label>
+                            <input type="text" id="strategy-name" placeholder="my_strategy" oninput="updateRecipeFromForm()">
+                        </div>
+                        <div class="field">
+                            <label>Sources</label>
+                            <div id="sources-editor"></div>
+                        </div>
+                        <div class="field">
+                            <label>Gates</label>
+                            <div id="gates-editor"></div>
+                            <button onclick="addGateRow()" style="margin-top:4px;">Add Gate</button>
+                        </div>
+                        <div class="field">
+                            <label>Exits</label>
+                            <div id="exits-editor"></div>
+                        </div>
+                        <div class="field">
+                            <label>Rules</label>
+                            <div id="rules-editor"></div>
+                            <button onclick="addRuleRow()" style="margin-top:4px;">Add Rule</button>
+                        </div>
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;">
+                            <button class="primary" onclick="createStrategy()">Create / Update</button>
+                            <div>
+                                <button onclick="estimateCu()">Estimate CU</button>
+                                <span id="cu-note" style="font-size:0.8em;color:#888;margin-left:8px;"></span>
+                                <span id="recipe-msg"></span>
+                            </div>
+                        </div>
+                    </div>
                 </div>
-                <button class="primary" onclick="createStrategy()">Create / Update</button>
-                <button onclick="estimateCu()">Estimate CU</button>
-                <span id="cu-note" style="font-size:0.8em;color:#888;margin-left:8px;"></span>
-                <span id="recipe-msg"></span>
+                <div style="margin-top:12px;">
+                    <span class="raw-json-toggle" onclick="toggleRawJson()">Show Raw JSON</span>
+                    <div id="raw-json-section" style="display:none;margin-top:8px;">
+                        <textarea id="recipe-json" style="min-height:200px;"></textarea>
+                        <button onclick="applyRawJson()" style="margin-top:4px;">Apply JSON to Form</button>
+                    </div>
+                    <div id="json-preview-container" style="margin-top:8px;">
+                        <h3 style="font-size:0.9em;color:#888;margin-bottom:4px;">Live Preview</h3>
+                        <div class="json-preview" id="json-preview"></div>
+                    </div>
+                </div>
             </div>
             <div class="card">
                 <h2>AI Assistant</h2>
@@ -206,6 +252,53 @@
             </div>
         </div>
 
+        <!-- Settings Panel -->
+        <div id="settings" class="panel">
+            <div class="card">
+                <h2>Settings</h2>
+                <p style="font-size:0.8em;color:#888;margin-bottom:12px;">Configure LLM endpoint and trading parameters.</p>
+                <div class="field">
+                    <label>LLM Base URL</label>
+                    <input type="text" id="settings-llm_base_url" placeholder="http://localhost:11434/v1">
+                </div>
+                <div class="field">
+                    <label>LLM Model</label>
+                    <input type="text" id="settings-llm_model" placeholder="Qwen2.5:3b">
+                </div>
+                <div class="field">
+                    <label>LLM API Key</label>
+                    <input type="password" id="settings-llm_api_key" placeholder="Enter or update API key">
+                    <span id="settings-llm_api_key-status" style="font-size:0.8em;color:#888;"></span>
+                </div>
+                <div class="field">
+                    <label>Dry Run</label>
+                    <select id="settings-dry_run">
+                        <option value="">Use environment default</option>
+                        <option value="true">Enable dry run</option>
+                        <option value="false">Disable dry run</option>
+                    </select>
+                </div>
+                <div class="field">
+                    <label>Max Trade Size (SOL)</label>
+                    <input type="number" id="settings-max_trade_size_sol" step="0.01" placeholder="1.0">
+                </div>
+                <div class="field">
+                    <label>Default Take Profit (%)</label>
+                    <input type="number" id="settings-default_tp_pct" step="1" placeholder="30">
+                </div>
+                <div class="field">
+                    <label>Default Stop Loss (%)</label>
+                    <input type="number" id="settings-default_stop_pct" step="1" placeholder="15">
+                </div>
+                <div class="field">
+                    <label>Default Clock (seconds)</label>
+                    <input type="number" id="settings-default_clock_sec" step="1" placeholder="7200">
+                </div>
+                <button class="primary" onclick="saveSettings()">Save Settings</button>
+                <span id="settings-msg" style="margin-left:8px;"></span>
+            </div>
+        </div>
+
         <!-- Import Modal -->
         <div id="import-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); z-index:200;">
             <div style="background:#14171c; border:1px solid #23272e; border-radius:6px; padding:20px; margin:50px auto; max-width:600px;">
@@ -252,14 +345,16 @@
         let consoleInterval = null;
         let swarmInterval = null;
         let strategiesInterval = null;
+        let currentRecipe = null;
+        let ingredients = null;
+        let aiMessages = [];
+        let lastAiRecipe = null;
 
         // Avatar dropdown menu
         function toggleAvatarMenu() {
-            const menu = document.getElementById('avatar-menu');
-            menu.classList.toggle('open');
+            document.getElementById('avatar-menu').classList.toggle('open');
         }
 
-        // Close avatar menu on outside click or Escape
         document.addEventListener('click', (e) => {
             const menu = document.getElementById('avatar-menu');
             const avatar = document.querySelector('.avatar');
@@ -273,15 +368,339 @@
             }
         });
 
+        // Tab switching
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+            const tab = document.querySelector(`.tab[data-tab="${tabId}"]`);
+            if (tab) tab.classList.add('active');
+            document.getElementById(tabId).classList.add('active');
+            document.getElementById('avatar-menu').classList.remove('open');
+            if (tabId === 'settings') loadSettings();
+        }
+
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                switchTab(tab.dataset.tab);
+            });
+        });
+
+        // Load ingredients palette
+        async function loadIngredients() {
+            try {
+                const res = await fetch('/ingredients');
+                const data = await res.json();
+                if (data.ok) {
+                    ingredients = data.ingredients;
+                    renderPalette();
+                }
+            } catch (e) {
+                console.error('Failed to load ingredients:', e);
+            }
+        }
+
+        function renderPalette() {
+            if (!ingredients) return;
+
+            // Sources
+            const sourcesDiv = document.getElementById('palette-sources');
+            sourcesDiv.innerHTML = ingredients.sources.map(s =>
+                `<div class="palette-item"><strong>${s.name}</strong> - ${s.desc}</div>`
+            ).join('');
+
+            // Gate fields
+            const gatesDiv = document.getElementById('palette-gates');
+            gatesDiv.innerHTML = ingredients.gate_fields.map(g =>
+                `<div class="palette-item"><strong>${g.field}</strong> - ${g.desc}</div>`
+            ).join('');
+
+            // Exit keys
+            const exitsDiv = document.getElementById('palette-exits');
+            exitsDiv.innerHTML = ingredients.exit_keys.map(e =>
+                `<div class="palette-item"><strong>${e.key}</strong> - ${e.desc} (ex: ${e.example})</div>`
+            ).join('');
+
+            // Operators
+            const opsDiv = document.getElementById('palette-operators');
+            opsDiv.innerHTML = ingredients.operators.map(o =>
+                `<div class="palette-item">${o}</div>`
+            ).join('');
+
+            // Now build the editor
+            renderSourcesEditor();
+            renderExitsEditor();
+        }
+
+        // Render sources as checkboxes
+        function renderSourcesEditor() {
+            const container = document.getElementById('sources-editor');
+            const recipeSources = currentRecipe?.sources || [];
+
+            container.innerHTML = ingredients.sources.map(s => {
+                const checked = recipeSources.includes(s.name) ? 'checked' : '';
+                return `<label style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
+                    <input type="checkbox" value="${s.name}" ${checked} onchange="updateRecipeFromForm()">
+                    ${s.name}
+                </label>`;
+            }).join('');
+        }
+
+        // Render gates as rows
+        function renderGatesEditor() {
+            const container = document.getElementById('gates-editor');
+            const gates = currentRecipe?.gates || [];
+
+            if (gates.length === 0) {
+                container.innerHTML = '<p class="loading">No gates defined.</p>';
+                return;
+            }
+
+            container.innerHTML = gates.map((g, i) => `
+                <div class="gate-row" data-index="${i}">
+                    <select onchange="updateGateField(${i}, this.value)">
+                        ${ingredients.gate_fields.map(f =>
+                            `<option value="${f.field}" ${g.field === f.field ? 'selected' : ''}>${f.field}</option>`
+                        ).join('')}
+                    </select>
+                    <select onchange="updateGateOp(${i}, this.value)">
+                        ${ingredients.operators.map(o =>
+                            `<option value="${o}" ${g.op === o ? 'selected' : ''}>${o}</option>`
+                        ).join('')}
+                    </select>
+                    <input type="text" value="${g.value ?? ''}" placeholder="value"
+                        onchange="updateGateValue(${i}, this.value)"
+                        ${['present','absent'].includes(g.op) ? 'disabled' : ''}>
+                    <button class="remove-btn danger" onclick="removeGateRow(${i})">✕</button>
+                </div>
+            `).join('');
+        }
+
+        function addGateRow() {
+            if (!currentRecipe) {
+                currentRecipe = { version: 1, name: document.getElementById('strategy-name').value || 'my_strategy', sources: [], gates: [], exits: {}, rules: [] };
+            }
+            if (!currentRecipe.gates) currentRecipe.gates = [];
+            const field = ingredients.gate_fields[0].field;
+            const op = ingredients.operators[0];
+            currentRecipe.gates.push({ field: field, op: op });
+            renderGatesEditor();
+            updateRecipeFromForm();
+        }
+
+        function updateGateField(index, field) {
+            currentRecipe.gates[index].field = field;
+            updateRecipeFromForm();
+        }
+
+        function updateGateOp(index, op) {
+            currentRecipe.gates[index].op = op;
+            renderGatesEditor();
+            updateRecipeFromForm();
+        }
+
+        function updateGateValue(index, value) {
+            const g = currentRecipe.gates[index];
+            if (['present', 'absent'].includes(g.op)) {
+                delete g.value;
+            } else if (value === '' || value === null) {
+                delete g.value;
+            } else {
+                const num = Number(value);
+                g.value = isNaN(num) ? value : num;
+            }
+            updateRecipeFromForm();
+        }
+
+        function removeGateRow(index) {
+            currentRecipe.gates.splice(index, 1);
+            renderGatesEditor();
+            updateRecipeFromForm();
+        }
+
+        // Render exits as number inputs
+        function renderExitsEditor() {
+            const container = document.getElementById('exits-editor');
+            const exits = currentRecipe?.exits || {};
+
+            container.innerHTML = ingredients.exit_keys.map(e => {
+                const val = exits[e.key] ?? '';
+                return `<div class="field" style="margin-bottom:8px;">
+                    <label style="font-size:0.85em;">${e.key} (${e.desc})</label>
+                    <input type="number" value="${val}" step="1" placeholder="${e.example}"
+                        style="width:100%;" onchange="updateExit('${e.key}', this.value)">
+                </div>`;
+            }).join('');
+        }
+
+        function updateExit(key, value) {
+            if (!currentRecipe) {
+                currentRecipe = { version: 1, name: document.getElementById('strategy-name').value || 'my_strategy', sources: [], gates: [], exits: {}, rules: [] };
+            }
+            if (!currentRecipe.exits) currentRecipe.exits = {};
+            if (value === '') {
+                delete currentRecipe.exits[key];
+            } else {
+                currentRecipe.exits[key] = Number(value);
+            }
+            updateRecipeFromForm();
+        }
+
+        // Rules
+        function renderRulesEditor() {
+            const container = document.getElementById('rules-editor');
+            const rules = currentRecipe?.rules || [];
+
+            if (rules.length === 0) {
+                container.innerHTML = '<p class="loading">No rules defined.</p>';
+                return;
+            }
+
+            container.innerHTML = rules.map((r, i) => `
+                <div class="rule-row" data-index="${i}">
+                    <select onchange="updateRuleTrigger(${i}, this.value)">
+                        <option value="">trigger</option>
+                        ${ingredients.rule_triggers.map(t =>
+                            `<option value="${t}" ${r.trigger === t ? 'selected' : ''}>${t}</option>`
+                        ).join('')}
+                    </select>
+                    <input type="text" value="${r.interval ?? r.threshold ?? ''}" placeholder="interval/threshold"
+                        onchange="updateRuleParam(${i}, this.value)">
+                    <select onchange="updateRuleAction(${i}, this.value)">
+                        <option value="">action</option>
+                        ${ingredients.rule_actions.map(a =>
+                            `<option value="${a}" ${r.action === a ? 'selected' : ''}>${a}</option>`
+                        ).join('')}
+                    </select>
+                    <button class="remove-btn danger" onclick="removeRuleRow(${i})">✕</button>
+                </div>
+            `).join('');
+        }
+
+        function addRuleRow() {
+            if (!currentRecipe) {
+                currentRecipe = { version: 1, name: document.getElementById('strategy-name').value || 'my_strategy', sources: [], gates: [], exits: {}, rules: [] };
+            }
+            if (!currentRecipe.rules) currentRecipe.rules = [];
+            currentRecipe.rules.push({});
+            renderRulesEditor();
+            updateRecipeFromForm();
+        }
+
+        function updateRuleTrigger(index, trigger) {
+            if (!currentRecipe.rules[index]) currentRecipe.rules[index] = {};
+            if (trigger) {
+                currentRecipe.rules[index].trigger = trigger;
+            } else {
+                delete currentRecipe.rules[index].trigger;
+            }
+            updateRecipeFromForm();
+        }
+
+        function updateRuleParam(index, param) {
+            if (!currentRecipe.rules[index]) currentRecipe.rules[index] = {};
+            if (param) {
+                const num = Number(param);
+                if (!isNaN(num)) {
+                    currentRecipe.rules[index].interval = num;
+                } else {
+                    currentRecipe.rules[index].threshold = param;
+                }
+            }
+            updateRecipeFromForm();
+        }
+
+        function updateRuleAction(index, action) {
+            if (!currentRecipe.rules[index]) currentRecipe.rules[index] = {};
+            if (action) {
+                currentRecipe.rules[index].action = action;
+            } else {
+                delete currentRecipe.rules[index].action;
+            }
+            updateRecipeFromForm();
+        }
+
+        function removeRuleRow(index) {
+            currentRecipe.rules.splice(index, 1);
+            renderRulesEditor();
+            updateRecipeFromForm();
+        }
+
+        // Form -> Recipe
+        function updateRecipeFromForm() {
+            if (!currentRecipe) {
+                currentRecipe = { version: 1, name: 'my_strategy', sources: [], gates: [], exits: {}, rules: [] };
+            }
+
+            // Name
+            currentRecipe.name = document.getElementById('strategy-name').value || 'my_strategy';
+
+            // Sources from checkboxes
+            const checkedSources = [];
+            document.querySelectorAll('#sources-editor input[type="checkbox"]:checked').forEach(cb => {
+                checkedSources.push(cb.value);
+            });
+            currentRecipe.sources = checkedSources;
+
+            // Update JSON preview
+            updateJsonPreview();
+        }
+
+        function updateJsonPreview() {
+            const preview = document.getElementById('json-preview');
+            const rawTextarea = document.getElementById('recipe-json');
+            try {
+                const json = JSON.stringify(currentRecipe, null, 2);
+                preview.textContent = json;
+                rawTextarea.value = json;
+            } catch (e) {
+                preview.textContent = 'Error: ' + e.message;
+            }
+        }
+
+        function toggleRawJson() {
+            const section = document.getElementById('raw-json-section');
+            const toggle = document.querySelector('.raw-json-toggle');
+            if (section.style.display === 'none') {
+                section.style.display = 'block';
+                toggle.textContent = 'Hide Raw JSON';
+            } else {
+                section.style.display = 'none';
+                toggle.textContent = 'Show Raw JSON';
+            }
+        }
+
+        function applyRawJson() {
+            const raw = document.getElementById('recipe-json').value;
+            try {
+                const parsed = JSON.parse(raw);
+                currentRecipe = parsed;
+                renderSourcesEditor();
+                renderGatesEditor();
+                renderExitsEditor();
+                renderRulesEditor();
+                document.getElementById('strategy-name').value = parsed.name || '';
+                updateJsonPreview();
+                document.getElementById('recipe-msg').innerHTML = '<span class="success-msg">Applied JSON to form</span>';
+            } catch (e) {
+                document.getElementById('recipe-msg').innerHTML = `<span class="error">Invalid JSON: ${e.message}</span>`;
+            }
+        }
+
         // Load strategy into editor
         async function loadStrategyIntoEditor(id) {
             try {
                 const res = await fetch(`/strategies/${id}`);
                 const data = await res.json();
                 if (data.ok && data.strategy) {
-                    document.getElementById('recipe-json').value = JSON.stringify(data.strategy.recipe, null, 2);
+                    currentRecipe = data.strategy.recipe;
+                    renderSourcesEditor();
+                    renderGatesEditor();
+                    renderExitsEditor();
+                    renderRulesEditor();
+                    document.getElementById('strategy-name').value = data.strategy.recipe.name || '';
                     document.getElementById('editor-title').textContent = data.strategy.name || data.strategy.id;
                     document.getElementById('editor-status').textContent = `Status: ${data.strategy.status} • Last updated: ${new Date(data.strategy.updated_at * 1000).toLocaleString()}`;
+                    updateJsonPreview();
                 }
             } catch (e) {
                 console.error('Failed to load strategy:', e);
@@ -300,23 +719,6 @@
             loadStrategies();
             loadSwarmStatus();
             loadConsole();
-        });
-
-        // Tab switching
-        function switchTab(tabId) {
-            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-            document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
-            const tab = document.querySelector(`.tab[data-tab="${tabId}"]`);
-            if (tab) tab.classList.add('active');
-            document.getElementById(tabId).classList.add('active');
-            // Close avatar menu
-            document.getElementById('avatar-menu').classList.remove('open');
-        }
-
-        document.querySelectorAll('.tab').forEach(tab => {
-            tab.addEventListener('click', () => {
-                switchTab(tab.dataset.tab);
-            });
         });
 
         // Strategies
@@ -341,7 +743,6 @@
                             </span>
                         </div>
                     `).join('');
-                    // Populate backtest strategy dropdown
                     const btSelect = document.getElementById('bt-strategy');
                     const currentVal = btSelect.value;
                     btSelect.innerHTML = '<option value="">Default (all strategies)</option>';
@@ -361,6 +762,7 @@
         }
 
         async function createStrategy() {
+            updateRecipeFromForm();
             const json = document.getElementById('recipe-json').value;
             const msg = document.getElementById('recipe-msg');
             try {
@@ -469,7 +871,6 @@
                 return;
             }
 
-            // Try to render whatever structure the backtest returns
             if (result.summary) {
                 const s = result.summary;
                 let html = '<div class="grid grid-3">';
@@ -549,11 +950,11 @@
                     status.innerHTML = `
                         <div class="grid grid-3">
                             <div class="stat">
-                                <div class="stat-value">🟢 Running</div>
+                                <div class="stat-value">Running</div>
                                 <div class="stat-label">Process</div>
                             </div>
                             <div class="stat">
-                                <div class="stat-value">${data.matching ? '🟢 On' : '🔴 Off'}</div>
+                                <div class="stat-value">${data.matching ? 'On' : 'Off'}</div>
                                 <div class="stat-label">Recipe Matching</div>
                             </div>
                             <div class="stat">
@@ -628,9 +1029,6 @@
         }
 
         // AI Chat
-        let aiMessages = [];
-        let lastAiRecipe = null;
-
         function addAiMessage(role, content) {
             const chat = document.getElementById('ai-chat');
             const line = document.createElement('div');
@@ -640,7 +1038,7 @@
                 line.textContent = `You: ${content}`;
             } else if (role === 'tool') {
                 line.style.color = '#4caf50';
-                line.textContent = `🔧 ${content}`;
+                line.textContent = `Tool: ${content}`;
             } else {
                 line.style.color = '#4fc3f7';
                 line.textContent = `AI: ${content}`;
@@ -651,7 +1049,13 @@
 
         function applyAiRecipe() {
             if (lastAiRecipe) {
-                document.getElementById('recipe-json').value = JSON.stringify(lastAiRecipe, null, 2);
+                currentRecipe = lastAiRecipe;
+                renderSourcesEditor();
+                renderGatesEditor();
+                renderExitsEditor();
+                renderRulesEditor();
+                document.getElementById('strategy-name').value = lastAiRecipe.name || '';
+                updateJsonPreview();
                 document.getElementById('ai-apply-btn').style.display = 'none';
                 lastAiRecipe = null;
             }
@@ -668,6 +1072,7 @@
             msg.innerHTML = '<span class="loading">Thinking...</span>';
 
             // Get current recipe for context
+            updateRecipeFromForm();
             let recipe = null;
             try {
                 recipe = JSON.parse(document.getElementById('recipe-json').value);
@@ -676,7 +1081,6 @@
             }
 
             try {
-                // Use AbortController for timeout (15s)
                 const controller = new AbortController();
                 const timeout = setTimeout(() => controller.abort(), 15000);
 
@@ -696,7 +1100,6 @@
                     msg.innerHTML = '';
                     addAiMessage('assistant', data.assistant);
 
-                    // Handle tool results
                     if (data.tool_results && data.tool_results.length > 0) {
                         for (const tr of data.tool_results) {
                             if (tr.name === 'validate_recipe' && tr.result.ok) {
@@ -719,6 +1122,69 @@
                 } else {
                     msg.innerHTML = `<span class="error">Error: ${e.message}</span>`;
                 }
+            }
+        }
+
+        // Settings
+        async function loadSettings() {
+            try {
+                const res = await fetch('/settings');
+                const data = await res.json();
+                if (data.ok) {
+                    const s = data.settings;
+                    document.getElementById('settings-llm_base_url').value = s.llm_base_url || '';
+                    document.getElementById('settings-llm_model').value = s.llm_model || '';
+                    document.getElementById('settings-llm_api_key').value = '';
+                    document.getElementById('settings-llm_api_key-status').textContent = s.llm_api_key === 'set' ? '(API key is set)' : '(no API key set)';
+                    document.getElementById('settings-dry_run').value = s.dry_run !== null && s.dry_run !== undefined ? s.dry_run : '';
+                    document.getElementById('settings-max_trade_size_sol').value = s.max_trade_size_sol || '';
+                    document.getElementById('settings-default_tp_pct').value = s.default_tp_pct || '';
+                    document.getElementById('settings-default_stop_pct').value = s.default_stop_pct || '';
+                    document.getElementById('settings-default_clock_sec').value = s.default_clock_sec || '';
+                }
+            } catch (e) {
+                console.error('Failed to load settings:', e);
+            }
+        }
+
+        async function saveSettings() {
+            const msg = document.getElementById('settings-msg');
+            try {
+                const body = {
+                    llm_base_url: document.getElementById('settings-llm_base_url').value,
+                    llm_model: document.getElementById('settings-llm_model').value,
+                    dry_run: document.getElementById('settings-dry_run').value,
+                    max_trade_size_sol: document.getElementById('settings-max_trade_size_sol').value,
+                    default_tp_pct: document.getElementById('settings-default_tp_pct').value,
+                    default_stop_pct: document.getElementById('settings-default_stop_pct').value,
+                    default_clock_sec: document.getElementById('settings-default_clock_sec').value,
+                };
+                const apiKey = document.getElementById('settings-llm_api_key').value;
+                if (apiKey) {
+                    body.llm_api_key = apiKey;
+                }
+
+                // Remove empty values
+                for (const key in body) {
+                    if (body[key] === '' || body[key] === null) {
+                        delete body[key];
+                    }
+                }
+
+                const res = await fetch('/settings', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+                const data = await res.json();
+                if (data.ok) {
+                    msg.innerHTML = '<span class="success-msg">Settings saved</span>';
+                    loadSettings();
+                } else {
+                    msg.innerHTML = `<span class="error">${data.error}</span>`;
+                }
+            } catch (e) {
+                msg.innerHTML = `<span class="error">${e.message}</span>`;
             }
         }
 
@@ -822,7 +1288,6 @@
                     return;
                 }
                 const json = JSON.stringify(data, null, 2);
-                // Copy to clipboard and show in import modal
                 document.getElementById('import-json').value = json;
                 navigator.clipboard.writeText(json).then(() => {
                     alert('Exported to clipboard');
@@ -850,7 +1315,6 @@
             errors.innerHTML = '';
             try {
                 const payload = JSON.parse(json);
-                // If it has recipe wrapper, send as-is; otherwise wrap
                 const body = payload.recipe ? payload : { recipe: payload };
                 const res = await fetch('/strategies/import', {
                     method: 'POST',
@@ -931,6 +1395,7 @@
         }
 
         // Init
+        loadIngredients();
         loadStrategies();
         loadSwarmStatus();
         loadConsole();
