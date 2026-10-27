@@ -9,9 +9,13 @@
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0f0f0f; color: #e0e0e0; }
         .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
-        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 10px; border-bottom: 1px solid #333; }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 10px; border-bottom: 1px solid #333; position: sticky; top: 0; background: #0f0f0f; z-index: 100; padding-top: 10px; }
+        .header-left { display: flex; align-items: center; gap: 10px; }
         .header h1 { font-size: 1.5em; color: #4fc3f7; }
-        .tabs { display: flex; gap: 5px; }
+        .avatar { width: 30px; height: 30px; border-radius: 50%; background: #4fc3f7; display: flex; align-items: center; justify-content: center; font-size: 0.8em; color: #000; font-weight: bold; }
+        .avatar-label { font-size: 0.8em; color: #888; }
+        .hamburger { display: none; font-size: 1.5em; cursor: pointer; }
+        .tabs { display: flex; gap: 5px; flex-wrap: wrap; }
         .tab { padding: 8px 16px; background: #1a1a1a; border: 1px solid #333; border-radius: 4px; cursor: pointer; font-size: 0.9em; }
         .tab.active { background: #4fc3f7; color: #000; }
         .panel { display: none; }
@@ -47,13 +51,27 @@
         table { width: 100%; border-collapse: collapse; }
         th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid #333; }
         th { background: #1a1a1a; color: #4fc3f7; font-size: 0.85em; text-transform: uppercase; }
+        @media (max-width: 768px) {
+            .hamburger { display: block; }
+            .tabs { display: none; flex-direction: column; width: 100%; margin-top: 10px; position: absolute; top: 60px; left: 0; background: #0f0f0f; padding: 10px; border: 1px solid #333; z-index: 101; }
+            .tabs.open { display: flex; }
+            .grid-2, .grid-3 { grid-template-columns: 1fr; }
+            .header { flex-direction: column; align-items: flex-start; }
+            .strategy-item { flex-direction: column; align-items: flex-start; gap: 8px; }
+            .stat-value { font-size: 1.5em; }
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h1>🤖 RidSolBot</h1>
-            <div class="tabs">
+            <div class="hamburger" onclick="toggleMenu()">☰</div>
+            <div class="header-left">
+                <h1>🤖 RidSolBot</h1>
+                <span class="avatar-label">Operator</span>
+            </div>
+            <div class="avatar">O</div>
+            <div class="tabs" id="nav-tabs">
                 <div class="tab active" data-tab="strategies">Strategies</div>
                 <div class="tab" data-tab="backtest">Backtest</div>
                 <div class="tab" data-tab="swarm">Swarm</div>
@@ -103,6 +121,7 @@
                     <button class="primary" onclick="sendAIMessage()">Send</button>
                 </div>
                 <span id="ai-msg"></span>
+                <button id="ai-apply-btn" onclick="applyAiRecipe()" class="primary" style="display:none;margin-top:8px;">Apply to Editor</button>
             </div>
         </div>
 
@@ -111,10 +130,16 @@
             <div class="card">
                 <h2>Run Backtest</h2>
                 <div class="field">
+                    <label>Strategy</label>
+                    <select id="bt-strategy" style="width: 100%;">
+                        <option value="">Default (all strategies)</option>
+                    </select>
+                </div>
+                <div class="field">
                     <label>Window (hours)</label>
                     <input type="number" id="bt-window" value="24" style="width: 100px;">
                 </div>
-                <button class="primary" onclick="runBacktest()">Run Backtest</button>
+                <button class="primary" onclick="runBacktest()" id="bt-btn">Run Backtest</button>
                 <span id="bt-msg"></span>
             </div>
             <div class="card">
@@ -162,6 +187,12 @@
         let swarmInterval = null;
         let strategiesInterval = null;
 
+        // Mobile hamburger menu
+        function toggleMenu() {
+            const tabs = document.getElementById('nav-tabs');
+            tabs.classList.toggle('open');
+        }
+
         // Tab switching
         document.querySelectorAll('.tab').forEach(tab => {
             tab.addEventListener('click', () => {
@@ -193,6 +224,17 @@
                             </span>
                         </div>
                     `).join('');
+                    // Populate backtest strategy dropdown
+                    const btSelect = document.getElementById('bt-strategy');
+                    const currentVal = btSelect.value;
+                    btSelect.innerHTML = '<option value="">Default (all strategies)</option>';
+                    data.strategies.forEach(s => {
+                        const opt = document.createElement('option');
+                        opt.value = s.id;
+                        opt.textContent = s.name || s.id;
+                        btSelect.appendChild(opt);
+                    });
+                    btSelect.value = currentVal;
                 } else {
                     list.innerHTML = '<p class="loading">No strategies yet.</p>';
                 }
@@ -238,27 +280,69 @@
         // Backtest
         async function runBacktest() {
             const window = document.getElementById('bt-window').value;
+            const strategyId = document.getElementById('bt-strategy').value;
             const msg = document.getElementById('bt-msg');
             const results = document.getElementById('bt-results');
-            msg.innerHTML = '<span class="loading">Running...</span>';
+            const btn = document.getElementById('bt-btn');
+            msg.innerHTML = '<span class="loading">Starting backtest...</span>';
             results.innerHTML = '';
+            btn.disabled = true;
 
             try {
                 const res = await fetch('/backtest', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ window_hours: parseInt(window) })
+                    body: JSON.stringify({ window_hours: parseInt(window), strategy_id: strategyId || null })
                 });
                 const data = await res.json();
                 if (data.ok) {
-                    msg.innerHTML = '';
-                    renderBacktestResults(data.result);
+                    pollBacktestJob(data.job_id);
                 } else {
                     msg.innerHTML = `<span class="error">${data.error}</span>`;
+                    btn.disabled = false;
                 }
             } catch (e) {
                 msg.innerHTML = `<span class="error">Error: ${e.message}</span>`;
+                btn.disabled = false;
             }
+        }
+
+        async function pollBacktestJob(jobId) {
+            const msg = document.getElementById('bt-msg');
+            const btn = document.getElementById('bt-btn');
+            let attempts = 0;
+            const maxAttempts = 60;
+
+            const poll = async () => {
+                attempts++;
+                if (attempts > maxAttempts) {
+                    msg.innerHTML = '<span class="error">Backtest timed out</span>';
+                    btn.disabled = false;
+                    return;
+                }
+
+                try {
+                    const res = await fetch(`/backtest/${jobId}`);
+                    const data = await res.json();
+                    if (data.ok && data.job) {
+                        if (data.job.status === 'running') {
+                            msg.innerHTML = '<span class="loading">Backtest running...</span>';
+                            setTimeout(poll, 2000);
+                        } else if (data.job.status === 'complete') {
+                            msg.innerHTML = '';
+                            btn.disabled = false;
+                            renderBacktestResults(data.job.result);
+                        } else if (data.job.status === 'error') {
+                            msg.innerHTML = `<span class="error">${data.job.error}</span>`;
+                            btn.disabled = false;
+                        }
+                    }
+                } catch (e) {
+                    setTimeout(poll, 2000);
+                }
+            };
+
+            setTimeout(poll, 1000);
         }
 
         function renderBacktestResults(result) {
@@ -348,18 +432,19 @@
                     status.innerHTML = `
                         <div class="grid grid-3">
                             <div class="stat">
-                                <div class="stat-value">${data.matching ? '🟢 Running' : '🔴 Stopped'}</div>
-                                <div class="stat-label">Matching</div>
+                                <div class="stat-value">🟢 Running</div>
+                                <div class="stat-label">Process</div>
                             </div>
                             <div class="stat">
-                                <div class="stat-value">${data.recipes_enabled}</div>
-                                <div class="stat-label">Recipes Enabled</div>
+                                <div class="stat-value">${data.matching ? '🟢 On' : '🔴 Off'}</div>
+                                <div class="stat-label">Recipe Matching</div>
                             </div>
                             <div class="stat">
                                 <div class="stat-value">${data.dry_run ? 'Dry Run' : 'Live'}</div>
                                 <div class="stat-label">Mode</div>
                             </div>
                         </div>
+                        <p style="margin-top:8px;font-size:0.8em;color:#888;">${data.recipes_enabled} enabled strategies. Start/Stop toggle recipe matching only.</p>
                     `;
                 }
             } catch (e) {
@@ -427,6 +512,7 @@
 
         // AI Chat
         let aiMessages = [];
+        let lastAiRecipe = null;
 
         function addAiMessage(role, content) {
             const chat = document.getElementById('ai-chat');
@@ -444,6 +530,14 @@
             }
             chat.appendChild(line);
             chat.scrollTop = chat.scrollHeight;
+        }
+
+        function applyAiRecipe() {
+            if (lastAiRecipe) {
+                document.getElementById('recipe-json').value = JSON.stringify(lastAiRecipe, null, 2);
+                document.getElementById('ai-apply-btn').style.display = 'none';
+                lastAiRecipe = null;
+            }
         }
 
         async function sendAIMessage() {
@@ -465,14 +559,21 @@
             }
 
             try {
+                // Use AbortController for timeout (15s)
+                const controller = new AbortController();
+                const timeout = setTimeout(() => controller.abort(), 15000);
+
                 const res = await fetch('/ai/chat', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         messages: [{ role: 'user', content: text }],
                         recipe: recipe
-                    })
+                    }),
+                    signal: controller.signal
                 });
+                clearTimeout(timeout);
+
                 const data = await res.json();
                 if (data.ok) {
                     msg.innerHTML = '';
@@ -484,9 +585,9 @@
                             if (tr.name === 'validate_recipe' && tr.result.ok) {
                                 addAiMessage('tool', 'Recipe validated successfully');
                             } else if (tr.name === 'suggest_mutation' && tr.result.ok && tr.result.recipe) {
-                                addAiMessage('tool', `Suggested recipe: ${JSON.stringify(tr.result.recipe)}`);
-                                // Update the recipe editor with the suggestion
-                                document.getElementById('recipe-json').value = JSON.stringify(tr.result.recipe, null, 2);
+                                addAiMessage('tool', 'Suggested new recipe');
+                                lastAiRecipe = tr.result.recipe;
+                                document.getElementById('ai-apply-btn').style.display = 'inline-block';
                             } else if (!tr.result.ok) {
                                 addAiMessage('tool', `Error: ${tr.result.errors?.join(', ')}`);
                             }
@@ -496,7 +597,11 @@
                     msg.innerHTML = `<span class="error">${data.error}</span>`;
                 }
             } catch (e) {
-                msg.innerHTML = `<span class="error">Error: ${e.message}</span>`;
+                if (e.name === 'AbortError') {
+                    msg.innerHTML = '<span class="error">LLM timed out (15s) - unreachable or slow</span>';
+                } else {
+                    msg.innerHTML = `<span class="error">Error: ${e.message}</span>`;
+                }
             }
         }
 

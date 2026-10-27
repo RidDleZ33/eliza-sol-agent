@@ -13,6 +13,10 @@ export const app = new Hono();
 // Static files for UI (Bun-compatible)
 const PUBLIC_DIR = join(process.cwd(), "src", "web", "public");
 
+app.get("/", (c) => {
+  return c.redirect("/ui");
+});
+
 app.get("/ui", async (c) => {
   const filePath = join(PUBLIC_DIR, "index.html");
   try {
@@ -165,25 +169,48 @@ app.post("/strategies/:id/disable", (c) => {
   }
 });
 
-// Backtest
+// Backtest (non-blocking, job polling)
+const BACKTEST_JOBS = new Map<string, any>();
+
 app.post("/backtest", async (c) => {
   if (!can("run_backtest")) {
     return c.json({ ok: false, error: "requires run_backtest entitlement" }, 403);
   }
   const body = await c.req.json();
+  const jobId = `bt_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+  BACKTEST_JOBS.set(jobId, { status: "running", started_at: Date.now() });
+
+  // Run backtest in background task
+  const windowHours = body.window_hours;
+  runBacktestJob(jobId, windowHours);
+
+  return c.json({ ok: true, job_id: jobId });
+});
+
+app.get("/backtest/:id", (c) => {
+  const jobId = c.req.param("id");
+  const job = BACKTEST_JOBS.get(jobId);
+  if (!job) {
+    return c.json({ ok: false, error: "job not found" }, 404);
+  }
+  return c.json({ ok: true, job: job });
+});
+
+async function runBacktestJob(jobId: string, windowHours?: number) {
   try {
     const { runBacktest } = await import("../tape/backtest.ts");
-    const result = await runBacktest(body.window_hours);
-    return c.json({ ok: true, result });
+    const result = await runBacktest(windowHours);
+    BACKTEST_JOBS.set(jobId, { status: "complete", result, completed_at: Date.now() });
   } catch (e: any) {
-    return c.json({ ok: false, error: e.message }, 500);
+    BACKTEST_JOBS.set(jobId, { status: "error", error: e.message, completed_at: Date.now() });
   }
-});
+}
 
 // Swarm status
 app.get("/swarm/status", (c) => {
   return c.json({
     ok: true,
+    process: "running",
     matching: recipesEvaluator.isMatching(),
     recipes_enabled: recipesEvaluator.getEnabledCount(),
     dry_run: process.env.DRY_RUN === "1",
