@@ -3,9 +3,11 @@ import { RecipeSchema } from "../recipes/schema.ts";
 import { upsertRecipe, setRecipeStatus } from "../recipes/db.ts";
 import { recipesEvaluator } from "../services/RecipesEvaluator.ts";
 import { can } from "../entitlements/tier.ts";
-import { existsSync, readFileSync } from "fs";
+import { existsSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import { aiRouter } from "./ai.ts";
+import { cuRouter } from "./cu.ts";
+import { referralRouter } from "./referral.ts";
 
 
 export const app = new Hono();
@@ -70,6 +72,115 @@ app.use("*", (c, next) => {
   return next();
 });
 
+// Dev process management endpoints
+const PIDFILE = "/tmp/ridsolbot.pid";
+
+function getPidfileOwner() {
+  try {
+    if (existsSync(PIDFILE)) {
+      return Number(readFileSync(PIDFILE, "utf8").trim());
+    }
+  } catch {}
+  return null;
+}
+
+function listDeskProcesses() {
+  try {
+    const result = Bun.spawnSync(
+      ["ps", "aux"]
+    );
+    const output = new TextDecoder().decode(result.stdout);
+    const lines = output.split("\n").filter(
+      (l) => l.includes("src/index.ts") || l.includes("backtest-worker")
+    );
+    return lines.map((line) => {
+      const parts = line.trim().split(/\s+/);
+      return { pid: Number(parts[1]), command: line.trim() };
+    });
+  } catch (e) {
+    console.error("listDeskProcesses error:", e);
+    return [];
+  }
+}
+
+app.get("/dev/processes", async (c) => {
+  try {
+    const pidfileOwner = getPidfileOwner();
+    const processes = listDeskProcesses();
+    return c.json({
+      ok: true,
+      current_pid: process.pid,
+      pidfile_owner: pidfileOwner,
+      processes: processes
+        .map((p) => ({
+          pid: p.pid,
+          command: p.command,
+          is_pidfile_owner: p.pid === pidfileOwner,
+          is_current: p.pid === process.pid,
+        }))
+        .filter((p) => !p.command.includes("grep")),
+    });
+  } catch (e: any) {
+    return c.json({ ok: false, error: e.message }, 500);
+  }
+});
+
+app.post("/dev/kill", async (c) => {
+  try {
+    const body = await c.req.json();
+    const killed: number[] = [];
+
+    if (body.all) {
+      const pidfileOwner = getPidfileOwner();
+      const processes = listDeskProcesses();
+      for (const p of processes) {
+        if (p.pid !== process.pid && p.pid !== pidfileOwner) {
+          try {
+            process.kill(p.pid, "SIGTERM");
+            killed.push(p.pid);
+          } catch {}
+        }
+      }
+    } else if (body.pid) {
+      try {
+        process.kill(body.pid, "SIGTERM");
+        killed.push(body.pid);
+      } catch {}
+    }
+
+    return c.json({ ok: true, killed });
+  } catch (e: any) {
+    return c.json({ ok: false, error: e.message }, 500);
+  }
+});
+
+app.post("/dev/restart", async (c) => {
+  try {
+    const body = await c.req.json();
+
+    // Kill all other matching processes
+    if (!body.keep_others) {
+      const pidfileOwner = getPidfileOwner();
+      const processes = listDeskProcesses();
+      for (const p of processes) {
+        if (p.pid !== process.pid && p.pid !== pidfileOwner) {
+          try {
+            process.kill(p.pid, "SIGTERM");
+          } catch {}
+        }
+      }
+    }
+
+    // Write restart flag and exit; --watch will respawn us
+    try {
+      writeFileSync("/tmp/ridsolbot_restart", "1");
+    } catch {}
+    process.exit(0);
+  } catch (e: any) {
+    return c.json({ ok: false, error: e.message }, 500);
+  }
+});
+
 // Health
 app.get("/health", (c) => {
   return c.json({ ok: true, ts: Date.now() });
@@ -108,6 +219,70 @@ app.post("/strategies", async (c) => {
   try {
     upsertRecipe(`recipe:${body.name}`, body, "draft");
     return c.json({ ok: true, id: `recipe:${body.name}`, status: "draft" });
+  } catch (e: any) {
+    return c.json({ ok: false, error: e.message }, 500);
+  }
+});
+
+// Export strategy as shareable JSON
+app.get("/strategies/:id/export", (c) => {
+  if (!can("manage_strategies")) {
+    return c.json({ ok: false, error: "requires manage_strategies entitlement" }, 403);
+  }
+  const id = c.req.param("id");
+  try {
+    const db = join(process.cwd(), ".eliza", "recipes.db");
+    if (!existsSync(db)) {
+      return c.json({ ok: false, error: "database not found" }, 404);
+    }
+    const Database = require("better-sqlite3");
+    const d = new Database(db);
+    const row = d.prepare("SELECT id, name, recipe_json FROM strategies WHERE id = ?").get(id);
+    d.close();
+    if (!row) {
+      return c.json({ ok: false, error: "not found" }, 404);
+    }
+    const recipe = JSON.parse(row.recipe_json);
+    const exported = {
+      schema_version: 1,
+      exported_at: new Date().toISOString(),
+      name: row.name,
+      recipe: recipe,
+    };
+    return c.json(exported);
+  } catch (e: any) {
+    return c.json({ ok: false, error: e.message }, 500);
+  }
+});
+
+// Import strategy from shareable JSON
+app.post("/strategies/import", async (c) => {
+  if (!can("manage_strategies")) {
+    return c.json({ ok: false, error: "requires manage_strategies entitlement" }, 403);
+  }
+  const body = await c.req.json();
+  try {
+    if (!body.recipe) {
+      return c.json({ ok: false, error: "missing 'recipe' field in import payload" }, 400);
+    }
+    const result = RecipeSchema.safeParse(body.recipe);
+    if (!result.success) {
+      return c.json({ ok: false, error: result.error.errors }, 400);
+    }
+    const id = `recipe:${body.recipe.name}`;
+    // Check if exists; if enabled and not overwrite, reject
+    const db = join(process.cwd(), ".eliza", "recipes.db");
+    if (existsSync(db)) {
+      const Database = require("better-sqlite3");
+      const d = new Database(db);
+      const existing = d.prepare("SELECT status FROM strategies WHERE id = ?").get(id);
+      d.close();
+      if (existing && existing.status === "enabled" && !body.overwrite) {
+        return c.json({ ok: false, error: "strategy already enabled; pass overwrite:true to replace" }, 400);
+      }
+    }
+    upsertRecipe(id, body.recipe, body.overwrite ? "enabled" : "draft");
+    return c.json({ ok: true, id, imported: true });
   } catch (e: any) {
     return c.json({ ok: false, error: e.message }, 500);
   }
@@ -282,6 +457,12 @@ app.post("/swarm/restart", (c) => {
 
 // AI assistant routes
 app.route("/ai", aiRouter);
+
+// CU estimation routes
+app.route("/cu", cuRouter);
+
+// Referral routes
+app.route("/referral", referralRouter);
 
 // Logs tail
 app.get("/logs/tail", (c) => {

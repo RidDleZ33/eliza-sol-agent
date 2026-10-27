@@ -86,6 +86,7 @@
             </div>
             <div class="avatar" onclick="toggleAvatarMenu()">O
                 <div class="avatar-menu" id="avatar-menu">
+                    <div class="avatar-menu-item" onclick="switchTab('dev')">Dev Tools</div>
                     <div class="avatar-menu-item">Profile</div>
                     <div class="avatar-menu-item">Settings</div>
                     <div class="avatar-menu-item">Logout</div>
@@ -96,6 +97,7 @@
                 <div class="tab" data-tab="backtest">Backtest</div>
                 <div class="tab" data-tab="swarm">Swarm</div>
                 <div class="tab" data-tab="console">Console</div>
+                <div class="tab" data-tab="dev">Dev</div>
             </div>
         </div>
 
@@ -103,6 +105,7 @@
         <div id="strategies" class="panel active">
             <div class="card">
                 <h2>Strategy List</h2>
+                <button onclick="showImportModal()">Import Strategy</button>
                 <div id="strategy-list"></div>
             </div>
             <div class="card">
@@ -129,6 +132,8 @@
 }</textarea>
                 </div>
                 <button class="primary" onclick="createStrategy()">Create / Update</button>
+                <button onclick="estimateCu()">Estimate CU</button>
+                <span id="cu-note" style="font-size:0.8em;color:#888;margin-left:8px;"></span>
                 <span id="recipe-msg"></span>
             </div>
             <div class="card">
@@ -200,6 +205,46 @@
                 </div>
             </div>
         </div>
+
+        <!-- Import Modal -->
+        <div id="import-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); z-index:200;">
+            <div style="background:#14171c; border:1px solid #23272e; border-radius:6px; padding:20px; margin:50px auto; max-width:600px;">
+                <h2>Import Strategy</h2>
+                <div class="field">
+                    <label>Import JSON (from export)</label>
+                    <textarea id="import-json" placeholder="Paste exported strategy JSON here..." style="min-height:200px;"></textarea>
+                </div>
+                <p id="import-errors" class="error" style="font-size:0.85em;"></p>
+                <button class="primary" onclick="importStrategy()">Import</button>
+                <button onclick="hideImportModal()">Cancel</button>
+                <span id="import-msg"></span>
+            </div>
+        </div>
+
+        <!-- Dev Panel -->
+        <div id="dev" class="panel">
+            <div class="card">
+                <h2>Running Processes</h2>
+                <p style="font-size:0.8em;color:#888;margin-bottom:8px;">Current PID: <span id="dev-current-pid" class="stat-value" style="font-size:0.9em;">-</span> | Pidfile owner: <span id="dev-pidfile-owner" class="stat-value" style="font-size:0.9em;">-</span></p>
+                <div id="dev-processes">
+                    <p class="loading">Loading processes...</p>
+                </div>
+                <div style="margin-top:12px;">
+                    <button class="danger" onclick="killOtherProcesses()">Kill Others</button>
+                    <button onclick="restartWatcher()">Restart Watcher</button>
+                    <span id="dev-msg"></span>
+                </div>
+            </div>
+            <div class="card">
+                <h2>Referral Code</h2>
+                <p style="font-size:0.8em;color:#888;margin-bottom:8px;">Activate a referral code to extend your subscription by 7 days.</p>
+                <div style="display:flex;gap:5px;">
+                    <input type="text" id="referral-code" placeholder="Enter referral code..." style="flex:1;">
+                    <button class="primary" onclick="activateReferral()">Activate</button>
+                </div>
+                <span id="referral-msg"></span>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -258,12 +303,19 @@
         });
 
         // Tab switching
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+            const tab = document.querySelector(`.tab[data-tab="${tabId}"]`);
+            if (tab) tab.classList.add('active');
+            document.getElementById(tabId).classList.add('active');
+            // Close avatar menu
+            document.getElementById('avatar-menu').classList.remove('open');
+        }
+
         document.querySelectorAll('.tab').forEach(tab => {
             tab.addEventListener('click', () => {
-                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-                document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
-                tab.classList.add('active');
-                document.getElementById(tab.dataset.tab).classList.add('active');
+                switchTab(tab.dataset.tab);
             });
         });
 
@@ -285,6 +337,7 @@
                                     `<button class="success" onclick="event.stopPropagation(); enableStrategy('${s.id}')">Enable</button>` :
                                     `<button class="danger" onclick="event.stopPropagation(); disableStrategy('${s.id}')">Disable</button>`
                                 }
+                                <button onclick="event.stopPropagation(); exportStrategy('${s.id}')">Export</button>
                             </span>
                         </div>
                     `).join('');
@@ -669,6 +722,214 @@
             }
         }
 
+        // Dev panel
+        async function loadDevProcesses() {
+            try {
+                const res = await fetch('/dev/processes');
+                const data = await res.json();
+                if (data.ok) {
+                    document.getElementById('dev-current-pid').textContent = data.current_pid;
+                    document.getElementById('dev-pidfile-owner').textContent = data.pidfile_owner || '-';
+                    const list = document.getElementById('dev-processes');
+                    if (data.processes.length === 0) {
+                        list.innerHTML = '<p class="loading">No matching processes found.</p>';
+                        return;
+                    }
+                    let html = '<table><tr><th>PID</th><th>Owner</th><th>Command</th><th></th></tr>';
+                    for (const p of data.processes) {
+                        const owner = p.is_pidfile_owner ? '<span class="status status-enabled">pidfile</span>' : '';
+                        const current = p.is_current ? '<span class="status status-enabled">current</span>' : '';
+                        html += `<tr><td>${p.pid}</td><td>${owner}${current}</td><td style="font-size:0.75em;">${escapeHtml(p.command)}</td><td>`;
+                        if (!p.is_current) {
+                            html += `<button onclick="killProcess(${p.pid})">Kill</button>`;
+                        }
+                        html += '</td></tr>';
+                    }
+                    html += '</table>';
+                    list.innerHTML = html;
+                }
+            } catch (e) {
+                document.getElementById('dev-processes').innerHTML = `<p class="error">Error: ${e.message}</p>`;
+            }
+        }
+
+        async function killProcess(pid) {
+            const msg = document.getElementById('dev-msg');
+            try {
+                const res = await fetch('/dev/kill', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ pid })
+                });
+                const data = await res.json();
+                if (data.ok) {
+                    msg.innerHTML = `<span class="success-msg">Killed pid ${pid}</span>`;
+                    loadDevProcesses();
+                } else {
+                    msg.innerHTML = `<span class="error">${data.error}</span>`;
+                }
+            } catch (e) {
+                msg.innerHTML = `<span class="error">${e.message}</span>`;
+            }
+        }
+
+        async function killOtherProcesses() {
+            const msg = document.getElementById('dev-msg');
+            try {
+                const res = await fetch('/dev/kill', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ all: true })
+                });
+                const data = await res.json();
+                if (data.ok) {
+                    msg.innerHTML = `<span class="success-msg">Killed ${data.killed.length} processes: ${data.killed.join(', ')}</span>`;
+                    loadDevProcesses();
+                } else {
+                    msg.innerHTML = `<span class="error">${data.error}</span>`;
+                }
+            } catch (e) {
+                msg.innerHTML = `<span class="error">${e.message}</span>`;
+            }
+        }
+
+        async function restartWatcher() {
+            const msg = document.getElementById('dev-msg');
+            try {
+                const res = await fetch('/dev/restart', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ keep_others: false })
+                });
+                const data = await res.json();
+                if (data.ok) {
+                    msg.innerHTML = '<span class="success-msg">Restarting...</span>';
+                } else {
+                    msg.innerHTML = `<span class="error">${data.error}</span>`;
+                }
+            } catch (e) {
+                msg.innerHTML = `<span class="error">${e.message}</span>`;
+            }
+        }
+
+        // Export strategy
+        async function exportStrategy(id) {
+            try {
+                const res = await fetch(`/strategies/${id}/export`);
+                const data = await res.json();
+                if (data.ok === false) {
+                    alert('Export failed: ' + data.error);
+                    return;
+                }
+                const json = JSON.stringify(data, null, 2);
+                // Copy to clipboard and show in import modal
+                document.getElementById('import-json').value = json;
+                navigator.clipboard.writeText(json).then(() => {
+                    alert('Exported to clipboard');
+                });
+                showImportModal();
+            } catch (e) {
+                alert('Export error: ' + e.message);
+            }
+        }
+
+        // Import strategy
+        function showImportModal() {
+            document.getElementById('import-modal').style.display = 'block';
+        }
+        function hideImportModal() {
+            document.getElementById('import-modal').style.display = 'none';
+            document.getElementById('import-msg').innerHTML = '';
+            document.getElementById('import-errors').innerHTML = '';
+        }
+        async function importStrategy() {
+            const json = document.getElementById('import-json').value;
+            const msg = document.getElementById('import-msg');
+            const errors = document.getElementById('import-errors');
+            msg.innerHTML = '';
+            errors.innerHTML = '';
+            try {
+                const payload = JSON.parse(json);
+                // If it has recipe wrapper, send as-is; otherwise wrap
+                const body = payload.recipe ? payload : { recipe: payload };
+                const res = await fetch('/strategies/import', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+                const data = await res.json();
+                if (data.ok) {
+                    msg.innerHTML = '<span class="success-msg">Imported: ' + data.id + '</span>';
+                    hideImportModal();
+                    loadStrategies();
+                } else {
+                    if (Array.isArray(data.error)) {
+                        errors.innerHTML = 'Validation errors: ' + data.error.map(e => e.message).join('; ');
+                    } else {
+                        errors.innerHTML = data.error;
+                    }
+                }
+            } catch (e) {
+                errors.innerHTML = 'Invalid JSON: ' + e.message;
+            }
+        }
+
+        // Estimate CU
+        async function estimateCu() {
+            const note = document.getElementById('cu-note');
+            note.innerHTML = '<span class="loading">Estimating...</span>';
+            try {
+                const res = await fetch('/cu/estimate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        calls: [
+                            { method: 'getTokenLargestAccounts', per_minute: 60 },
+                            { method: 'getSignaturesForAddress', per_minute: 120 }
+                        ]
+                    })
+                });
+                const data = await res.json();
+                if (data.ok) {
+                    note.innerHTML = `<span class="success-msg">~${Math.round(data.cu_per_week)} CU/week</span>`;
+                } else {
+                    note.innerHTML = '';
+                }
+            } catch (e) {
+                note.innerHTML = '';
+            }
+        }
+
+        // Referral activation
+        async function activateReferral() {
+            const code = document.getElementById('referral-code').value.trim();
+            const msg = document.getElementById('referral-msg');
+            if (!code) {
+                msg.innerHTML = '<span class="error">Enter a referral code</span>';
+                return;
+            }
+            msg.innerHTML = '<span class="loading">Activating...</span>';
+            try {
+                const res = await fetch('/referral/activate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ code })
+                });
+                const data = await res.json();
+                if (data.ok) {
+                    if (data.already_activated) {
+                        msg.innerHTML = '<span class="success-msg">Already activated (expires ' + new Date(data.expires_at).toLocaleDateString() + ')</span>';
+                    } else {
+                        msg.innerHTML = '<span class="success-msg">Activated! +7 days (expires ' + new Date(data.expires_at).toLocaleDateString() + ')</span>';
+                    }
+                } else {
+                    msg.innerHTML = '<span class="error">' + data.error + '</span>';
+                }
+            } catch (e) {
+                msg.innerHTML = '<span class="error">' + e.message + '</span>';
+            }
+        }
+
         // Init
         loadStrategies();
         loadSwarmStatus();
@@ -677,6 +938,7 @@
         strategiesInterval = setInterval(loadStrategies, 10000);
         swarmInterval = setInterval(loadSwarmStatus, 5000);
         consoleInterval = setInterval(loadConsole, 2000);
+        setInterval(loadDevProcesses, 5000);
     </script>
 </body>
 </html>

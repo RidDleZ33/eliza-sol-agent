@@ -1,5 +1,6 @@
 import { requestAlphaTick } from "./evaluators/AlphaNarrativeEvaluator.ts";
 import { app } from "./web/app.ts";
+import { existsSync, readFileSync, writeFileSync, unlinkSync } from "fs";
 import { evaluateBetaContract } from "./evaluators/BetaContractEvaluator.ts";
 import { tradeExecutionService } from "./services/TradeExecutionService.ts";
 import { recipesEvaluator } from "./services/RecipesEvaluator.ts";
@@ -17,6 +18,40 @@ import { tier, can } from "./entitlements/tier.ts";
 import { loadEnabledRecipes } from "./recipes/db.ts";
 
 let shuttingDown = false;
+
+const PIDFILE = "/tmp/ridsolbot.pid";
+
+function takePidfile() {
+  if (existsSync(PIDFILE)) {
+    const old = Number(readFileSync(PIDFILE, "utf8").trim());
+    if (old && old !== process.pid) {
+      try {
+        process.kill(old, 0); // still alive
+        console.error(`[pidfile] another desk is already running (pid ${old}); exiting`);
+        process.exit(0);
+      } catch {
+        // stale pidfile
+      }
+    }
+  }
+  writeFileSync(PIDFILE, String(process.pid));
+  const cleanup = () => {
+    try {
+      unlinkSync(PIDFILE);
+    } catch {}
+  };
+  process.on("exit", cleanup);
+  process.on("SIGINT", () => {
+    cleanup();
+    process.exit(0);
+  });
+  process.on("SIGTERM", () => {
+    cleanup();
+    process.exit(0);
+  });
+}
+
+takePidfile();
 
 async function shutdown(signal: string) {
   if (shuttingDown) return;

@@ -23,6 +23,7 @@ export interface CompiledRecipe {
   sources: string[];
   filter: FilterConfig;
   exits: ExitConfig;
+  rules: any[];
   requiredFields: string[];
   recipe: Recipe;
 }
@@ -79,6 +80,7 @@ export function compileRecipe(recipe: Recipe): CompiledRecipe {
     sources: recipe.sources,
     filter,
     exits,
+    rules: recipe.rules || [],
     requiredFields: recipe.gates.map((g) => g.field),
     recipe,
   };

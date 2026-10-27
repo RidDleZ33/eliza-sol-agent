@@ -18,7 +18,15 @@ export const RecipeSchema = z.object({
     clock_sec: z.number().optional(),
     pool_drop_pct: z.number().optional(),
   }),
-  rules: z.array(z.any()).optional(),
+  rules: z.array(
+    z.object({
+      trigger: z.enum(["timer", "pnl", "wallet_size"]),
+      every_sec: z.number().optional(),
+      threshold: z.number().optional(),
+      action: z.enum(["set_aside", "transfer", "resize", "pause"]),
+      params: z.record(z.any()).optional(),
+    })
+  ).optional(),
   meta: z.record(z.any()).optional(),
 });
 
