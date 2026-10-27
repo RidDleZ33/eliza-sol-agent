@@ -3,79 +3,123 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>RidSolBot</title>
+    <title>R1D$0L</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0b0d10; color: #e0e0e0; }
         .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
-        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 10px; border-bottom: 1px solid #23272e; position: sticky; top: 0; background: #0b0d10; z-index: 100; padding-top: 10px; }
+
+        /* Header */
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid #23272e; position: sticky; top: 0; background: #0b0d10; z-index: 100; }
         .header-left { display: flex; align-items: center; gap: 16px; }
         .logo { font-family: 'Courier New', monospace; font-size: 0.42em; line-height: 1.05; color: #00ff41; margin: 0; text-shadow: 0 0 4px #00ff41; white-space: pre; }
+        .wordmark { display: none; font-family: 'Courier New', monospace; font-size: 1.2em; font-weight: bold; color: #3dd68c; letter-spacing: 2px; }
+
+        /* Tabs */
+        .tabs { display: flex; gap: 2px; overflow-x: auto; flex-wrap: nowrap; }
+        .tab { padding: 8px 16px; background: transparent; border: none; border-bottom: 2px solid transparent; cursor: pointer; font-size: 0.85em; color: #888; white-space: nowrap; text-transform: uppercase; font-weight: 500; letter-spacing: 0.5px; }
+        .tab:hover { color: #e0e0e0; }
+        .tab.active { border-bottom-color: #3dd68c; color: #3dd68c; }
+
+        /* Avatar */
         .avatar { width: 30px; height: 30px; border-radius: 50%; background: #23272e; display: flex; align-items: center; justify-content: center; font-size: 0.8em; color: #888; cursor: pointer; position: relative; }
         .avatar-menu { display: none; position: absolute; top: 40px; right: 0; background: #14171c; border: 1px solid #23272e; border-radius: 6px; padding: 8px 0; min-width: 140px; z-index: 102; }
         .avatar-menu.open { display: block; }
         .avatar-menu-item { padding: 8px 16px; color: #888; font-size: 0.85em; cursor: pointer; }
         .avatar-menu-item:hover { background: #1a1a1a; color: #e0e0e0; }
 
-        .tabs { display: flex; gap: 2px; flex-wrap: nowrap; overflow-x: auto; }
-        .tab { padding: 8px 16px; background: transparent; border: none; border-bottom: 2px solid transparent; cursor: pointer; font-size: 0.9em; color: #888; white-space: nowrap; }
-        .tab:hover { color: #e0e0e0; }
-        .tab.active { border-bottom-color: #3dd68c; color: #3dd68c; }
+        /* Panels */
         .panel { display: none; }
         .panel.active { display: block; }
         .card { background: #14171c; border: 1px solid #23272e; border-radius: 6px; padding: 16px; margin-bottom: 16px; }
-        .card h2 { font-size: 1.1em; margin-bottom: 12px; color: #888; font-weight: 500; }
-        button { padding: 6px 12px; background: #1a1a1a; color: #e0e0e0; border: 1px solid #23272e; border-radius: 4px; cursor: pointer; margin-right: 5px; font-size: 0.85em; }
+        .card h2 { font-size: 0.8em; margin-bottom: 12px; color: #888; font-weight: 500; text-transform: uppercase; letter-spacing: 1px; }
+
+        /* Buttons */
+        button { padding: 8px 12px; background: #1a1a1a; color: #e0e0e0; border: 1px solid #23272e; border-radius: 4px; cursor: pointer; margin-right: 5px; font-size: 0.85em; min-height: 36px; }
         button:hover { background: #23272e; }
         button:disabled { opacity: 0.5; cursor: default; }
         button.primary { background: #3dd68c; color: #000; border-color: #3dd68c; }
         button.danger { background: #f44336; color: #fff; border-color: #f44336; }
         button.success { background: #4caf50; color: #fff; border-color: #4caf50; }
-        input, textarea, select { background: #0b0d10; border: 1px solid #23272e; color: #e0e0e0; padding: 6px 10px; border-radius: 4px; font-size: 0.9em; }
+        .remove-btn { padding: 6px 10px; font-size: 0.8em; }
+
+        /* Inputs */
+        input, textarea, select { background: #0b0d10; border: 1px solid #23272e; color: #e0e0e0; padding: 8px 10px; border-radius: 4px; font-size: 0.9em; min-height: 36px; }
         textarea { font-family: monospace; width: 100%; min-height: 300px; resize: vertical; }
+
+        /* Grid */
         .grid { display: grid; gap: 16px; }
         .grid-2 { grid-template-columns: 1fr 1fr; }
         .grid-3 { grid-template-columns: 1fr 1fr 1fr; }
+
+        /* Stats */
         .stat { text-align: center; }
         .stat-value { font-size: 2em; font-weight: bold; color: #4fc3f7; }
-        .stat-label { font-size: 0.8em; color: #888; text-transform: uppercase; }
+        .stat-label { font-size: 0.75em; color: #888; text-transform: uppercase; letter-spacing: 1px; }
+
+        /* Strategies */
         .strategy-item { display: flex; justify-content: space-between; align-items: center; padding: 12px; background: #0b0d10; border: 1px solid #23272e; border-radius: 4px; margin-bottom: 8px; cursor: pointer; }
-        .strategy-item:hover { border-color: #3dd68c; }
+        .strategy-item:hover { border-color: #444; }
+        .strategy-item.selected { border: 2px solid #3dd68c; }
         .strategy-name { font-weight: 500; color: #e0e0e0; }
         .status { padding: 2px 8px; border-radius: 10px; font-size: 0.75em; }
         .status-enabled { background: #3dd68c; color: #000; }
         .status-draft { background: #ff9800; color: #000; }
+
+        /* Console */
         .console { background: #000; color: #0f0; font-family: 'Courier New', monospace; font-size: 0.85em; padding: 12px; border-radius: 4px; max-height: 300px; overflow-y: auto; line-height: 1.4; }
         .console-line { white-space: pre-wrap; }
+
+        /* Chart */
         .chart-container { position: relative; height: 300px; }
+
+        /* Messages */
         .loading { color: #888; font-style: italic; font-size: 0.85em; }
         .error { color: #f44336; }
         .success-msg { color: #4caf50; }
+
+        /* Forms */
         .field { margin-bottom: 12px; }
-        .field label { display: block; margin-bottom: 4px; font-size: 0.9em; color: #aaa; }
+        .field label { display: block; margin-bottom: 4px; font-size: 0.8em; color: #888; text-transform: uppercase; letter-spacing: 0.5px; }
+
+        /* Tables */
         table { width: 100%; border-collapse: collapse; }
         th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid #333; }
-        th { background: #0b0d10; color: #888; font-size: 0.8em; text-transform: uppercase; font-weight: 500; }
-        @media (max-width: 768px) {
-            .tabs { display: flex; flex-direction: row; overflow-x: auto; width: 100%; margin-top: 8px; position: static; }
-            .grid-2, .grid-3 { grid-template-columns: 1fr; }
-            .header { flex-wrap: wrap; }
-            .logo { font-size: 0.28em; }
-            .strategy-item { flex-direction: column; align-items: flex-start; gap: 8px; }
-        }
-        /* Palette + builder layout */
+        th { background: #0b0d10; color: #888; font-size: 0.75em; text-transform: uppercase; font-weight: 500; letter-spacing: 0.5px; }
+
+        /* Builder layout */
         .builder-layout { display: grid; grid-template-columns: 280px 1fr; gap: 16px; }
-        .palette { background: #14171c; border: 1px solid #23272e; border-radius: 6px; padding: 12px; }
-        .palette h3 { font-size: 0.95em; color: #888; margin-bottom: 8px; text-transform: uppercase; font-weight: 500; }
+        .palette { background: #0b0d10; border: 1px solid #23272e; border-radius: 6px; padding: 12px; }
         .palette-section { margin-bottom: 16px; }
+        .palette-section h3 { font-size: 0.75em; color: #888; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 1px; }
         .palette-item { padding: 4px 8px; font-size: 0.85em; color: #aaa; margin-bottom: 2px; }
-        .gate-row, .rule-row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
-        .gate-row select, .rule-row select, .gate-row input, .rule-row input { flex: 1; }
-        .remove-btn { padding: 4px 8px; font-size: 0.8em; }
-        .json-preview { background: #000; border: 1px solid #23272e; border-radius: 4px; padding: 12px; font-family: 'Courier New', monospace; font-size: 0.8em; color: #0f0; white-space: pre-wrap; min-height: 150px; }
+
+        /* Gate/Rule rows */
+        .gate-row, .rule-row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
+        .gate-row select, .rule-row select, .gate-row input, .rule-row input { flex: 1; min-width: 100px; }
+
+        /* JSON preview */
+        .json-preview { background: #000; border: 1px solid #23272e; border-radius: 4px; padding: 12px; font-family: 'Courier New', monospace; font-size: 0.8em; color: #0f0; white-space: pre-wrap; min-height: 150px; overflow-x: auto; }
         .raw-json-toggle { font-size: 0.8em; color: #4fc3f7; cursor: pointer; }
         .raw-json-toggle:hover { text-decoration: underline; }
+
+        /* Mobile */
+        @media (max-width: 900px) {
+            .logo { display: none; }
+            .wordmark { display: inline-block; }
+        }
+        @media (max-width: 768px) {
+            .container { padding: 12px; }
+            .header { flex-direction: column; align-items: flex-start; }
+            .tabs { width: 100%; margin-top: 8px; margin-bottom: 8px; }
+            .grid-2, .grid-3 { grid-template-columns: 1fr; }
+            .builder-layout { grid-template-columns: 1fr; }
+            .strategy-item { flex-direction: column; align-items: flex-start; gap: 8px; }
+            .gate-row, .rule-row { flex-direction: column; }
+            .gate-row select, .rule-row select, .gate-row input, .rule-row input { width: 100%; min-width: auto; }
+            .header-left { width: 100%; justify-content: space-between; }
+        }
     </style>
 </head>
 <body>
@@ -88,6 +132,7 @@
 ██╔══██╗██║██║  ██║╚════██║██║   ██║██║     ██╔══██╗██║   ██║   ██║
 ██║  ██║██║██████╔╝███████║╚██████╔╝███████╗██████╔╝╚██████╔╝   ██║
 ╚═╝  ╚═╝╚═╝╚═════╝ ╚══════╝ ╚═════╝ ╚══════╝╚═════╝  ╚═════╝    ╚═╝</pre>
+                <span class="wordmark">R1D$0L</span>
             </div>
             <div class="avatar" onclick="toggleAvatarMenu()">O
                 <div class="avatar-menu" id="avatar-menu">
@@ -117,7 +162,6 @@
                 <h2 id="editor-title">New Strategy</h2>
                 <p id="editor-status" style="font-size:0.8em;color:#888;margin-bottom:8px;"></p>
                 <div class="builder-layout">
-                    <!-- Ingredient Palette -->
                     <div class="palette" id="ingredient-palette">
                         <div class="palette-section">
                             <h3>Sources</h3>
@@ -136,7 +180,6 @@
                             <div id="palette-operators"></div>
                         </div>
                     </div>
-                    <!-- Strategy Editor Form -->
                     <div id="strategy-editor">
                         <div class="field">
                             <label>Strategy Name</label>
@@ -160,7 +203,7 @@
                             <div id="rules-editor"></div>
                             <button onclick="addRuleRow()" style="margin-top:4px;">Add Rule</button>
                         </div>
-                        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;flex-wrap:wrap;gap:8px;">
                             <button class="primary" onclick="createStrategy()">Create / Update</button>
                             <div>
                                 <button onclick="estimateCu()">Estimate CU</button>
@@ -177,7 +220,7 @@
                         <button onclick="applyRawJson()" style="margin-top:4px;">Apply JSON to Form</button>
                     </div>
                     <div id="json-preview-container" style="margin-top:8px;">
-                        <h3 style="font-size:0.9em;color:#888;margin-bottom:4px;">Live Preview</h3>
+                        <h3 style="font-size:0.75em;color:#888;margin-bottom:4px;text-transform:uppercase;letter-spacing:1px;">Live Preview</h3>
                         <div class="json-preview" id="json-preview"></div>
                     </div>
                 </div>
@@ -351,7 +394,6 @@
         let aiMessages = [];
         let lastAiRecipe = null;
 
-        // Avatar dropdown menu
         function toggleAvatarMenu() {
             document.getElementById('avatar-menu').classList.toggle('open');
         }
@@ -369,11 +411,10 @@
             }
         });
 
-        // Tab switching
         function switchTab(tabId) {
             document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
             document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
-            const tab = document.querySelector(`.tab[data-tab="${tabId}"]`);
+            const tab = document.querySelector('.tab[data-tab="' + tabId + '"]');
             if (tab) tab.classList.add('active');
             document.getElementById(tabId).classList.add('active');
             document.getElementById('avatar-menu').classList.remove('open');
@@ -386,7 +427,6 @@
             });
         });
 
-        // Load ingredients palette
         async function loadIngredients() {
             try {
                 const res = await fetch('/ingredients');
@@ -403,77 +443,67 @@
         function renderPalette() {
             if (!ingredients) return;
 
-            // Sources
             const sourcesDiv = document.getElementById('palette-sources');
             sourcesDiv.innerHTML = ingredients.sources.map(s =>
-                `<div class="palette-item"><strong>${s.name}</strong> - ${s.desc}</div>`
+                '<div class="palette-item"><strong>' + s.name + '</strong> - ' + s.desc + '</div>'
             ).join('');
 
-            // Gate fields
             const gatesDiv = document.getElementById('palette-gates');
             gatesDiv.innerHTML = ingredients.gate_fields.map(g =>
-                `<div class="palette-item"><strong>${g.field}</strong> - ${g.desc}</div>`
+                '<div class="palette-item"><strong>' + g.field + '</strong> - ' + g.desc + '</div>'
             ).join('');
 
-            // Exit keys
             const exitsDiv = document.getElementById('palette-exits');
             exitsDiv.innerHTML = ingredients.exit_keys.map(e =>
-                `<div class="palette-item"><strong>${e.key}</strong> - ${e.desc} (ex: ${e.example})</div>`
+                '<div class="palette-item"><strong>' + e.key + '</strong> - ' + e.desc + ' (ex: ' + e.example + ')</div>'
             ).join('');
 
-            // Operators
             const opsDiv = document.getElementById('palette-operators');
             opsDiv.innerHTML = ingredients.operators.map(o =>
-                `<div class="palette-item">${o}</div>`
+                '<div class="palette-item">' + o + '</div>'
             ).join('');
 
-            // Now build the editor
             renderSourcesEditor();
             renderExitsEditor();
         }
 
-        // Render sources as checkboxes
         function renderSourcesEditor() {
             const container = document.getElementById('sources-editor');
-            const recipeSources = currentRecipe?.sources || [];
+            const recipeSources = currentRecipe ? currentRecipe.sources : [];
 
             container.innerHTML = ingredients.sources.map(s => {
                 const checked = recipeSources.includes(s.name) ? 'checked' : '';
-                return `<label style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
-                    <input type="checkbox" value="${s.name}" ${checked} onchange="updateRecipeFromForm()">
-                    ${s.name}
-                </label>`;
+                return '<label style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">' +
+                    '<input type="checkbox" value="' + s.name + '" ' + checked + ' onchange="updateRecipeFromForm()">' +
+                    ' ' + s.name + '</label>';
             }).join('');
         }
 
-        // Render gates as rows
         function renderGatesEditor() {
             const container = document.getElementById('gates-editor');
-            const gates = currentRecipe?.gates || [];
+            const gates = currentRecipe ? currentRecipe.gates : [];
 
             if (gates.length === 0) {
                 container.innerHTML = '<p class="loading">No gates defined.</p>';
                 return;
             }
 
-            container.innerHTML = gates.map((g, i) => `
-                <div class="gate-row" data-index="${i}">
-                    <select onchange="updateGateField(${i}, this.value)">
-                        ${ingredients.gate_fields.map(f =>
-                            `<option value="${f.field}" ${g.field === f.field ? 'selected' : ''}>${f.field}</option>`
-                        ).join('')}
-                    </select>
-                    <select onchange="updateGateOp(${i}, this.value)">
-                        ${ingredients.operators.map(o =>
-                            `<option value="${o}" ${g.op === o ? 'selected' : ''}>${o}</option>`
-                        ).join('')}
-                    </select>
-                    <input type="text" value="${g.value ?? ''}" placeholder="value"
-                        onchange="updateGateValue(${i}, this.value)"
-                        ${['present','absent'].includes(g.op) ? 'disabled' : ''}>
-                    <button class="remove-btn danger" onclick="removeGateRow(${i})">✕</button>
-                </div>
-            `).join('');
+            container.innerHTML = gates.map((g, i) => {
+                let fieldOptions = ingredients.gate_fields.map(f =>
+                    '<option value="' + f.field + '"' + (g.field === f.field ? ' selected' : '') + '>' + f.field + '</option>'
+                ).join('');
+                let opOptions = ingredients.operators.map(o =>
+                    '<option value="' + o + '"' + (g.op === o ? ' selected' : '') + '>' + o + '</option>'
+                ).join('');
+                let disabled = (g.op === 'present' || g.op === 'absent') ? 'disabled' : '';
+                let val = g.value !== undefined && g.value !== null ? g.value : '';
+                return '<div class="gate-row" data-index="' + i + '">' +
+                    '<select onchange="updateGateField(' + i + ', this.value)">' + fieldOptions + '</select>' +
+                    '<select onchange="updateGateOp(' + i + ', this.value)">' + opOptions + '</select>' +
+                    '<input type="text" value="' + val + '" placeholder="value" onchange="updateGateValue(' + i + ', this.value)" ' + disabled + '>' +
+                    '<button class="remove-btn danger" onclick="removeGateRow(' + i + ')">X</button>' +
+                    '</div>';
+            }).join('');
         }
 
         function addGateRow() {
@@ -501,7 +531,7 @@
 
         function updateGateValue(index, value) {
             const g = currentRecipe.gates[index];
-            if (['present', 'absent'].includes(g.op)) {
+            if (g.op === 'present' || g.op === 'absent') {
                 delete g.value;
             } else if (value === '' || value === null) {
                 delete g.value;
@@ -518,18 +548,16 @@
             updateRecipeFromForm();
         }
 
-        // Render exits as number inputs
         function renderExitsEditor() {
             const container = document.getElementById('exits-editor');
-            const exits = currentRecipe?.exits || {};
+            const exits = currentRecipe ? currentRecipe.exits : {};
 
             container.innerHTML = ingredients.exit_keys.map(e => {
-                const val = exits[e.key] ?? '';
-                return `<div class="field" style="margin-bottom:8px;">
-                    <label style="font-size:0.85em;">${e.key} (${e.desc})</label>
-                    <input type="number" value="${val}" step="1" placeholder="${e.example}"
-                        style="width:100%;" onchange="updateExit('${e.key}', this.value)">
-                </div>`;
+                const val = exits[e.key] !== undefined ? exits[e.key] : '';
+                return '<div class="field" style="margin-bottom:8px;">' +
+                    '<label style="font-size:0.85em;">' + e.key + ' (' + e.desc + ')</label>' +
+                    '<input type="number" value="' + val + '" step="1" placeholder="' + e.example + '" style="width:100%;" onchange="updateExit(\'' + e.key + '\', this.value)">' +
+                    '</div>';
             }).join('');
         }
 
@@ -546,35 +574,32 @@
             updateRecipeFromForm();
         }
 
-        // Rules
         function renderRulesEditor() {
             const container = document.getElementById('rules-editor');
-            const rules = currentRecipe?.rules || [];
+            const rules = currentRecipe ? currentRecipe.rules : [];
 
             if (rules.length === 0) {
                 container.innerHTML = '<p class="loading">No rules defined.</p>';
                 return;
             }
 
-            container.innerHTML = rules.map((r, i) => `
-                <div class="rule-row" data-index="${i}">
-                    <select onchange="updateRuleTrigger(${i}, this.value)">
-                        <option value="">trigger</option>
-                        ${ingredients.rule_triggers.map(t =>
-                            `<option value="${t}" ${r.trigger === t ? 'selected' : ''}>${t}</option>`
-                        ).join('')}
-                    </select>
-                    <input type="text" value="${r.interval ?? r.threshold ?? ''}" placeholder="interval/threshold"
-                        onchange="updateRuleParam(${i}, this.value)">
-                    <select onchange="updateRuleAction(${i}, this.value)">
-                        <option value="">action</option>
-                        ${ingredients.rule_actions.map(a =>
-                            `<option value="${a}" ${r.action === a ? 'selected' : ''}>${a}</option>`
-                        ).join('')}
-                    </select>
-                    <button class="remove-btn danger" onclick="removeRuleRow(${i})">✕</button>
-                </div>
-            `).join('');
+            container.innerHTML = rules.map((r, i) => {
+                let triggerOptions = '<option value="">trigger</option>' +
+                    ingredients.rule_triggers.map(t =>
+                        '<option value="' + t + '"' + (r.trigger === t ? ' selected' : '') + '>' + t + '</option>'
+                    ).join('');
+                let actionOptions = '<option value="">action</option>' +
+                    ingredients.rule_actions.map(a =>
+                        '<option value="' + a + '"' + (r.action === a ? ' selected' : '') + '>' + a + '</option>'
+                    ).join('');
+                let param = r.interval !== undefined ? r.interval : (r.threshold !== undefined ? r.threshold : '');
+                return '<div class="rule-row" data-index="' + i + '">' +
+                    '<select onchange="updateRuleTrigger(' + i + ', this.value)">' + triggerOptions + '</select>' +
+                    '<input type="text" value="' + param + '" placeholder="interval/threshold" onchange="updateRuleParam(' + i + ', this.value)">' +
+                    '<select onchange="updateRuleAction(' + i + ', this.value)">' + actionOptions + '</select>' +
+                    '<button class="remove-btn danger" onclick="removeRuleRow(' + i + ')">X</button>' +
+                    '</div>';
+            }).join('');
         }
 
         function addRuleRow() {
@@ -626,23 +651,19 @@
             updateRecipeFromForm();
         }
 
-        // Form -> Recipe
         function updateRecipeFromForm() {
             if (!currentRecipe) {
                 currentRecipe = { version: 1, name: 'my_strategy', sources: [], gates: [], exits: {}, rules: [] };
             }
 
-            // Name
             currentRecipe.name = document.getElementById('strategy-name').value || 'my_strategy';
 
-            // Sources from checkboxes
             const checkedSources = [];
             document.querySelectorAll('#sources-editor input[type="checkbox"]:checked').forEach(cb => {
                 checkedSources.push(cb.value);
             });
             currentRecipe.sources = checkedSources;
 
-            // Update JSON preview
             updateJsonPreview();
         }
 
@@ -683,14 +704,13 @@
                 updateJsonPreview();
                 document.getElementById('recipe-msg').innerHTML = '<span class="success-msg">Applied JSON to form</span>';
             } catch (e) {
-                document.getElementById('recipe-msg').innerHTML = `<span class="error">Invalid JSON: ${e.message}</span>`;
+                document.getElementById('recipe-msg').innerHTML = '<span class="error">Invalid JSON: ' + e.message + '</span>';
             }
         }
 
-        // Load strategy into editor
         async function loadStrategyIntoEditor(id) {
             try {
-                const res = await fetch(`/strategies/${id}`);
+                const res = await fetch('/strategies/' + id);
                 const data = await res.json();
                 if (data.ok && data.strategy) {
                     currentRecipe = data.strategy.recipe;
@@ -701,7 +721,7 @@
                     renderRulesEditor();
                     document.getElementById('strategy-name').value = data.strategy.recipe.name || '';
                     document.getElementById('editor-title').textContent = data.strategy.name || data.strategy.id;
-                    document.getElementById('editor-status').textContent = `Status: ${data.strategy.status} • Last updated: ${new Date(data.strategy.updated_at * 1000).toLocaleString()}`;
+                    document.getElementById('editor-status').textContent = 'Status: ' + data.strategy.status + ' • Last updated: ' + new Date(data.strategy.updated_at * 1000).toLocaleString();
                     updateJsonPreview();
                     highlightSelectedStrategy(id);
                 }
@@ -710,7 +730,6 @@
             }
         }
 
-        // Visibility change recovery
         document.addEventListener('visibilitychange', () => {
             if (document.visibilityState === 'visible') {
                 loadStrategies();
@@ -724,28 +743,25 @@
             loadConsole();
         });
 
-        // Strategies
         async function loadStrategies() {
             try {
                 const res = await fetch('/strategies');
                 const data = await res.json();
                 const list = document.getElementById('strategy-list');
                 if (data.ok && data.strategies.length > 0) {
-                    list.innerHTML = data.strategies.map(s => `
-                        <div class="strategy-item" data-id="${s.id}" onclick="loadStrategyIntoEditor('${s.id}')">
-                            <span>
-                                <span class="strategy-name">${s.name || s.id}</span>
-                                <span class="status status-${s.status}">${s.status}</span>
-                            </span>
-                            <span>
-                                ${s.status === 'draft' ?
-                                    `<button class="success" onclick="event.stopPropagation(); enableStrategy('${s.id}')">Enable</button>` :
-                                    `<button class="danger" onclick="event.stopPropagation(); disableStrategy('${s.id}')">Disable</button>`
-                                }
-                                <button onclick="event.stopPropagation(); exportStrategy('${s.id}')">Export</button>
-                            </span>
-                        </div>
-                    `).join('');
+                    list.innerHTML = data.strategies.map(s => {
+                        let buttons;
+                        if (s.status === 'draft') {
+                            buttons = '<button class="success" onclick="event.stopPropagation(); enableStrategy(\'' + s.id + '\')">Enable</button>';
+                        } else {
+                            buttons = '<button class="danger" onclick="event.stopPropagation(); disableStrategy(\'' + s.id + '\')">Disable</button>';
+                        }
+                        buttons += '<button onclick="event.stopPropagation(); exportStrategy(\'' + s.id + '\')">Export</button>';
+                        return '<div class="strategy-item" data-id="' + s.id + '" onclick="loadStrategyIntoEditor(\'' + s.id + '\")">' +
+                            '<span><span class="strategy-name">' + (s.name || s.id) + '</span> <span class="status status-' + s.status + '">' + s.status + '</span></span>' +
+                            '<span>' + buttons + '</span></div>';
+                    }).join('');
+
                     const btSelect = document.getElementById('bt-strategy');
                     const currentVal = btSelect.value;
                     btSelect.innerHTML = '<option value="">Default (all strategies)</option>';
@@ -756,7 +772,7 @@
                         btSelect.appendChild(opt);
                     });
                     btSelect.value = currentVal;
-                    // Re-apply highlight for currently selected strategy
+
                     if (currentStrategyId) {
                         highlightSelectedStrategy(currentStrategyId);
                     }
@@ -764,7 +780,7 @@
                     list.innerHTML = '<p class="loading">No strategies yet.</p>';
                 }
             } catch (e) {
-                document.getElementById('strategy-list').innerHTML = `<p class="error">Error: ${e.message}</p>`;
+                document.getElementById('strategy-list').innerHTML = '<p class="error">Error: ' + e.message + '</p>';
             }
         }
 
@@ -781,29 +797,28 @@
                 });
                 const data = await res.json();
                 if (data.ok) {
-                    msg.innerHTML = `<span class="success-msg">Created: ${data.id}</span>`;
+                    msg.innerHTML = '<span class="success-msg">Created: ' + data.id + '</span>';
                     loadStrategies();
                 } else {
-                    msg.innerHTML = `<span class="error">${JSON.stringify(data.error)}</span>`;
+                    msg.innerHTML = '<span class="error">' + JSON.stringify(data.error) + '</span>';
                 }
             } catch (e) {
-                msg.innerHTML = `<span class="error">Invalid JSON: ${e.message}</span>`;
+                msg.innerHTML = '<span class="error">Invalid JSON: ' + e.message + '</span>';
             }
         }
 
         async function enableStrategy(id) {
-            const res = await fetch(`/strategies/${id}/enable`, { method: 'POST' });
+            const res = await fetch('/strategies/' + id + '/enable', { method: 'POST' });
             const data = await res.json();
             if (data.ok) loadStrategies();
         }
 
         async function disableStrategy(id) {
-            const res = await fetch(`/strategies/${id}/disable`, { method: 'POST' });
+            const res = await fetch('/strategies/' + id + '/disable', { method: 'POST' });
             const data = await res.json();
             if (data.ok) loadStrategies();
         }
 
-        // Backtest
         async function runBacktest() {
             const window = document.getElementById('bt-window').value;
             const strategyId = document.getElementById('bt-strategy').value;
@@ -824,11 +839,11 @@
                 if (data.ok) {
                     pollBacktestJob(data.job_id);
                 } else {
-                    msg.innerHTML = `<span class="error">${data.error}</span>`;
+                    msg.innerHTML = '<span class="error">' + data.error + '</span>';
                     btn.disabled = false;
                 }
             } catch (e) {
-                msg.innerHTML = `<span class="error">Error: ${e.message}</span>`;
+                msg.innerHTML = '<span class="error">Error: ' + e.message + '</span>';
                 btn.disabled = false;
             }
         }
@@ -848,7 +863,7 @@
                 }
 
                 try {
-                    const res = await fetch(`/backtest/${jobId}`);
+                    const res = await fetch('/backtest/' + jobId);
                     const data = await res.json();
                     if (data.ok && data.job) {
                         if (data.job.status === 'running') {
@@ -859,7 +874,7 @@
                             btn.disabled = false;
                             renderBacktestResults(data.job.result);
                         } else if (data.job.status === 'error') {
-                            msg.innerHTML = `<span class="error">${data.job.error}</span>`;
+                            msg.innerHTML = '<span class="error">' + data.job.error + '</span>';
                             btn.disabled = false;
                         }
                     }
@@ -883,12 +898,7 @@
                 let html = '<div class="grid grid-3">';
                 if (typeof s === 'object') {
                     for (const [key, value] of Object.entries(s)) {
-                        html += `
-                            <div class="stat">
-                                <div class="stat-value">${typeof value === 'number' ? value.toFixed(2) : value}</div>
-                                <div class="stat-label">${key}</div>
-                            </div>
-                        `;
+                        html += '<div class="stat"><div class="stat-value">' + (typeof value === 'number' ? value.toFixed(2) : value) + '</div><div class="stat-label">' + key + '</div></div>';
                     }
                 }
                 html += '</div>';
@@ -896,7 +906,7 @@
                 if (result.buckets && Array.isArray(result.buckets)) {
                     html += '<table><tr><th>Bucket</th><th>N</th><th>Win Rate</th></tr>';
                     for (const b of result.buckets) {
-                        html += `<tr><td>${b.label || JSON.stringify(b)}</td><td>${b.n}</td><td>${(b.win_rate || 0).toFixed(2)}</td></tr>`;
+                        html += '<tr><td>' + (b.label || JSON.stringify(b)) + '</td><td>' + b.n + '</td><td>' + (b.win_rate || 0).toFixed(2) + '</td></tr>';
                     }
                     html += '</table>';
                     renderChart(result.buckets);
@@ -904,7 +914,7 @@
 
                 results.innerHTML = html;
             } else {
-                results.innerHTML = `<pre>${JSON.stringify(result, null, 2)}</pre>`;
+                results.innerHTML = '<pre>' + JSON.stringify(result, null, 2) + '</pre>';
             }
         }
 
@@ -947,33 +957,22 @@
             });
         }
 
-        // Swarm
         async function loadSwarmStatus() {
             try {
                 const res = await fetch('/swarm/status');
                 const data = await res.json();
                 const status = document.getElementById('swarm-status');
                 if (data.ok) {
-                    status.innerHTML = `
-                        <div class="grid grid-3">
-                            <div class="stat">
-                                <div class="stat-value">Running</div>
-                                <div class="stat-label">Process</div>
-                            </div>
-                            <div class="stat">
-                                <div class="stat-value">${data.matching ? 'On' : 'Off'}</div>
-                                <div class="stat-label">Recipe Matching</div>
-                            </div>
-                            <div class="stat">
-                                <div class="stat-value">${data.dry_run ? 'Dry Run' : 'Live'}</div>
-                                <div class="stat-label">Mode</div>
-                            </div>
-                        </div>
-                        <p style="margin-top:8px;font-size:0.8em;color:#888;">${data.recipes_enabled} enabled strategies. Start/Stop toggle recipe matching only.</p>
-                    `;
+                    status.innerHTML =
+                        '<div class="grid grid-3">' +
+                        '<div class="stat"><div class="stat-value">Running</div><div class="stat-label">Process</div></div>' +
+                        '<div class="stat"><div class="stat-value">' + (data.matching ? 'On' : 'Off') + '</div><div class="stat-label">Recipe Matching</div></div>' +
+                        '<div class="stat"><div class="stat-value">' + (data.dry_run ? 'Dry Run' : 'Live') + '</div><div class="stat-label">Mode</div></div>' +
+                        '</div>' +
+                        '<p style="margin-top:8px;font-size:0.8em;color:#888;">' + data.recipes_enabled + ' enabled strategies. Start/Stop toggle recipe matching only.</p>';
                 }
             } catch (e) {
-                document.getElementById('swarm-status').innerHTML = `<p class="error">Error: ${e.message}</p>`;
+                document.getElementById('swarm-status').innerHTML = '<p class="error">Error: ' + e.message + '</p>';
             }
         }
 
@@ -982,10 +981,10 @@
             try {
                 const res = await fetch('/swarm/start', { method: 'POST' });
                 const data = await res.json();
-                msg.innerHTML = data.ok ? '<span class="success-msg">Started</span>' : `<span class="error">${data.error}</span>`;
+                msg.innerHTML = data.ok ? '<span class="success-msg">Started</span>' : '<span class="error">' + data.error + '</span>';
                 loadSwarmStatus();
             } catch (e) {
-                msg.innerHTML = `<span class="error">${e.message}</span>`;
+                msg.innerHTML = '<span class="error">' + e.message + '</span>';
             }
         }
 
@@ -994,10 +993,10 @@
             try {
                 const res = await fetch('/swarm/stop', { method: 'POST' });
                 const data = await res.json();
-                msg.innerHTML = data.ok ? '<span class="success-msg">Stopped</span>' : `<span class="error">${data.error}</span>`;
+                msg.innerHTML = data.ok ? '<span class="success-msg">Stopped</span>' : '<span class="error">' + data.error + '</span>';
                 loadSwarmStatus();
             } catch (e) {
-                msg.innerHTML = `<span class="error">${e.message}</span>`;
+                msg.innerHTML = '<span class="error">' + e.message + '</span>';
             }
         }
 
@@ -1006,14 +1005,13 @@
             try {
                 const res = await fetch('/swarm/restart', { method: 'POST' });
                 const data = await res.json();
-                msg.innerHTML = data.ok ? '<span class="success-msg">Restarted</span>' : `<span class="error">${data.error}</span>`;
+                msg.innerHTML = data.ok ? '<span class="success-msg">Restarted</span>' : '<span class="error">' + data.error + '</span>';
                 loadSwarmStatus();
             } catch (e) {
-                msg.innerHTML = `<span class="error">${e.message}</span>`;
+                msg.innerHTML = '<span class="error">' + e.message + '</span>';
             }
         }
 
-        // Console
         async function loadConsole() {
             try {
                 const res = await fetch('/logs/tail?n=100');
@@ -1021,8 +1019,11 @@
                 const output = document.getElementById('console-output');
                 if (data.ok) {
                     const lines = data.lines.split('\n').filter(l => l.trim());
-                    output.innerHTML = lines.map(l => `<div class="console-line">${escapeHtml(l)}</div>`).join('');
-                    output.scrollTop = output.scrollHeight;
+                    const isNearBottom = output.scrollHeight - output.scrollTop - output.clientHeight < 100;
+                    output.innerHTML = lines.map(l => '<div class="console-line">' + escapeHtml(l) + '</div>').join('');
+                    if (isNearBottom) {
+                        output.scrollTop = output.scrollHeight;
+                    }
                 }
             } catch (e) {
                 // ignore
@@ -1035,20 +1036,19 @@
             return div.innerHTML;
         }
 
-        // AI Chat
         function addAiMessage(role, content) {
             const chat = document.getElementById('ai-chat');
             const line = document.createElement('div');
             line.className = 'console-line';
             if (role === 'user') {
                 line.style.color = '#ff9800';
-                line.textContent = `You: ${content}`;
+                line.textContent = 'You: ' + content;
             } else if (role === 'tool') {
                 line.style.color = '#4caf50';
-                line.textContent = `Tool: ${content}`;
+                line.textContent = 'Tool: ' + content;
             } else {
                 line.style.color = '#4fc3f7';
-                line.textContent = `AI: ${content}`;
+                line.textContent = 'AI: ' + content;
             }
             chat.appendChild(line);
             chat.scrollTop = chat.scrollHeight;
@@ -1078,7 +1078,6 @@
             addAiMessage('user', text);
             msg.innerHTML = '<span class="loading">Thinking...</span>';
 
-            // Get current recipe for context
             updateRecipeFromForm();
             let recipe = null;
             try {
@@ -1087,7 +1086,6 @@
                 // ignore
             }
 
-            // Get strategy list for context
             let strategies = [];
             try {
                 const listRes = await fetch('/strategies');
@@ -1126,7 +1124,6 @@
                             if (tr.name === 'validate_recipe' && tr.result.ok) {
                                 addAiMessage('tool', 'Recipe validated successfully');
                             } else if (tr.name === 'suggest_mutation' && tr.result.ok && tr.result.recipe) {
-                                // Validate recipe before applying
                                 try {
                                     const valRes = await fetch('/ai/tools/validate_recipe', {
                                         method: 'POST',
@@ -1136,7 +1133,6 @@
                                     const valData = await valRes.json();
 
                                     if (valData.ok && valData.result.ok) {
-                                        // Apply recipe to form
                                         currentRecipe = tr.result.recipe;
                                         renderSourcesEditor();
                                         renderGatesEditor();
@@ -1147,10 +1143,8 @@
                                         lastAiRecipe = null;
                                         document.getElementById('ai-apply-btn').style.display = 'none';
 
-                                        // Determine if this is a new strategy or an update
                                         const isCreate = !currentStrategyId || text.toLowerCase().includes('create') || text.toLowerCase().includes('new');
                                         if (isCreate) {
-                                            // Save as new strategy
                                             const saveRes = await fetch('/strategies', {
                                                 method: 'POST',
                                                 headers: { 'Content-Type': 'application/json' },
@@ -1158,17 +1152,16 @@
                                             });
                                             const saveData = await saveRes.json();
                                             if (saveData.ok) {
-                                                addAiMessage('tool', `Created new strategy: ${tr.result.recipe.name}`);
+                                                addAiMessage('tool', 'Created new strategy: ' + tr.result.recipe.name);
                                                 currentStrategyId = saveData.id;
                                                 document.getElementById('editor-title').textContent = tr.result.recipe.name;
                                                 document.getElementById('editor-status').textContent = 'Status: draft';
                                                 loadStrategies();
                                                 highlightSelectedStrategy(currentStrategyId);
                                             } else {
-                                                addAiMessage('tool', `Error creating: ${JSON.stringify(saveData.error)}`);
+                                                addAiMessage('tool', 'Error creating: ' + JSON.stringify(saveData.error));
                                             }
                                         } else {
-                                            // Update existing strategy
                                             if (currentStrategyId) {
                                                 const saveRes = await fetch('/strategies', {
                                                     method: 'POST',
@@ -1177,38 +1170,37 @@
                                                 });
                                                 const saveData = await saveRes.json();
                                                 if (saveData.ok) {
-                                                    addAiMessage('tool', `Applied to ${tr.result.recipe.name}`);
+                                                    addAiMessage('tool', 'Applied to ' + tr.result.recipe.name);
                                                     loadStrategies();
                                                 } else {
-                                                    addAiMessage('tool', `Error saving: ${JSON.stringify(saveData.error)}`);
+                                                    addAiMessage('tool', 'Error saving: ' + JSON.stringify(saveData.error));
                                                 }
                                             } else {
                                                 addAiMessage('tool', 'No strategy selected to update');
                                             }
                                         }
                                     } else {
-                                        const errors = valData.result.errors.map((e: any) => e.message).join(', ');
-                                        addAiMessage('tool', `Invalid recipe: ${errors}`);
+                                        const errors = valData.result.errors.map((e) => e.message).join(', ');
+                                        addAiMessage('tool', 'Invalid recipe: ' + errors);
                                     }
                                 } catch (e) {
-                                    addAiMessage('tool', `Error validating: ${e.message}`);
+                                    addAiMessage('tool', 'Error validating: ' + e.message);
                                 }
                             } else if (tr.name === 'suggest_mutation' && tr.result.ok && !tr.result.recipe) {
-                                // LLM suggested a change but didn't provide recipe JSON
                                 addAiMessage('tool', tr.result.explanation || 'Suggested a change');
                             } else if (!tr.result.ok) {
-                                addAiMessage('tool', `Error: ${tr.result.errors?.join(', ')}`);
+                                addAiMessage('tool', 'Error: ' + (tr.result.errors ? tr.result.errors.join(', ') : 'unknown'));
                             }
                         }
                     }
                 } else {
-                    msg.innerHTML = `<span class="error">${data.error}</span>`;
+                    msg.innerHTML = '<span class="error">' + data.error + '</span>';
                 }
             } catch (e) {
                 if (e.name === 'AbortError') {
                     msg.innerHTML = '<span class="error">LLM timed out (15s) - unreachable or slow</span>';
                 } else {
-                    msg.innerHTML = `<span class="error">Error: ${e.message}</span>`;
+                    msg.innerHTML = '<span class="error">Error: ' + e.message + '</span>';
                 }
             }
         }
@@ -1218,14 +1210,13 @@
             items.forEach(item => {
                 const itemId = item.getAttribute('data-id') || '';
                 if (itemId === id) {
-                    item.style.border = '2px solid #3dd68c';
+                    item.classList.add('selected');
                 } else {
-                    item.style.border = '';
+                    item.classList.remove('selected');
                 }
             });
         }
 
-        // Settings
         async function loadSettings() {
             try {
                 const res = await fetch('/settings');
@@ -1264,7 +1255,6 @@
                     body.llm_api_key = apiKey;
                 }
 
-                // Remove empty values
                 for (const key in body) {
                     if (body[key] === '' || body[key] === null) {
                         delete body[key];
@@ -1281,14 +1271,13 @@
                     msg.innerHTML = '<span class="success-msg">Settings saved</span>';
                     loadSettings();
                 } else {
-                    msg.innerHTML = `<span class="error">${data.error}</span>`;
+                    msg.innerHTML = '<span class="error">' + data.error + '</span>';
                 }
             } catch (e) {
-                msg.innerHTML = `<span class="error">${e.message}</span>`;
+                msg.innerHTML = '<span class="error">' + e.message + '</span>';
             }
         }
 
-        // Dev panel
         async function loadDevProcesses() {
             try {
                 const res = await fetch('/dev/processes');
@@ -1305,9 +1294,9 @@
                     for (const p of data.processes) {
                         const owner = p.is_pidfile_owner ? '<span class="status status-enabled">pidfile</span>' : '';
                         const current = p.is_current ? '<span class="status status-enabled">current</span>' : '';
-                        html += `<tr><td>${p.pid}</td><td>${owner}${current}</td><td style="font-size:0.75em;">${escapeHtml(p.command)}</td><td>`;
+                        html += '<tr><td>' + p.pid + '</td><td>' + owner + current + '</td><td style="font-size:0.75em;">' + escapeHtml(p.command) + '</td><td>';
                         if (!p.is_current) {
-                            html += `<button onclick="killProcess(${p.pid})">Kill</button>`;
+                            html += '<button onclick="killProcess(' + p.pid + ')">Kill</button>';
                         }
                         html += '</td></tr>';
                     }
@@ -1315,7 +1304,7 @@
                     list.innerHTML = html;
                 }
             } catch (e) {
-                document.getElementById('dev-processes').innerHTML = `<p class="error">Error: ${e.message}</p>`;
+                document.getElementById('dev-processes').innerHTML = '<p class="error">Error: ' + e.message + '</p>';
             }
         }
 
@@ -1329,13 +1318,13 @@
                 });
                 const data = await res.json();
                 if (data.ok) {
-                    msg.innerHTML = `<span class="success-msg">Killed pid ${pid}</span>`;
+                    msg.innerHTML = '<span class="success-msg">Killed pid ' + pid + '</span>';
                     loadDevProcesses();
                 } else {
-                    msg.innerHTML = `<span class="error">${data.error}</span>`;
+                    msg.innerHTML = '<span class="error">' + data.error + '</span>';
                 }
             } catch (e) {
-                msg.innerHTML = `<span class="error">${e.message}</span>`;
+                msg.innerHTML = '<span class="error">' + e.message + '</span>';
             }
         }
 
@@ -1349,13 +1338,13 @@
                 });
                 const data = await res.json();
                 if (data.ok) {
-                    msg.innerHTML = `<span class="success-msg">Killed ${data.killed.length} processes: ${data.killed.join(', ')}</span>`;
+                    msg.innerHTML = '<span class="success-msg">Killed ' + data.killed.length + ' processes: ' + data.killed.join(', ') + '</span>';
                     loadDevProcesses();
                 } else {
-                    msg.innerHTML = `<span class="error">${data.error}</span>`;
+                    msg.innerHTML = '<span class="error">' + data.error + '</span>';
                 }
             } catch (e) {
-                msg.innerHTML = `<span class="error">${e.message}</span>`;
+                msg.innerHTML = '<span class="error">' + e.message + '</span>';
             }
         }
 
@@ -1371,17 +1360,16 @@
                 if (data.ok) {
                     msg.innerHTML = '<span class="success-msg">Restarting...</span>';
                 } else {
-                    msg.innerHTML = `<span class="error">${data.error}</span>`;
+                    msg.innerHTML = '<span class="error">' + data.error + '</span>';
                 }
             } catch (e) {
-                msg.innerHTML = `<span class="error">${e.message}</span>`;
+                msg.innerHTML = '<span class="error">' + e.message + '</span>';
             }
         }
 
-        // Export strategy
         async function exportStrategy(id) {
             try {
-                const res = await fetch(`/strategies/${id}/export`);
+                const res = await fetch('/strategies/' + id + '/export');
                 const data = await res.json();
                 if (data.ok === false) {
                     alert('Export failed: ' + data.error);
@@ -1389,16 +1377,18 @@
                 }
                 const json = JSON.stringify(data, null, 2);
                 document.getElementById('import-json').value = json;
-                navigator.clipboard.writeText(json).then(() => {
+                try {
+                    await navigator.clipboard.writeText(json);
                     alert('Exported to clipboard');
-                });
+                } catch (e) {
+                    alert('Exported (copy manually): ' + json.substring(0, 50));
+                }
                 showImportModal();
             } catch (e) {
                 alert('Export error: ' + e.message);
             }
         }
 
-        // Import strategy
         function showImportModal() {
             document.getElementById('import-modal').style.display = 'block';
         }
@@ -1438,7 +1428,6 @@
             }
         }
 
-        // Estimate CU
         async function estimateCu() {
             const note = document.getElementById('cu-note');
             note.innerHTML = '<span class="loading">Estimating...</span>';
@@ -1455,7 +1444,7 @@
                 });
                 const data = await res.json();
                 if (data.ok) {
-                    note.innerHTML = `<span class="success-msg">~${Math.round(data.cu_per_week)} CU/week</span>`;
+                    note.innerHTML = '<span class="success-msg">~' + Math.round(data.cu_per_week) + ' CU/week</span>';
                 } else {
                     note.innerHTML = '';
                 }
@@ -1464,7 +1453,6 @@
             }
         }
 
-        // Referral activation
         async function activateReferral() {
             const code = document.getElementById('referral-code').value.trim();
             const msg = document.getElementById('referral-msg');
@@ -1494,7 +1482,6 @@
             }
         }
 
-        // Init
         loadIngredients();
         loadStrategies();
         loadSwarmStatus();
