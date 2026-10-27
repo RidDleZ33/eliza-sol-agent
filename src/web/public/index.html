@@ -346,6 +346,7 @@
         let swarmInterval = null;
         let strategiesInterval = null;
         let currentRecipe = null;
+        let currentStrategyId = null;
         let ingredients = null;
         let aiMessages = [];
         let lastAiRecipe = null;
@@ -693,6 +694,7 @@
                 const data = await res.json();
                 if (data.ok && data.strategy) {
                     currentRecipe = data.strategy.recipe;
+                    currentStrategyId = id;
                     renderSourcesEditor();
                     renderGatesEditor();
                     renderExitsEditor();
@@ -701,6 +703,7 @@
                     document.getElementById('editor-title').textContent = data.strategy.name || data.strategy.id;
                     document.getElementById('editor-status').textContent = `Status: ${data.strategy.status} • Last updated: ${new Date(data.strategy.updated_at * 1000).toLocaleString()}`;
                     updateJsonPreview();
+                    highlightSelectedStrategy(id);
                 }
             } catch (e) {
                 console.error('Failed to load strategy:', e);
@@ -729,7 +732,7 @@
                 const list = document.getElementById('strategy-list');
                 if (data.ok && data.strategies.length > 0) {
                     list.innerHTML = data.strategies.map(s => `
-                        <div class="strategy-item" onclick="loadStrategyIntoEditor('${s.id}')">
+                        <div class="strategy-item" data-id="${s.id}" onclick="loadStrategyIntoEditor('${s.id}')">
                             <span>
                                 <span class="strategy-name">${s.name || s.id}</span>
                                 <span class="status status-${s.status}">${s.status}</span>
@@ -753,6 +756,10 @@
                         btSelect.appendChild(opt);
                     });
                     btSelect.value = currentVal;
+                    // Re-apply highlight for currently selected strategy
+                    if (currentStrategyId) {
+                        highlightSelectedStrategy(currentStrategyId);
+                    }
                 } else {
                     list.innerHTML = '<p class="loading">No strategies yet.</p>';
                 }
@@ -1080,6 +1087,18 @@
                 // ignore
             }
 
+            // Get strategy list for context
+            let strategies = [];
+            try {
+                const listRes = await fetch('/strategies');
+                const listData = await listRes.json();
+                if (listData.ok) {
+                    strategies = listData.strategies;
+                }
+            } catch (e) {
+                // ignore
+            }
+
             try {
                 const controller = new AbortController();
                 const timeout = setTimeout(() => controller.abort(), 15000);
@@ -1089,7 +1108,9 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         messages: [{ role: 'user', content: text }],
-                        recipe: recipe
+                        recipe: recipe,
+                        strategy_id: currentStrategyId,
+                        strategies: strategies
                     }),
                     signal: controller.signal
                 });
@@ -1105,9 +1126,76 @@
                             if (tr.name === 'validate_recipe' && tr.result.ok) {
                                 addAiMessage('tool', 'Recipe validated successfully');
                             } else if (tr.name === 'suggest_mutation' && tr.result.ok && tr.result.recipe) {
-                                addAiMessage('tool', 'Suggested new recipe');
-                                lastAiRecipe = tr.result.recipe;
-                                document.getElementById('ai-apply-btn').style.display = 'inline-block';
+                                // Validate recipe before applying
+                                try {
+                                    const valRes = await fetch('/ai/tools/validate_recipe', {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({ recipe: tr.result.recipe })
+                                    });
+                                    const valData = await valRes.json();
+
+                                    if (valData.ok && valData.result.ok) {
+                                        // Apply recipe to form
+                                        currentRecipe = tr.result.recipe;
+                                        renderSourcesEditor();
+                                        renderGatesEditor();
+                                        renderExitsEditor();
+                                        renderRulesEditor();
+                                        document.getElementById('strategy-name').value = tr.result.recipe.name || '';
+                                        updateJsonPreview();
+                                        lastAiRecipe = null;
+                                        document.getElementById('ai-apply-btn').style.display = 'none';
+
+                                        // Determine if this is a new strategy or an update
+                                        const isCreate = !currentStrategyId || text.toLowerCase().includes('create') || text.toLowerCase().includes('new');
+                                        if (isCreate) {
+                                            // Save as new strategy
+                                            const saveRes = await fetch('/strategies', {
+                                                method: 'POST',
+                                                headers: { 'Content-Type': 'application/json' },
+                                                body: JSON.stringify(tr.result.recipe)
+                                            });
+                                            const saveData = await saveRes.json();
+                                            if (saveData.ok) {
+                                                addAiMessage('tool', `Created new strategy: ${tr.result.recipe.name}`);
+                                                currentStrategyId = saveData.id;
+                                                document.getElementById('editor-title').textContent = tr.result.recipe.name;
+                                                document.getElementById('editor-status').textContent = 'Status: draft';
+                                                loadStrategies();
+                                                highlightSelectedStrategy(currentStrategyId);
+                                            } else {
+                                                addAiMessage('tool', `Error creating: ${JSON.stringify(saveData.error)}`);
+                                            }
+                                        } else {
+                                            // Update existing strategy
+                                            if (currentStrategyId) {
+                                                const saveRes = await fetch('/strategies', {
+                                                    method: 'POST',
+                                                    headers: { 'Content-Type': 'application/json' },
+                                                    body: JSON.stringify(tr.result.recipe)
+                                                });
+                                                const saveData = await saveRes.json();
+                                                if (saveData.ok) {
+                                                    addAiMessage('tool', `Applied to ${tr.result.recipe.name}`);
+                                                    loadStrategies();
+                                                } else {
+                                                    addAiMessage('tool', `Error saving: ${JSON.stringify(saveData.error)}`);
+                                                }
+                                            } else {
+                                                addAiMessage('tool', 'No strategy selected to update');
+                                            }
+                                        }
+                                    } else {
+                                        const errors = valData.result.errors.map((e: any) => e.message).join(', ');
+                                        addAiMessage('tool', `Invalid recipe: ${errors}`);
+                                    }
+                                } catch (e) {
+                                    addAiMessage('tool', `Error validating: ${e.message}`);
+                                }
+                            } else if (tr.name === 'suggest_mutation' && tr.result.ok && !tr.result.recipe) {
+                                // LLM suggested a change but didn't provide recipe JSON
+                                addAiMessage('tool', tr.result.explanation || 'Suggested a change');
                             } else if (!tr.result.ok) {
                                 addAiMessage('tool', `Error: ${tr.result.errors?.join(', ')}`);
                             }
@@ -1123,6 +1211,18 @@
                     msg.innerHTML = `<span class="error">Error: ${e.message}</span>`;
                 }
             }
+        }
+
+        function highlightSelectedStrategy(id) {
+            const items = document.querySelectorAll('.strategy-item');
+            items.forEach(item => {
+                const itemId = item.getAttribute('data-id') || '';
+                if (itemId === id) {
+                    item.style.border = '2px solid #3dd68c';
+                } else {
+                    item.style.border = '';
+                }
+            });
         }
 
         // Settings

@@ -202,15 +202,33 @@ Suggest a complete, valid recipe JSON that implements this change. Return ONLY t
 // Chat endpoint
 aiRouter.post("/chat", async (c) => {
   const body = await c.req.json();
-  const { messages, recipe, stream } = body;
+  const { messages, recipe, strategy_id, strategies } = body;
 
   if (!messages || messages.length === 0) {
     return c.json({ ok: false, error: "messages required" }, 400);
   }
 
+  // Build system prompt with strategy context
+  let systemPrompt = RSB_AI_SYSTEM;
+
+  if (strategy_id) {
+    systemPrompt += `\n\nYou are editing strategy: ${strategy_id}`;
+  } else {
+    systemPrompt += "\n\nNo strategy is currently selected. If the user wants to create a strategy, suggest a recipe with a clear name.";
+  }
+
+  if (strategies && strategies.length > 0) {
+    const strategyList = strategies
+      .map((s: any) => `${s.id} (${s.name || s.id}, ${s.status})`)
+      .join(", ");
+    systemPrompt += `\n\nExisting strategies: ${strategyList}`;
+  }
+
+  systemPrompt += "\n\nWhen you produce a recipe, the UI will apply it automatically. Do not paste the full JSON in your reply; describe the change you made and why.";
+
   // Build conversation with system prompt
   const conversation = [
-    { role: "system", content: RSB_AI_SYSTEM },
+    { role: "system", content: systemPrompt },
     ...messages,
   ];
 
