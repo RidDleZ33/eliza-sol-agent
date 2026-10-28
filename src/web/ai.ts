@@ -58,7 +58,9 @@ Available exit keys:
 Always validate a recipe before suggesting it be enabled.
 Prefer pair-scoped tape numbers.
 Do not invent live cuts that the compiler rejects.
-Fail closed on missing fields.`;
+Fail closed on missing fields.
+
+IMPORTANT: Never include a JSON code block or the full recipe in your chat reply. The UI applies the recipe directly. Reply with one or two sentences describing the change you made.`;
 
 // Tool definitions (OpenAI-compatible format)
 const TOOLS = [

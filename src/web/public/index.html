@@ -24,7 +24,7 @@
 
         /* Avatar */
         .avatar { width: 30px; height: 30px; border-radius: 50%; background: #23272e; display: flex; align-items: center; justify-content: center; font-size: 0.8em; color: #888; cursor: pointer; position: relative; }
-        .avatar-menu { display: none; position: absolute; top: 40px; right: 0; background: #14171c; border: 1px solid #23272e; border-radius: 6px; padding: 8px 0; min-width: 140px; z-index: 102; }
+        .avatar-menu { display: none; position: absolute; top: 40px; left: 0; right: auto; background: #14171c; border: 1px solid #23272e; border-radius: 6px; padding: 8px 0; min-width: 140px; z-index: 102; }
         .avatar-menu.open { display: block; }
         .avatar-menu-item { padding: 8px 16px; color: #888; font-size: 0.85em; cursor: pointer; }
         .avatar-menu-item:hover { background: #1a1a1a; color: #e0e0e0; }
@@ -90,6 +90,15 @@
 
         /* Builder layout */
         .builder-layout { display: grid; grid-template-columns: 280px 1fr; gap: 16px; }
+
+        /* Summary card */
+        .summary-card { background: #0b0d10; border: 1px solid #23272e; border-radius: 4px; padding: 12px; margin-bottom: 12px; }
+        .summary-card h3 { font-size: 0.85em; color: #e0e0e0; margin-bottom: 8px; }
+        .summary-item { display: flex; gap: 8px; margin-bottom: 4px; font-size: 0.85em; }
+        .summary-label { color: #888; min-width: 80px; text-transform: uppercase; font-size: 0.75em; letter-spacing: 0.5px; }
+        .summary-value { color: #e0e0e0; }
+        .summary-gates, .summary-exits, .summary-rules { margin-top: 4px; padding-left: 12px; }
+        .summary-sub { font-size: 0.8em; color: #aaa; margin-bottom: 2px; }
         .palette { background: #0b0d10; border: 1px solid #23272e; border-radius: 6px; padding: 12px; }
         .palette-section { margin-bottom: 16px; }
         .palette-section h3 { font-size: 0.75em; color: #888; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 1px; }
@@ -155,7 +164,10 @@
         <div id="strategies" class="panel active">
             <div class="card">
                 <h2>Strategy List</h2>
-                <button onclick="showImportModal()">Import Strategy</button>
+                <div style="margin-bottom:8px;">
+                    <button onclick="showImportModal()">Import Strategy</button>
+                    <button class="primary" onclick="showNewStrategy()">New Strategy</button>
+                </div>
                 <div id="strategy-list"></div>
             </div>
             <div class="card">
@@ -197,6 +209,7 @@
                         <div class="field">
                             <label>Exits</label>
                             <div id="exits-editor"></div>
+                            <button onclick="addExitRow()" style="margin-top:4px;">Add Exit</button>
                         </div>
                         <div class="field">
                             <label>Rules</label>
@@ -204,7 +217,7 @@
                             <button onclick="addRuleRow()" style="margin-top:4px;">Add Rule</button>
                         </div>
                         <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;flex-wrap:wrap;gap:8px;">
-                            <button class="primary" onclick="createStrategy()">Create / Update</button>
+                            <button class="primary" id="save-strategy-btn" onclick="createStrategy()">Create</button>
                             <div>
                                 <button onclick="estimateCu()">Estimate CU</button>
                                 <span id="cu-note" style="font-size:0.8em;color:#888;margin-left:8px;"></span>
@@ -390,6 +403,7 @@
         let strategiesInterval = null;
         let currentRecipe = null;
         let currentStrategyId = null;
+        let editingExisting = false;
         let ingredients = null;
         let aiMessages = [];
         let lastAiRecipe = null;
@@ -551,26 +565,62 @@
         function renderExitsEditor() {
             const container = document.getElementById('exits-editor');
             const exits = currentRecipe ? currentRecipe.exits : {};
+            const exitKeys = Object.keys(exits);
 
-            container.innerHTML = ingredients.exit_keys.map(e => {
-                const val = exits[e.key] !== undefined ? exits[e.key] : '';
-                return '<div class="field" style="margin-bottom:8px;">' +
-                    '<label style="font-size:0.85em;">' + e.key + ' (' + e.desc + ')</label>' +
-                    '<input type="number" value="' + val + '" step="1" placeholder="' + e.example + '" style="width:100%;" onchange="updateExit(\'' + e.key + '\', this.value)">' +
+            if (exitKeys.length === 0) {
+                container.innerHTML = '<p class="loading">No exits defined.</p>';
+                return;
+            }
+
+            container.innerHTML = exitKeys.map((key, i) => {
+                let keyOptions = ingredients.exit_keys.map(e =>
+                    '<option value="' + e.key + '"' + (key === e.key ? ' selected' : '') + '>' + e.key + '</option>'
+                ).join('');
+                return '<div class="gate-row" data-exit-index="' + i + '">' +
+                    '<select onchange="updateExitKey(' + i + ', this.value)">' + keyOptions + '</select>' +
+                    '<input type="number" value="' + exits[key] + '" step="1" placeholder="value" style="flex:1;" onchange="updateExitValue(' + i + ', this.value)">' +
+                    '<button class="remove-btn danger" onclick="removeExitRow(' + i + ')">X</button>' +
                     '</div>';
             }).join('');
         }
 
-        function updateExit(key, value) {
+        function addExitRow() {
             if (!currentRecipe) {
                 currentRecipe = { version: 1, name: document.getElementById('strategy-name').value || 'my_strategy', sources: [], gates: [], exits: {}, rules: [] };
             }
             if (!currentRecipe.exits) currentRecipe.exits = {};
+            const defaultKey = 'tp_pct';
+            currentRecipe.exits[defaultKey] = 30;
+            renderExitsEditor();
+            updateRecipeFromForm();
+        }
+
+        function updateExitKey(index, key) {
+            const exitKeys = Object.keys(currentRecipe.exits);
+            const oldKey = exitKeys[index];
+            const value = currentRecipe.exits[oldKey];
+            delete currentRecipe.exits[oldKey];
+            currentRecipe.exits[key] = value;
+            renderExitsEditor();
+            updateRecipeFromForm();
+        }
+
+        function updateExitValue(index, value) {
+            const exitKeys = Object.keys(currentRecipe.exits);
+            const key = exitKeys[index];
             if (value === '') {
                 delete currentRecipe.exits[key];
             } else {
                 currentRecipe.exits[key] = Number(value);
             }
+            updateRecipeFromForm();
+        }
+
+        function removeExitRow(index) {
+            const exitKeys = Object.keys(currentRecipe.exits);
+            const key = exitKeys[index];
+            delete currentRecipe.exits[key];
+            renderExitsEditor();
             updateRecipeFromForm();
         }
 
@@ -715,19 +765,117 @@
                 if (data.ok && data.strategy) {
                     currentRecipe = data.strategy.recipe;
                     currentStrategyId = id;
+                    editingExisting = true;
+                    document.getElementById('editor-title').textContent = 'Edit Strategy';
+                    document.getElementById('editor-status').textContent = 'Status: ' + data.strategy.status + ' • Last updated: ' + new Date(data.strategy.updated_at * 1000).toLocaleString();
+                    renderSummaryCard(data.strategy);
                     renderSourcesEditor();
                     renderGatesEditor();
                     renderExitsEditor();
                     renderRulesEditor();
                     document.getElementById('strategy-name').value = data.strategy.recipe.name || '';
-                    document.getElementById('editor-title').textContent = data.strategy.name || data.strategy.id;
-                    document.getElementById('editor-status').textContent = 'Status: ' + data.strategy.status + ' • Last updated: ' + new Date(data.strategy.updated_at * 1000).toLocaleString();
                     updateJsonPreview();
                     highlightSelectedStrategy(id);
                 }
             } catch (e) {
                 console.error('Failed to load strategy:', e);
             }
+        }
+
+        function renderSummaryCard(strategy) {
+            let summaryContainer = document.getElementById('strategy-summary');
+            if (!summaryContainer) {
+                summaryContainer = document.createElement('div');
+                summaryContainer.id = 'strategy-summary';
+                const editor = document.getElementById('strategy-editor');
+                editor.parentNode.insertBefore(summaryContainer, editor);
+            }
+            summaryContainer.style.display = 'block';
+
+            const recipe = strategy.recipe;
+            let html = '<div class="summary-card">';
+            html += '<h3>' + (strategy.name || strategy.id) + ' <span class="status status-' + strategy.status + '">' + strategy.status + '</span></h3>';
+
+            if (recipe.sources && recipe.sources.length > 0) {
+                html += '<div class="summary-item"><span class="summary-label">Sources</span><span class="summary-value">' + recipe.sources.join(', ') + '</span></div>';
+            }
+
+            if (recipe.gates && recipe.gates.length > 0) {
+                html += '<div class="summary-item"><span class="summary-label">Gates</span></div>';
+                html += '<div class="summary-gates">';
+                recipe.gates.forEach(g => {
+                    const val = g.value !== undefined ? ' ' + g.value : '';
+                    html += '<div class="summary-sub">' + g.field + ' ' + g.op + val + '</div>';
+                });
+                html += '</div>';
+            }
+
+            if (recipe.exits && Object.keys(recipe.exits).length > 0) {
+                html += '<div class="summary-item"><span class="summary-label">Exits</span></div>';
+                html += '<div class="summary-exits">';
+                Object.keys(recipe.exits).forEach(key => {
+                    html += '<div class="summary-sub">' + key + ' = ' + recipe.exits[key] + '</div>';
+                });
+                html += '</div>';
+            }
+
+            if (recipe.rules && recipe.rules.length > 0) {
+                html += '<div class="summary-item"><span class="summary-label">Rules</span></div>';
+                html += '<div class="summary-rules">';
+                recipe.rules.forEach(r => {
+                    let desc = '';
+                    if (r.trigger) desc = r.trigger;
+                    if (r.interval) desc += ' ' + r.interval;
+                    else if (r.threshold) desc += ' ' + r.threshold;
+                    if (r.action) desc += ' → ' + r.action;
+                    html += '<div class="summary-sub">' + desc + '</div>';
+                });
+                html += '</div>';
+            }
+
+            html += '</div>';
+            summaryContainer.innerHTML = html;
+        }
+
+        function showNewStrategy() {
+            currentRecipe = null;
+            currentStrategyId = null;
+            editingExisting = false;
+            document.getElementById('editor-title').textContent = 'New Strategy';
+            document.getElementById('editor-status').textContent = '';
+            document.getElementById('strategy-name').value = '';
+            document.getElementById('save-strategy-btn').textContent = 'Create';
+            const summary = document.getElementById('strategy-summary');
+            if (summary) summary.style.display = 'none';
+            renderSourcesEditor();
+            document.getElementById('gates-editor').innerHTML = '<p class="loading">No gates defined.</p>';
+            document.getElementById('exits-editor').innerHTML = '<p class="loading">No exits defined.</p>';
+            document.getElementById('rules-editor').innerHTML = '<p class="loading">No rules defined.</p>';
+            updateJsonPreview();
+            document.querySelectorAll('.strategy-item').forEach(el => el.classList.remove('selected'));
+            document.getElementById('strategy-editor').scrollIntoView({ behavior: 'smooth' });
+        }
+
+        async function viewStrategy(id) {
+            try {
+                const res = await fetch('/strategies/' + id);
+                const data = await res.json();
+                if (data.ok && data.strategy) {
+                    currentStrategyId = id;
+                    editingExisting = true;
+                    document.getElementById('editor-title').textContent = 'Edit Strategy';
+                    document.getElementById('editor-status').textContent = 'Status: ' + data.strategy.status + ' • Last updated: ' + new Date(data.strategy.updated_at * 1000).toLocaleString();
+                    renderSummaryCard(data.strategy);
+                    highlightSelectedStrategy(id);
+                }
+            } catch (e) {
+                console.error('Failed to view strategy:', e);
+            }
+        }
+
+        async function editStrategy(id) {
+            await loadStrategyIntoEditor(id);
+            document.getElementById('save-strategy-btn').textContent = 'Update';
         }
 
         document.addEventListener('visibilitychange', () => {
@@ -757,7 +905,8 @@
                             buttons = '<button class="danger" onclick="event.stopPropagation(); disableStrategy(\'' + s.id + '\')">Disable</button>';
                         }
                         buttons += '<button onclick="event.stopPropagation(); exportStrategy(\'' + s.id + '\')">Export</button>';
-                        return '<div class="strategy-item" data-id="' + s.id + '" onclick="loadStrategyIntoEditor(\'' + s.id + '\")">' +
+                        buttons += '<button onclick="event.stopPropagation(); editStrategy(\'' + s.id + '\')">Edit</button>';
+                        return '<div class="strategy-item" data-id="' + s.id + '" onclick="viewStrategy(\'' + s.id + '\')">' +
                             '<span><span class="strategy-name">' + (s.name || s.id) + '</span> <span class="status status-' + s.status + '">' + s.status + '</span></span>' +
                             '<span>' + buttons + '</span></div>';
                     }).join('');
@@ -786,18 +935,30 @@
 
         async function createStrategy() {
             updateRecipeFromForm();
-            const json = document.getElementById('recipe-json').value;
             const msg = document.getElementById('recipe-msg');
             try {
-                const recipe = JSON.parse(json);
+                const recipe = JSON.parse(document.getElementById('recipe-json').value);
+
+                if (!recipe.exits || Object.keys(recipe.exits).length === 0) {
+                    msg.innerHTML = '<span class="error">Add at least one exit.</span>';
+                    return;
+                }
+
                 const res = await fetch('/strategies', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: json
+                    body: JSON.stringify(recipe)
                 });
                 const data = await res.json();
                 if (data.ok) {
-                    msg.innerHTML = '<span class="success-msg">Created: ' + data.id + '</span>';
+                    if (editingExisting && currentStrategyId) {
+                        msg.innerHTML = '<span class="success-msg">Updated: ' + data.id + '</span>';
+                    } else {
+                        msg.innerHTML = '<span class="success-msg">Created: ' + data.id + '</span>';
+                        currentStrategyId = data.id;
+                        editingExisting = true;
+                        document.getElementById('save-strategy-btn').textContent = 'Update';
+                    }
                     loadStrategies();
                 } else {
                     msg.innerHTML = '<span class="error">' + JSON.stringify(data.error) + '</span>';
@@ -1036,6 +1197,18 @@
             return div.innerHTML;
         }
 
+        function stripJsonFromAi(text) {
+            // Remove ```json ... ``` blocks
+            let cleaned = text.replace(/```json[\s\S]*?```/g, '');
+            // Remove standalone ```...``` code blocks
+            cleaned = cleaned.replace(/```[\s\S]*?```/g, '');
+            // Remove raw {...} JSON objects (heuristic)
+            cleaned = cleaned.replace(/\{["\s\w:,.\[\]]+"name"["\s\w:,.\[\]]+\}/g, '');
+            // Clean up extra whitespace
+            cleaned = cleaned.replace(/\n\s*\n/g, '\n').trim();
+            return cleaned;
+        }
+
         function addAiMessage(role, content) {
             const chat = document.getElementById('ai-chat');
             const line = document.createElement('div');
@@ -1117,7 +1290,7 @@
                 const data = await res.json();
                 if (data.ok) {
                     msg.innerHTML = '';
-                    addAiMessage('assistant', data.assistant);
+                    addAiMessage('assistant', stripJsonFromAi(data.assistant));
 
                     if (data.tool_results && data.tool_results.length > 0) {
                         for (const tr of data.tool_results) {
