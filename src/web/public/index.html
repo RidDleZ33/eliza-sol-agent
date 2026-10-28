@@ -219,6 +219,7 @@
                         </div>
                         <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;flex-wrap:wrap;gap:8px;">
                             <button class="primary" id="save-strategy-btn" onclick="createStrategy()">Create</button>
+                            <button id="undo-strategy-btn" onclick="undoRecipe()" disabled>Undo</button>
                             <div>
                                 <button onclick="estimateCu()">Estimate CU</button>
                                 <span id="cu-note" style="font-size:0.8em;color:#888;margin-left:8px;"></span>
@@ -405,6 +406,7 @@
         let currentRecipe = null;
         let currentStrategyId = null;
         let editingExisting = false;
+        let recipeUndoStack = [];
         let ingredients = null;
         let aiMessages = [];
         let lastAiRecipe = null;
@@ -719,15 +721,43 @@
         }
 
         function updateJsonPreview() {
-            const preview = document.getElementById('json-preview');
-            const rawTextarea = document.getElementById('recipe-json');
             try {
                 const json = JSON.stringify(currentRecipe, null, 2);
-                preview.textContent = json;
-                rawTextarea.value = json;
+                const preview = document.getElementById('json-preview');
+                if (preview) preview.textContent = json;
+                const rawTextarea = document.getElementById('recipe-json');
+                if (rawTextarea) rawTextarea.value = json;
             } catch (e) {
-                preview.textContent = 'Error: ' + e.message;
+                const preview = document.getElementById('json-preview');
+                if (preview) preview.textContent = 'Error: ' + e.message;
             }
+        }
+
+        function pushUndo() {
+            if (currentRecipe) {
+                recipeUndoStack.push(JSON.parse(JSON.stringify(currentRecipe)));
+                if (recipeUndoStack.length > 10) {
+                    recipeUndoStack.shift();
+                }
+            }
+            updateUndoButton();
+        }
+
+        function updateUndoButton() {
+            const btn = document.getElementById('undo-strategy-btn');
+            if (btn) btn.disabled = recipeUndoStack.length === 0;
+        }
+
+        function undoRecipe() {
+            if (recipeUndoStack.length === 0) return;
+            currentRecipe = recipeUndoStack.pop();
+            renderSourcesEditor();
+            renderGatesEditor();
+            renderExitsEditor();
+            renderRulesEditor();
+            document.getElementById('strategy-name').value = currentRecipe.name || '';
+            updateJsonPreview();
+            updateUndoButton();
         }
 
         function toggleRawJson() {
@@ -825,6 +855,7 @@
             document.getElementById('rules-editor').innerHTML = '<p class="loading">No rules defined.</p>';
             updateJsonPreview();
             document.querySelectorAll('.strategy-item').forEach(el => el.classList.remove('selected'));
+            updateJsonPreview();
         }
 
         async function selectStrategy(id) {
@@ -1298,7 +1329,10 @@
                                     const valData = await valRes.json();
 
                                     if (valData.ok && valData.result.ok) {
+                                        pushUndo();
                                         currentRecipe = tr.result.recipe;
+                                        document.getElementById('strategy-detail').style.display = 'none';
+                                        document.getElementById('strategy-editor-card').style.display = 'block';
                                         renderSourcesEditor();
                                         renderGatesEditor();
                                         renderExitsEditor();
