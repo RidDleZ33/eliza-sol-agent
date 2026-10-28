@@ -113,10 +113,21 @@
         .raw-json-toggle { font-size: 0.8em; color: #4fc3f7; cursor: pointer; }
         .raw-json-toggle:hover { text-decoration: underline; }
 
+        /* Editor + History layout */
+        .editor-container { display: grid; grid-template-columns: 1fr 320px; gap: 16px; }
+
+        /* History panel */
+        .history-row { display: flex; align-items: flex-start; gap: 8px; padding: 8px; background: #0b0d10; border: 1px solid #23272e; border-radius: 4px; margin-bottom: 6px; cursor: pointer; font-size: 0.8em; }
+        .history-row:hover { border-color: #444; }
+        .history-time { color: #888; min-width: 30px; }
+        .history-label { color: #e0e0e0; font-weight: 500; }
+        .history-diff { color: #aaa; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
         /* Mobile */
         @media (max-width: 900px) {
             .logo { display: none; }
             .wordmark { display: inline-block; }
+            .editor-container { grid-template-columns: 1fr; }
         }
         @media (max-width: 768px) {
             .container { padding: 12px; }
@@ -171,7 +182,8 @@
                 <div id="strategy-list"></div>
             </div>
             <div id="strategy-detail" class="card" style="display:none;"></div>
-            <div id="strategy-editor-card" class="card" style="display:none;">
+            <div id="editor-container" style="display:none;">
+                <div id="strategy-editor-card" class="card">
                 <h2 id="editor-title">New Strategy</h2>
                 <p id="editor-status" style="font-size:0.8em;color:#888;margin-bottom:8px;"></p>
                 <div class="builder-layout">
@@ -240,8 +252,13 @@
                     </div>
                 </div>
             </div>
-            <div class="card">
-                <h2>AI Assistant</h2>
+            <div id="history-panel" class="card">
+                <h2>Edit History</h2>
+                <div id="history-list"><p class="loading">No edits yet</p></div>
+            </div>
+        </div>
+        <div class="card">
+            <h2>AI Assistant</h2>
                 <p style="font-size:0.8em;color:#888;margin-bottom:8px;">Describe strategy changes in natural language. The AI will validate and update your recipe.</p>
                 <div id="ai-chat" class="console" style="min-height:150px;max-height:300px;margin-bottom:8px;">
                     <div class="console-line" style="color:#4fc3f7;">AI: I can help build strategies. Try "add a holders >= 500 gate and a 30% TP"</div>
@@ -406,7 +423,7 @@
         let currentRecipe = null;
         let currentStrategyId = null;
         let editingExisting = false;
-        let recipeUndoStack = [];
+        let editHistory = [];
         let ingredients = null;
         let aiMessages = [];
         let lastAiRecipe = null;
@@ -528,6 +545,7 @@
                 currentRecipe = { version: 1, name: document.getElementById('strategy-name').value || 'my_strategy', sources: [], gates: [], exits: {}, rules: [] };
             }
             if (!currentRecipe.gates) currentRecipe.gates = [];
+            recordManual();
             const field = ingredients.gate_fields[0].field;
             const op = ingredients.operators[0];
             currentRecipe.gates.push({ field: field, op: op });
@@ -560,6 +578,7 @@
         }
 
         function removeGateRow(index) {
+            recordManual();
             currentRecipe.gates.splice(index, 1);
             renderGatesEditor();
             updateRecipeFromForm();
@@ -602,6 +621,7 @@
             const exitKeys = Object.keys(currentRecipe.exits);
             const oldKey = exitKeys[index];
             const value = currentRecipe.exits[oldKey];
+            recordManual();
             delete currentRecipe.exits[oldKey];
             currentRecipe.exits[key] = value;
             renderExitsEditor();
@@ -611,10 +631,14 @@
         function updateExitValue(index, value) {
             const exitKeys = Object.keys(currentRecipe.exits);
             const key = exitKeys[index];
+            const oldVal = currentRecipe.exits[key];
             if (value === '') {
                 delete currentRecipe.exits[key];
             } else {
                 currentRecipe.exits[key] = Number(value);
+            }
+            if (oldVal !== currentRecipe.exits[key]) {
+                recordManual();
             }
             updateRecipeFromForm();
         }
@@ -660,6 +684,7 @@
                 currentRecipe = { version: 1, name: document.getElementById('strategy-name').value || 'my_strategy', sources: [], gates: [], exits: {}, rules: [] };
             }
             if (!currentRecipe.rules) currentRecipe.rules = [];
+            recordManual();
             currentRecipe.rules.push({});
             renderRulesEditor();
             updateRecipeFromForm();
@@ -699,6 +724,7 @@
         }
 
         function removeRuleRow(index) {
+            recordManual();
             currentRecipe.rules.splice(index, 1);
             renderRulesEditor();
             updateRecipeFromForm();
@@ -733,19 +759,65 @@
             }
         }
 
-        function pushUndo() {
-            if (currentRecipe) {
-                recipeUndoStack.push(JSON.parse(JSON.stringify(currentRecipe)));
-                if (recipeUndoStack.length > 10) {
-                    recipeUndoStack.shift();
-                }
+        function pushUndo(label, recipe, diff) {
+            const entry = { ts: Date.now(), label: label, recipe: JSON.parse(JSON.stringify(recipe)), diff: diff };
+            editHistory.push(entry);
+            if (editHistory.length > 20) {
+                editHistory.shift();
             }
             updateUndoButton();
+            updateHistoryPanel();
         }
 
         function updateUndoButton() {
             const btn = document.getElementById('undo-strategy-btn');
-            if (btn) btn.disabled = recipeUndoStack.length === 0;
+            if (btn) btn.disabled = editHistory.length === 0;
+        }
+
+        function updateHistoryPanel() {
+            const list = document.getElementById('history-list');
+            if (!list) return;
+            if (editHistory.length === 0) {
+                list.innerHTML = '<p class="loading">No edits yet</p>';
+                return;
+            }
+            const rows = [];
+            for (let i = editHistory.length - 1; i >= 0; i--) {
+                const entry = editHistory[i];
+                const mins = Math.round((Date.now() - entry.ts) / 60000);
+                const timeStr = mins < 1 ? 'now' : mins + 'm';
+                rows.push('<div class="history-row" onclick="restoreHistory(' + i + ')">' +
+                    '<span class="history-time">' + timeStr + '</span>' +
+                    '<span class="history-label">' + escapeHtml(entry.label) + '</span>' +
+                    '<span class="history-diff">' + escapeHtml(entry.diff) + '</span>' +
+                    '</div>');
+            }
+            list.innerHTML = rows.join('');
+        }
+
+        function restoreHistory(index) {
+            const entry = editHistory[index];
+            if (!entry) return;
+            pushUndo('Restore', currentRecipe, 'to ' + entry.label);
+            currentRecipe = JSON.parse(JSON.stringify(entry.recipe));
+            renderSourcesEditor();
+            renderGatesEditor();
+            renderExitsEditor();
+            renderRulesEditor();
+            document.getElementById('strategy-name').value = currentRecipe.name || '';
+            updateJsonPreview();
+            updateHistoryPanel();
+        }
+
+        function recordManual() {
+            if (editHistory.length === 0) {
+                pushUndo('Manual edit', currentRecipe, 'created');
+            } else {
+                const last = editHistory[editHistory.length - 1];
+                if (JSON.stringify(last.recipe) !== JSON.stringify(currentRecipe)) {
+                    pushUndo('Manual edit', currentRecipe, 'edited');
+                }
+            }
         }
 
         function recipeDiff(oldRecipe, newRecipe) {
@@ -772,15 +844,17 @@
         }
 
         function undoRecipe() {
-            if (recipeUndoStack.length === 0) return;
-            currentRecipe = recipeUndoStack.pop();
+            if (editHistory.length === 0) return;
+            const entry = editHistory[editHistory.length - 1];
+            pushUndo('Undo', currentRecipe, 'undo ' + entry.label);
+            currentRecipe = JSON.parse(JSON.stringify(entry.recipe));
             renderSourcesEditor();
             renderGatesEditor();
             renderExitsEditor();
             renderRulesEditor();
             document.getElementById('strategy-name').value = currentRecipe.name || '';
             updateJsonPreview();
-            updateUndoButton();
+            updateHistoryPanel();
         }
 
         function toggleRawJson() {
@@ -799,6 +873,9 @@
             const raw = document.getElementById('recipe-json').value;
             try {
                 const parsed = JSON.parse(raw);
+                if (JSON.stringify(currentRecipe) !== raw) {
+                    recordManual();
+                }
                 currentRecipe = parsed;
                 renderSourcesEditor();
                 renderGatesEditor();
@@ -871,7 +948,9 @@
             document.getElementById('strategy-name').value = '';
             document.getElementById('save-strategy-btn').textContent = 'Create';
             document.getElementById('strategy-detail').style.display = 'none';
-            document.getElementById('strategy-editor-card').style.display = 'block';
+            document.getElementById('editor-container').style.display = 'grid';
+            editHistory = [];
+            updateHistoryPanel();
             renderSourcesEditor();
             document.getElementById('gates-editor').innerHTML = '<p class="loading">No gates defined.</p>';
             document.getElementById('exits-editor').innerHTML = '<p class="loading">No exits defined.</p>';
@@ -906,7 +985,9 @@
                     currentStrategyId = id;
                     editingExisting = true;
                     document.getElementById('strategy-detail').style.display = 'none';
-                    document.getElementById('strategy-editor-card').style.display = 'block';
+                    document.getElementById('editor-container').style.display = 'grid';
+                    editHistory = [];
+                    updateHistoryPanel();
                     document.getElementById('editor-title').textContent = 'Edit Strategy';
                     document.getElementById('editor-status').textContent = 'Status: ' + data.strategy.status + ' • Last updated: ' + new Date(data.strategy.updated_at * 1000).toLocaleString();
                     document.getElementById('save-strategy-btn').textContent = 'Update';
@@ -1343,9 +1424,11 @@
                                 if (tr.name === 'suggest_mutation' && tr.result && tr.result.ok && tr.result.recipe) {
                                     // Apply the recipe from tool result
                                     const oldRecipe = currentRecipe ? JSON.parse(JSON.stringify(currentRecipe)) : null;
+                                    const diff = recipeDiff(oldRecipe, tr.result.recipe);
+                                    pushUndo(text, oldRecipe, diff);
                                     currentRecipe = tr.result.recipe;
                                     document.getElementById('strategy-detail').style.display = 'none';
-                                    document.getElementById('strategy-editor-card').style.display = 'block';
+                                    document.getElementById('editor-container').style.display = 'grid';
                                     renderSourcesEditor();
                                     renderGatesEditor();
                                     renderExitsEditor();
@@ -1367,7 +1450,6 @@
                                             document.getElementById('editor-status').textContent = 'Status: draft';
                                             loadStrategies();
                                             highlightSelectedStrategy(currentStrategyId);
-                                            const diff = recipeDiff(oldRecipe, currentRecipe);
                                             addAiMessage('tool', 'Applied to ' + (tr.result.recipe.name || 'strategy') + ': ' + diff);
                                         } else {
                                             addAiMessage('tool', 'Error saving: ' + JSON.stringify(saveData.error));
