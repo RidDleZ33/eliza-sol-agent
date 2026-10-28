@@ -170,7 +170,8 @@
                 </div>
                 <div id="strategy-list"></div>
             </div>
-            <div class="card">
+            <div id="strategy-detail" class="card" style="display:none;"></div>
+            <div id="strategy-editor-card" class="card" style="display:none;">
                 <h2 id="editor-title">New Strategy</h2>
                 <p id="editor-status" style="font-size:0.8em;color:#888;margin-bottom:8px;"></p>
                 <div class="builder-layout">
@@ -761,18 +762,12 @@
 
 
         function renderSummaryCard(strategy) {
-            let summaryContainer = document.getElementById('strategy-summary');
-            if (!summaryContainer) {
-                summaryContainer = document.createElement('div');
-                summaryContainer.id = 'strategy-summary';
-                const editor = document.getElementById('strategy-editor');
-                editor.parentNode.insertBefore(summaryContainer, editor);
-            }
-            summaryContainer.style.display = 'block';
+            const detailCard = document.getElementById('strategy-detail');
+            detailCard.style.display = 'block';
 
             const recipe = strategy.recipe;
-            let html = '<div class="summary-card">';
-            html += '<h3>' + (strategy.name || strategy.id) + ' <span class="status status-' + strategy.status + '">' + strategy.status + '</span></h3>';
+            let html = '<h2>' + (strategy.name || strategy.id) + ' <span class="status status-' + strategy.status + '">' + strategy.status + '</span></h2>';
+            html += '<p style="font-size:0.8em;color:#888;margin-bottom:12px;">Last updated: ' + new Date(strategy.updated_at * 1000).toLocaleString() + '</p>';
 
             if (recipe.sources && recipe.sources.length > 0) {
                 html += '<div class="summary-item"><span class="summary-label">Sources</span><span class="summary-value">' + recipe.sources.join(', ') + '</span></div>';
@@ -811,8 +806,7 @@
                 html += '</div>';
             }
 
-            html += '</div>';
-            summaryContainer.innerHTML = html;
+            detailCard.innerHTML = html;
         }
 
         function showNewStrategy() {
@@ -823,15 +817,14 @@
             document.getElementById('editor-status').textContent = '';
             document.getElementById('strategy-name').value = '';
             document.getElementById('save-strategy-btn').textContent = 'Create';
-            const summary = document.getElementById('strategy-summary');
-            if (summary) summary.style.display = 'none';
+            document.getElementById('strategy-detail').style.display = 'none';
+            document.getElementById('strategy-editor-card').style.display = 'block';
             renderSourcesEditor();
             document.getElementById('gates-editor').innerHTML = '<p class="loading">No gates defined.</p>';
             document.getElementById('exits-editor').innerHTML = '<p class="loading">No exits defined.</p>';
             document.getElementById('rules-editor').innerHTML = '<p class="loading">No rules defined.</p>';
             updateJsonPreview();
             document.querySelectorAll('.strategy-item').forEach(el => el.classList.remove('selected'));
-            document.getElementById('strategy-editor').scrollIntoView({ behavior: 'smooth' });
         }
 
         async function selectStrategy(id) {
@@ -841,9 +834,8 @@
                 if (data.ok && data.strategy) {
                     currentStrategyId = id;
                     editingExisting = true;
-                    document.getElementById('editor-status').textContent = 'Status: ' + data.strategy.status + ' • Last updated: ' + new Date(data.strategy.updated_at * 1000).toLocaleString();
                     renderSummaryCard(data.strategy);
-                    document.getElementById('builder-layout').style.display = 'none';
+                    document.getElementById('strategy-editor-card').style.display = 'none';
                     highlightSelectedStrategy(id);
                 }
             } catch (e) {
@@ -859,10 +851,11 @@
                     currentRecipe = data.strategy.recipe;
                     currentStrategyId = id;
                     editingExisting = true;
+                    document.getElementById('strategy-detail').style.display = 'none';
+                    document.getElementById('strategy-editor-card').style.display = 'block';
                     document.getElementById('editor-title').textContent = 'Edit Strategy';
                     document.getElementById('editor-status').textContent = 'Status: ' + data.strategy.status + ' • Last updated: ' + new Date(data.strategy.updated_at * 1000).toLocaleString();
                     document.getElementById('save-strategy-btn').textContent = 'Update';
-                    document.getElementById('builder-layout').style.display = 'grid';
                     renderSourcesEditor();
                     renderGatesEditor();
                     renderExitsEditor();
