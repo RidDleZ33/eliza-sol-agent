@@ -10,6 +10,7 @@ import { priceActionService } from "./PriceActionService.ts";
 import { volStopPct } from "../execution/volStop.ts";
 import { excursionSnippet } from "../execution/excursion.ts";
 import { getExitClockSec, getClockSecMigEdge, getPoolDropPct, getStallSec } from "../utils/env.ts";
+import { loadRecipeById } from "../recipes/db.ts";
 
 export class PositionManagerService {
   private runtime: any;
@@ -18,6 +19,7 @@ export class PositionManagerService {
   private positionTroughs: Map<string, number>; // mint -> trough price
   private positionPoolQuotes: Map<string, number>; // mint -> initial pool quote SOL
   private positionLastHighMs: Map<string, number>; // mint -> timestamp of last new high
+  private exitSourceLog: Set<string>; // mints we've already logged exit source for
 
   constructor(runtime) {
     this.runtime = runtime;
@@ -25,6 +27,7 @@ export class PositionManagerService {
     this.positionTroughs = new Map();
     this.positionPoolQuotes = new Map();
     this.positionLastHighMs = new Map();
+    this.exitSourceLog = new Set();
   }
 
   start() {
@@ -89,7 +92,7 @@ export class PositionManagerService {
     const ageSeconds = (Date.now() - enteredAt.getTime()) / 1000;
     const staleMinutes = configService.getNumber("STALE_POSITION_MINUTES");
 
-    // Determine exit clock: per-source override if set, else global
+    // Determine exit clock: recipe clock_sec > per-source override > global
     const globalClockSec = getExitClockSec();
     let source = position.added_by_agent;
     // Position row may not carry added_by_agent; look it up from watchlist
@@ -100,6 +103,9 @@ export class PositionManagerService {
     if (source === "mig_edge") {
       const migOverride = getClockSecMigEdge();
       if (migOverride !== null) exitClockSec = migOverride;
+    }
+    if (exits && exits.clock_sec !== undefined) {
+      exitClockSec = exits.clock_sec;
     }
 
     // Fetch current price
@@ -151,17 +157,56 @@ export class PositionManagerService {
     await watchlistService.updatePositionPrice(mint, currentPrice, unrealizedPnlUsd, pnlPct);
 
     // Check exit conditions
-    const takeProfitPct = configService.getNumber("TAKE_PROFIT_PCT");
-    const trailingStopPct = configService.getNumber("TRAILING_STOP_PCT");
+    // PHASE 30A: When position has strategy_id, use recipe's compiled exits;
+    // fall back to env for any missing keys. Untagged positions use env as before.
+    const recipeId = position.strategy_id;
+    let exits;
+    let exitSource = "env";
+    if (recipeId) {
+      try {
+        const recipe = loadRecipeById(recipeId);
+        if (recipe && recipe.compiled && recipe.compiled.exits) {
+          exits = recipe.compiled.exits;
+          exitSource = "recipe";
+        }
+      } catch (e: any) {
+        logger.warn("POSITIONS", "PositionManager", "Failed to load recipe exits", {
+          recipeId,
+          error: e.message,
+        });
+      }
+    }
+
+    if (!this.exitSourceLog.has(mint)) {
+      this.exitSourceLog.add(mint);
+      logger.info("POSITIONS", "PositionManager", "Exit value source", {
+        symbol,
+        source: exitSource,
+        strategyId: recipeId,
+      });
+    }
+
+    const envTpPct = configService.getNumber("TAKE_PROFIT_PCT");
+    const takeProfitPct = exits && exits.tp_pct !== undefined ? exits.tp_pct : envTpPct;
+    const envTrailPct = configService.getNumber("TRAILING_STOP_PCT");
+    const trailingStopPct = exits && exits.trail_pct !== undefined ? exits.trail_pct : envTrailPct;
 
     // Volatility-based stop: compute HV and derive stop distance
+    // Recipe's stop_pct overrides HV stop when set; recipe pool_drop_pct overrides env
     const hv = await priceActionService.get24hHV(mint);
     const atrK = configService.getNumber("EXIT_ATR_K");
     let stopPct: number;
     let regime: "CHOP" | "TREND" | "SHOCK" | null = null;
+    const envStopPct = configService.getNumber("STOP_LOSS_PCT");
 
-    if (hv !== null) {
-      // stop_pct = clamp(k * hv, 0.08, 0.25)
+    if (exits && exits.stop_pct !== undefined) {
+      stopPct = exits.stop_pct;
+      regime = null;
+      logger.info("POSITIONS", "PositionManager", "Using recipe stop", {
+        symbol,
+        stopPct,
+      });
+    } else if (hv !== null) {
       stopPct = volStopPct(hv, atrK);
       regime = priceActionService.labelRegime(hv);
       logger.info("POSITIONS", "PositionManager", "Volatility stop computed", {
@@ -172,8 +217,7 @@ export class PositionManagerService {
         regime,
       });
     } else {
-      // Fallback to legacy hard stop
-      stopPct = configService.getNumber("STOP_LOSS_PCT");
+      stopPct = envStopPct;
       logger.info("POSITIONS", "PositionManager", "HV unavailable, using legacy stop", {
         symbol,
         stopPct,
@@ -189,7 +233,9 @@ export class PositionManagerService {
     const peakPnlPct = ((peakForExcursion - entryForExcursion) / entryForExcursion) * 100;
 
     // Phase 23A: Pool drop exit (fast-rug signal) — check before stop-loss
-    const poolDropPct = getPoolDropPct();
+    // Recipe pool_drop_pct overrides env
+    const envPoolDropPct = getPoolDropPct();
+    const poolDropPct = exits && exits.pool_drop_pct !== undefined ? exits.pool_drop_pct : envPoolDropPct;
     if (poolDropPct > 0) {
       let initialQuote = this.positionPoolQuotes.get(mint);
       if (initialQuote === undefined) {

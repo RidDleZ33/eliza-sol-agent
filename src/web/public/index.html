@@ -1317,7 +1317,9 @@
                         '<div class="stat"><div class="stat-value">' + (data.matching ? 'On' : 'Off') + '</div><div class="stat-label">Recipe Matching</div></div>' +
                         '<div class="stat"><div class="stat-value">' + (data.dry_run ? 'Dry Run' : 'Live') + '</div><div class="stat-label">Mode</div></div>' +
                         '</div>' +
-                        '<p style="margin-top:8px;font-size:0.8em;color:#888;">' + data.recipes_enabled + ' enabled strategies. Start/Stop toggle recipe matching only.</p>';
+                        (data.matching ?
+                        '<p style="margin-top:8px;font-size:0.8em;color:#888;">' + data.recipes_enabled + ' enabled strategies. Recipe matching is the entry gate — candidates must match an enabled strategy to buy.</p>' :
+                        '<p style="margin-top:8px;font-size:0.8em;color:#888;">' + data.recipes_enabled + ' enabled strategies. Recipe matching off — using hardcoded mig_edge gates.</p>');
                 }
             } catch (e) {
                 document.getElementById('swarm-status').innerHTML = '<p class="error">Error: ' + e.message + '</p>';
@@ -1914,6 +1916,10 @@
 
         function renderBookEquity(trips) {
             if (bookEquityChart) bookEquityChart.destroy();
+            bookEquityChart = null;
+
+            const canvas = document.getElementById('book-equity-chart');
+            if (!canvas) return;
 
             const labels = [];
             const equityData = [];
@@ -1928,11 +1934,23 @@
             }
 
             if (equityData.length === 0) {
-                document.getElementById('book-equity-chart').parentElement.innerHTML = '<p class="loading">No equity data</p>';
+                canvas.style.display = 'none';
+                let msg = canvas.parentElement.querySelector('.book-equity-empty');
+                if (!msg) {
+                    msg = document.createElement('p');
+                    msg.className = 'book-equity-empty loading';
+                    msg.textContent = 'No closed trips in this window';
+                    canvas.parentElement.appendChild(msg);
+                }
+                msg.style.display = 'block';
                 return;
             }
 
-            bookEquityChart = new Chart(document.getElementById('book-equity-chart'), {
+            canvas.style.display = 'block';
+            const msg = canvas.parentElement.querySelector('.book-equity-empty');
+            if (msg) msg.style.display = 'none';
+
+            bookEquityChart = new Chart(canvas, {
                 type: 'line',
                 data: {
                     labels: labels,

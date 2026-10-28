@@ -70,3 +70,17 @@ export function setRecipeStatus(id: string, status: string) {
   const d = getDb();
   d.prepare("UPDATE strategies SET status = ? WHERE id = ?").run(status, id);
 }
+
+export function loadRecipeById(id: string) {
+  const d = getDb();
+  const row = d.prepare(
+    `SELECT id, recipe_json, compiled_json, status FROM strategies WHERE id = ?`
+  ).get(id);
+  if (!row) return null;
+  return {
+    id: row.id,
+    recipe: JSON.parse(row.recipe_json),
+    compiled: JSON.parse(row.compiled_json),
+    status: row.status,
+  };
+}

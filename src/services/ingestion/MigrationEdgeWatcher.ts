@@ -294,29 +294,34 @@ export class MigrationEdgeWatcher implements IngestionWatcher {
   private async maybeBuy(mint: string, symbol: string, facts?: any) {
     logger.info("INGESTION", this.name, "mig_edge buy", { mint, symbol });
 
-    // PHASE 25B: Evaluate candidate through enabled recipes before buying
+    // PHASE 30A: When recipes are enabled and there are enabled recipes,
+    // no recipe match means no buy (gate). Otherwise fall through to
+    // the hardcoded path so the desk does not go dark during the switch.
     let strategyId: string | undefined;
-    if (facts) {
-      const candidate: CandidateFacts = {
-        mint,
-        symbol,
-        source: SOURCE,
-        liq_usd: facts.liq_usd,
-        holders: facts.holders,
-        top10_rate: facts.top10_rate,
-        creator_status: facts.creator_status,
-        nuke_ratio: facts.nuke_ratio,
-      };
+    if (facts && recipesEvaluator.isMatching()) {
+      const enabledCount = recipesEvaluator.getEnabledCount();
+      if (enabledCount > 0) {
+        const candidate: CandidateFacts = {
+          mint,
+          symbol,
+          source: SOURCE,
+          liq_usd: facts.liq_usd,
+          holders: facts.holders,
+          top10_rate: facts.top10_rate,
+          creator_status: facts.creator_status,
+          nuke_ratio: facts.nuke_ratio,
+        };
 
-      const matches = recipesEvaluator.evaluateCandidate(candidate);
-      const passing = matches.filter(m => m.pass);
+        const matches = recipesEvaluator.evaluateCandidate(candidate);
+        const passing = matches.filter(m => m.pass);
 
-      if (passing.length > 0) {
-        strategyId = passing[0].recipeId;
-        logger.info("RECIPES", "maybeBuy", "candidate matched recipe", { mint, symbol, strategyId });
-      } else if (matches.length > 0) {
-        // Evaluated but no match — fall through to hardcoded path
-        logger.info("RECIPES", "maybeBuy", "candidate evaluated, no recipe match", { mint, symbol });
+        if (passing.length > 0) {
+          strategyId = passing[0].recipeId;
+          logger.info("RECIPES", "maybeBuy", "candidate matched recipe", { mint, symbol, strategyId });
+        } else {
+          logger.info("RECIPES", "maybeBuy", "no recipe match", { mint, symbol });
+          return;
+        }
       }
     }
 
