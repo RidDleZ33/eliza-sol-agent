@@ -498,8 +498,10 @@ app.get("/book", async (c) => {
 
     // Filter by strategy if specified
     let trips = allTrips;
-    if (strategyId) {
-      trips = allTrips.filter((t) => t.ingest === strategyId);
+    if (strategyId === "none") {
+      trips = allTrips.filter((t) => !t.strategy_id);
+    } else if (strategyId) {
+      trips = allTrips.filter((t) => t.strategy_id === strategyId);
     }
 
     const n = trips.length;
@@ -511,7 +513,8 @@ app.get("/book", async (c) => {
 
     // Open positions
     const openPositions = await watchlistService.getOpenPositions().then((p) => {
-      if (strategyId) return p.filter((pp) => pp.source === strategyId);
+      if (strategyId === "none") return p.filter((pp) => !pp.strategy_id);
+      if (strategyId) return p.filter((pp) => pp.strategy_id === strategyId);
       return p;
     });
 
@@ -547,14 +550,15 @@ app.get("/book", async (c) => {
       win_rate: val.n > 0 ? val.wins / val.n : 0
     }));
 
-    // Bucket by strategy (ingest)
+    // Bucket by strategy (recipe that opened position)
     const strategyBuckets = new Map<string, { n: number; pnl: number; wins: number }>();
     for (const t of trips) {
-      const b = strategyBuckets.get(t.ingest) || { n: 0, pnl: 0, wins: 0 };
+      const key = t.strategy_id || "none";
+      const b = strategyBuckets.get(key) || { n: 0, pnl: 0, wins: 0 };
       b.n++;
       b.pnl += t.pnl_sol;
       if (t.pnl_sol > 0) b.wins++;
-      strategyBuckets.set(t.ingest, b);
+      strategyBuckets.set(key, b);
     }
     const byStrategy = Array.from(strategyBuckets.entries()).map(([key, val]) => ({
       key,
@@ -588,8 +592,8 @@ app.get("/book", async (c) => {
     const tripsOut = trips.slice(-200).map((t) => ({
       symbol: t.symbol,
       mint: t.mint,
-      strategy_id: t.ingest,
-      source: t.pa_src,
+      strategy_id: t.strategy_id || "none",
+      source: t.ingest,
       exit_fam: t.exit_fam,
       pnl_sol: t.pnl_sol,
       net_sol: t.net_sol,
@@ -602,8 +606,8 @@ app.get("/book", async (c) => {
     const openOut = openPositions.map((p) => ({
       symbol: p.symbol,
       mint: p.mint_address,
-      strategy_id: p.source,
-      source: p.source,
+      strategy_id: p.strategy_id || "none",
+      source: p.source || "",
       opened_at: p.entered_at,
       size_sol: p.amount_sol
     }));

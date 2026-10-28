@@ -12,6 +12,7 @@ interface ClosedTrip {
   exit_fam: string;
   pa_src: string;
   ingest: string;
+  strategy_id: string | null;
   symbol: string;
   mint: string;
   stop_age_bucket: string | null;
@@ -73,7 +74,8 @@ function stopAgeBucketFn(secs: number): string {
 export function aggregateTrips(
   sells: any[],
   buys: Map<string, any[]>,
-  watchedIngest: Map<string, string>
+  watchedIngest: Map<string, string>,
+  positionsStrategyId?: Map<string, string>
 ): ClosedTrip[] {
   const trips: ClosedTrip[] = [];
   // Build per-mint buy lists sorted by created_at ascending (time, not id)
@@ -110,6 +112,8 @@ export function aggregateTrips(
       const holdSecs = (sellTs - buyTs) / 1000;
       stopAgeBucket = stopAgeBucketFn(holdSecs);
     }
+    // Look up strategy_id from the position that the buy opened
+    const strategyId = positionsStrategyId?.get(sell.mint) || null;
     trips.push({
       buy_at: buyTs,
       sell_at: sellTs,
@@ -121,6 +125,7 @@ export function aggregateTrips(
       exit_fam: exitFam,
       pa_src: classifyPaSrc(sell.reason, best.reason),
       ingest: classifyIngest(watchedIngest.get(sell.mint) || null),
+      strategy_id: strategyId,
       symbol: sell.symbol || "",
       mint: sell.mint,
       stop_age_bucket: stopAgeBucket,
@@ -245,7 +250,17 @@ export function aggregateBook(hoursBack: number | null): {
   for (const r of watchedRows) {
     if (r.added_by_agent) watchedIngest.set(r.mint_address, r.added_by_agent);
   }
-  let trips = aggregateTrips(sells, buys, watchedIngest);
+  // Positions strategy_id map — query positions table for strategy_id
+  let positionsStrategyId = new Map<string, string>();
+  try {
+    const posRows = db.prepare("SELECT mint_address, strategy_id FROM positions WHERE strategy_id IS NOT NULL").all() as any[];
+    for (const r of posRows) {
+      positionsStrategyId.set(r.mint_address, r.strategy_id);
+    }
+  } catch (e) {
+    // Older schema may not have strategy_id column — continue with empty map
+  }
+  let trips = aggregateTrips(sells, buys, watchedIngest, positionsStrategyId);
   // Filter by time if requested
   if (hoursBack !== null) {
     const cutoff = Date.now() - hoursBack * 3600 * 1000;
