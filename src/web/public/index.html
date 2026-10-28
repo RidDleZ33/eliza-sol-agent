@@ -758,29 +758,7 @@
             }
         }
 
-        async function loadStrategyIntoEditor(id) {
-            try {
-                const res = await fetch('/strategies/' + id);
-                const data = await res.json();
-                if (data.ok && data.strategy) {
-                    currentRecipe = data.strategy.recipe;
-                    currentStrategyId = id;
-                    editingExisting = true;
-                    document.getElementById('editor-title').textContent = 'Edit Strategy';
-                    document.getElementById('editor-status').textContent = 'Status: ' + data.strategy.status + ' • Last updated: ' + new Date(data.strategy.updated_at * 1000).toLocaleString();
-                    renderSummaryCard(data.strategy);
-                    renderSourcesEditor();
-                    renderGatesEditor();
-                    renderExitsEditor();
-                    renderRulesEditor();
-                    document.getElementById('strategy-name').value = data.strategy.recipe.name || '';
-                    updateJsonPreview();
-                    highlightSelectedStrategy(id);
-                }
-            } catch (e) {
-                console.error('Failed to load strategy:', e);
-            }
-        }
+
 
         function renderSummaryCard(strategy) {
             let summaryContainer = document.getElementById('strategy-summary');
@@ -856,26 +834,46 @@
             document.getElementById('strategy-editor').scrollIntoView({ behavior: 'smooth' });
         }
 
-        async function viewStrategy(id) {
+        async function selectStrategy(id) {
             try {
                 const res = await fetch('/strategies/' + id);
                 const data = await res.json();
                 if (data.ok && data.strategy) {
                     currentStrategyId = id;
                     editingExisting = true;
-                    document.getElementById('editor-title').textContent = 'Edit Strategy';
                     document.getElementById('editor-status').textContent = 'Status: ' + data.strategy.status + ' • Last updated: ' + new Date(data.strategy.updated_at * 1000).toLocaleString();
                     renderSummaryCard(data.strategy);
+                    document.getElementById('builder-layout').style.display = 'none';
                     highlightSelectedStrategy(id);
                 }
             } catch (e) {
-                console.error('Failed to view strategy:', e);
+                console.error('Failed to select strategy:', e);
             }
         }
 
         async function editStrategy(id) {
-            await loadStrategyIntoEditor(id);
-            document.getElementById('save-strategy-btn').textContent = 'Update';
+            try {
+                const res = await fetch('/strategies/' + id);
+                const data = await res.json();
+                if (data.ok && data.strategy) {
+                    currentRecipe = data.strategy.recipe;
+                    currentStrategyId = id;
+                    editingExisting = true;
+                    document.getElementById('editor-title').textContent = 'Edit Strategy';
+                    document.getElementById('editor-status').textContent = 'Status: ' + data.strategy.status + ' • Last updated: ' + new Date(data.strategy.updated_at * 1000).toLocaleString();
+                    document.getElementById('save-strategy-btn').textContent = 'Update';
+                    document.getElementById('builder-layout').style.display = 'grid';
+                    renderSourcesEditor();
+                    renderGatesEditor();
+                    renderExitsEditor();
+                    renderRulesEditor();
+                    document.getElementById('strategy-name').value = data.strategy.recipe.name || '';
+                    updateJsonPreview();
+                    highlightSelectedStrategy(id);
+                }
+            } catch (e) {
+                console.error('Failed to edit strategy:', e);
+            }
         }
 
         document.addEventListener('visibilitychange', () => {
@@ -906,7 +904,7 @@
                         }
                         buttons += '<button onclick="event.stopPropagation(); exportStrategy(\'' + s.id + '\')">Export</button>';
                         buttons += '<button onclick="event.stopPropagation(); editStrategy(\'' + s.id + '\')">Edit</button>';
-                        return '<div class="strategy-item" data-id="' + s.id + '" onclick="viewStrategy(\'' + s.id + '\')">' +
+                        return '<div class="strategy-item" data-id="' + s.id + '" onclick="selectStrategy(\'' + s.id + '\')">' +
                             '<span><span class="strategy-name">' + (s.name || s.id) + '</span> <span class="status status-' + s.status + '">' + s.status + '</span></span>' +
                             '<span>' + buttons + '</span></div>';
                     }).join('');
@@ -960,6 +958,7 @@
                         document.getElementById('save-strategy-btn').textContent = 'Update';
                     }
                     loadStrategies();
+                    selectStrategy(data.id);
                 } else {
                     msg.innerHTML = '<span class="error">' + JSON.stringify(data.error) + '</span>';
                 }
