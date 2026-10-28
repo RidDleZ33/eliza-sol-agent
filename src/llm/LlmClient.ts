@@ -6,10 +6,17 @@ const API_KEY = env.OPENAI_API_KEY || env.OLLAMA_API_KEY || "ollama";
 const MODEL = env.MODEL_NAME || "Qwen2.5:3b";
 const TIMEOUT_MS = 25000;
 
+export interface LlmClientToolCall {
+  id: string;
+  type: string;
+  function: { name: string; arguments: string };
+}
+
 export interface LlmClientResult {
   raw: string;
   parsed: unknown | null;
   latency_ms: number;
+  tool_calls: LlmClientToolCall[];
 }
 
 function stripJsonFence(text: string): string {
@@ -28,7 +35,7 @@ function stripJsonFence(text: string): string {
 
 export async function llmComplete(
   prompt: string | Array<{ role: string; content: string }>,
-  options?: { json?: boolean; temperature?: number; base_url?: string; api_key?: string; model?: string }
+  options?: { json?: boolean; temperature?: number; base_url?: string; api_key?: string; model?: string; tools?: unknown[]; tool_choice?: string }
 ): Promise<LlmClientResult> {
   const start = Date.now();
   let attempt = 0;
@@ -50,6 +57,10 @@ export async function llmComplete(
       if (options?.json) {
         body.response_format = { type: "json_object" };
       }
+      if (options?.tools && options.tools.length > 0) {
+        body.tools = options.tools;
+        body.tool_choice = options.tool_choice || "auto";
+      }
 
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
@@ -69,13 +80,20 @@ export async function llmComplete(
       }
 
       const data = await res.json();
-      const content = data?.choices?.[0]?.message?.content ?? "";
+      const choice = data?.choices?.[0];
+      const content = choice?.message?.content ?? "";
+      const tool_calls: LlmClientToolCall[] = (choice?.message?.tool_calls ?? []).map((tc: any) => ({
+        id: tc.id,
+        type: tc.type,
+        function: { name: tc.function.name, arguments: tc.function.arguments },
+      }));
       const latency_ms = Date.now() - start;
-      logger.info("LLM", "LlmClient", "completion", { model, latency_ms, attempt, ok: true });
+      logger.info("LLM", "LlmClient", "completion", { model, latency_ms, attempt, ok: true, tool_calls: tool_calls.length });
       return {
         raw: content,
         parsed: tryParse(content),
         latency_ms,
+        tool_calls,
       };
     } catch (e: any) {
       const latency_ms = Date.now() - start;
@@ -84,11 +102,11 @@ export async function llmComplete(
         continue;
       }
       logger.error("LLM", "LlmClient", "completion failed", { model, latency_ms, error: e.message });
-      return { raw: "", parsed: null, latency_ms };
+      return { raw: "", parsed: null, latency_ms, tool_calls: [] };
     }
   }
 
-  return { raw: "", parsed: null, latency_ms: Date.now() - start };
+  return { raw: "", parsed: null, latency_ms: Date.now() - start, tool_calls: [] };
 }
 
 function tryParse(content: string): unknown | null {

@@ -748,6 +748,29 @@
             if (btn) btn.disabled = recipeUndoStack.length === 0;
         }
 
+        function recipeDiff(oldRecipe, newRecipe) {
+            if (!oldRecipe) return 'created';
+            const changes = [];
+            // Check exits
+            if (newRecipe.exits && oldRecipe.exits) {
+                for (const key in newRecipe.exits) {
+                    if (oldRecipe.exits[key] !== newRecipe.exits[key]) {
+                        changes.push(key + ' ' + oldRecipe.exits[key] + ' → ' + newRecipe.exits[key]);
+                    }
+                }
+            }
+            // Check gates count
+            const oldGates = (oldRecipe.gates || []).length;
+            const newGates = (newRecipe.gates || []).length;
+            if (oldGates !== newGates) {
+                changes.push('gates ' + oldGates + ' → ' + newGates);
+            }
+            if (changes.length === 0) {
+                return 'updated';
+            }
+            return changes.join(', ');
+        }
+
         function undoRecipe() {
             if (recipeUndoStack.length === 0) return;
             currentRecipe = recipeUndoStack.pop();
@@ -1225,8 +1248,6 @@
             let cleaned = text.replace(/```json[\s\S]*?```/g, '');
             // Remove standalone ```...``` code blocks
             cleaned = cleaned.replace(/```[\s\S]*?```/g, '');
-            // Remove raw {...} JSON objects (heuristic)
-            cleaned = cleaned.replace(/\{["\s\w:,.\[\]]+"name"["\s\w:,.\[\]]+\}/g, '');
             // Clean up extra whitespace
             cleaned = cleaned.replace(/\n\s*\n/g, '\n').trim();
             return cleaned;
@@ -1313,84 +1334,62 @@
                 const data = await res.json();
                 if (data.ok) {
                     msg.innerHTML = '';
-                    addAiMessage('assistant', stripJsonFromAi(data.assistant));
 
-                    if (data.tool_results && data.tool_results.length > 0) {
-                        for (const tr of data.tool_results) {
-                            if (tr.name === 'validate_recipe' && tr.result.ok) {
-                                addAiMessage('tool', 'Recipe validated successfully');
-                            } else if (tr.name === 'suggest_mutation' && tr.result.ok && tr.result.recipe) {
-                                try {
-                                    const valRes = await fetch('/ai/tools/validate_recipe', {
-                                        method: 'POST',
-                                        headers: { 'Content-Type': 'application/json' },
-                                        body: JSON.stringify({ recipe: tr.result.recipe })
-                                    });
-                                    const valData = await valRes.json();
+                    if (data.tool_calls && data.tool_calls.length > 0) {
+                        // Model made tool calls - UI applies results
+                        addAiMessage('assistant', stripJsonFromAi(data.assistant) || 'Processing...');
+                        if (data.tool_results && data.tool_results.length > 0) {
+                            for (const tr of data.tool_results) {
+                                if (tr.name === 'suggest_mutation' && tr.result && tr.result.ok && tr.result.recipe) {
+                                    // Apply the recipe from tool result
+                                    const oldRecipe = currentRecipe ? JSON.parse(JSON.stringify(currentRecipe)) : null;
+                                    currentRecipe = tr.result.recipe;
+                                    document.getElementById('strategy-detail').style.display = 'none';
+                                    document.getElementById('strategy-editor-card').style.display = 'block';
+                                    renderSourcesEditor();
+                                    renderGatesEditor();
+                                    renderExitsEditor();
+                                    renderRulesEditor();
+                                    document.getElementById('strategy-name').value = tr.result.recipe.name || '';
+                                    updateJsonPreview();
 
-                                    if (valData.ok && valData.result.ok) {
-                                        pushUndo();
-                                        currentRecipe = tr.result.recipe;
-                                        document.getElementById('strategy-detail').style.display = 'none';
-                                        document.getElementById('strategy-editor-card').style.display = 'block';
-                                        renderSourcesEditor();
-                                        renderGatesEditor();
-                                        renderExitsEditor();
-                                        renderRulesEditor();
-                                        document.getElementById('strategy-name').value = tr.result.recipe.name || '';
-                                        updateJsonPreview();
-                                        lastAiRecipe = null;
-                                        document.getElementById('ai-apply-btn').style.display = 'none';
-
-                                        const isCreate = !currentStrategyId || text.toLowerCase().includes('create') || text.toLowerCase().includes('new');
-                                        if (isCreate) {
-                                            const saveRes = await fetch('/strategies', {
-                                                method: 'POST',
-                                                headers: { 'Content-Type': 'application/json' },
-                                                body: JSON.stringify(tr.result.recipe)
-                                            });
-                                            const saveData = await saveRes.json();
-                                            if (saveData.ok) {
-                                                addAiMessage('tool', 'Created new strategy: ' + tr.result.recipe.name);
-                                                currentStrategyId = saveData.id;
-                                                document.getElementById('editor-title').textContent = 'Edit Strategy';
-                                                document.getElementById('editor-status').textContent = 'Status: draft';
-                                                loadStrategies();
-                                                highlightSelectedStrategy(currentStrategyId);
-                                            } else {
-                                                addAiMessage('tool', 'Error creating: ' + JSON.stringify(saveData.error));
-                                            }
+                                    // Save and update UI
+                                    try {
+                                        const saveRes = await fetch('/strategies', {
+                                            method: 'POST',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify(tr.result.recipe)
+                                        });
+                                        const saveData = await saveRes.json();
+                                        if (saveData.ok) {
+                                            currentStrategyId = saveData.id;
+                                            document.getElementById('editor-title').textContent = 'Edit Strategy';
+                                            document.getElementById('editor-status').textContent = 'Status: draft';
+                                            loadStrategies();
+                                            highlightSelectedStrategy(currentStrategyId);
+                                            const diff = recipeDiff(oldRecipe, currentRecipe);
+                                            addAiMessage('tool', 'Applied to ' + (tr.result.recipe.name || 'strategy') + ': ' + diff);
                                         } else {
-                                            if (currentStrategyId) {
-                                                const saveRes = await fetch('/strategies', {
-                                                    method: 'POST',
-                                                    headers: { 'Content-Type': 'application/json' },
-                                                    body: JSON.stringify(tr.result.recipe)
-                                                });
-                                                const saveData = await saveRes.json();
-                                                if (saveData.ok) {
-                                                    addAiMessage('tool', 'Applied to ' + tr.result.recipe.name);
-                                                    loadStrategies();
-                                                } else {
-                                                    addAiMessage('tool', 'Error saving: ' + JSON.stringify(saveData.error));
-                                                }
-                                            } else {
-                                                addAiMessage('tool', 'No strategy selected to update');
-                                            }
+                                            addAiMessage('tool', 'Error saving: ' + JSON.stringify(saveData.error));
                                         }
-                                    } else {
-                                        const errors = valData.result.errors.map((e) => e.message).join(', ');
-                                        addAiMessage('tool', 'Invalid recipe: ' + errors);
+                                    } catch (e) {
+                                        addAiMessage('tool', 'Error: ' + e.message);
                                     }
-                                } catch (e) {
-                                    addAiMessage('tool', 'Error validating: ' + e.message);
+                                } else if (tr.name === 'validate_recipe' && tr.result && tr.result.ok) {
+                                    addAiMessage('tool', 'Recipe validated successfully');
+                                } else if (tr.result && tr.result.ok && !tr.result.recipe) {
+                                    if (tr.result.explanation) {
+                                        addAiMessage('tool', tr.result.explanation);
+                                    }
+                                } else if (tr.result && !tr.result.ok) {
+                                    const errors = tr.result.errors ? tr.result.errors.map((e) => e.message).join(', ') : 'unknown';
+                                    addAiMessage('tool', 'Error: ' + errors);
                                 }
-                            } else if (tr.name === 'suggest_mutation' && tr.result.ok && !tr.result.recipe) {
-                                addAiMessage('tool', tr.result.explanation || 'Suggested a change');
-                            } else if (!tr.result.ok) {
-                                addAiMessage('tool', 'Error: ' + (tr.result.errors ? tr.result.errors.join(', ') : 'unknown'));
                             }
                         }
+                    } else {
+                        // No tool calls - just show text, don't change form
+                        addAiMessage('assistant', stripJsonFromAi(data.assistant));
                     }
                 } else {
                     msg.innerHTML = '<span class="error">' + data.error + '</span>';

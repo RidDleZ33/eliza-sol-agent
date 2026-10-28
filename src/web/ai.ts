@@ -214,9 +214,10 @@ aiRouter.post("/chat", async (c) => {
   let systemPrompt = RSB_AI_SYSTEM;
 
   if (strategy_id) {
-    systemPrompt += `\n\nYou are editing strategy: ${strategy_id}`;
+    const sel = strategies?.find((s: any) => s.id === strategy_id);
+    systemPrompt += `\n\nYou are editing strategy: ${sel?.name || strategy_id}. Use suggest_mutation with the current recipe as base_recipe when changing the recipe.`;
   } else {
-    systemPrompt += "\n\nNo strategy is currently selected. If the user wants to create a strategy, suggest a recipe with a clear name.";
+    systemPrompt += "\n\nNo strategy is currently selected. If the user wants to create a strategy, call suggest_mutation without base_recipe and give it a clear name in the instruction.";
   }
 
   if (strategies && strategies.length > 0) {
@@ -226,7 +227,7 @@ aiRouter.post("/chat", async (c) => {
     systemPrompt += `\n\nExisting strategies: ${strategyList}`;
   }
 
-  systemPrompt += "\n\nWhen you produce a recipe, the UI will apply it automatically. Do not paste the full JSON in your reply; describe the change you made and why.";
+  systemPrompt += "\n\nTo change a recipe, call suggest_mutation with an instruction and base_recipe. To check a recipe, call validate_recipe. Do not paste the full recipe JSON in your reply; the UI applies the tool result. Name the strategy in your short reply.";
 
   // Build conversation with system prompt
   const conversation = [
@@ -254,56 +255,51 @@ ${JSON.stringify(recipe, null, 2)}`,
   if (settingsModel) llmOptions.model = settingsModel;
 
   // Call LLM with tools
+  llmOptions.tools = TOOLS;
+  llmOptions.tool_choice = "auto";
   const result = await llmComplete(conversation as Array<{ role: string; content: string }>, llmOptions);
-  
-  // Check for tool calls in response (simple pattern matching for now)
-  let tool_calls = [];
-  let assistant_content = result.raw;
-  
-  // Parse tool call markers if present
-  const toolCallPattern = /<tool_call>(\w+)<\/tool_call>\s*<tool_args>([\s\S]*?)<\/tool_args>/g;
-  let match;
-  while ((match = toolCallPattern.exec(result.raw)) !== null) {
-    try {
-      const toolName = match[1];
-      const toolArgs = JSON.parse(match[2]);
-      tool_calls.push({ name: toolName, arguments: toolArgs });
-    } catch {
-      // Skip malformed tool calls
-    }
-  }
 
-  // Execute any tool calls
-  const tool_results = [];
-  for (const tc of tool_calls) {
-    try {
-      const tool_result = await executeTool(tc.name, tc.arguments);
-      tool_results.push({
-        name: tc.name,
-        result: tool_result,
-      });
-    } catch (e: any) {
-      tool_results.push({
-        name: tc.name,
-        result: { ok: false, errors: [e.message] },
-      });
-    }
-  }
-
-  // If tools were called, return the results so the UI can display them
-  // and potentially send a follow-up message with the results
+  // If model made tool calls, execute them
+  const tool_calls = result.tool_calls;
   if (tool_calls.length > 0) {
+    const tool_results = [];
+    for (const tc of tool_calls) {
+      let parsedArgs: any = {};
+      try {
+        parsedArgs = JSON.parse(tc.function.arguments);
+      } catch {
+        parsedArgs = {};
+      }
+      try {
+        const tool_result = await executeTool(tc.function.name, parsedArgs);
+        tool_results.push({
+          tool_call_id: tc.id,
+          name: tc.function.name,
+          ok: true,
+          result: tool_result,
+        });
+      } catch (e: any) {
+        tool_results.push({
+          tool_call_id: tc.id,
+          name: tc.function.name,
+          ok: false,
+          result: { ok: false, errors: [e.message] },
+        });
+      }
+    }
+
     return c.json({
       ok: true,
-      assistant: assistant_content,
+      assistant: result.raw,
       tool_calls,
       tool_results,
+      latency_ms: result.latency_ms,
     });
   }
 
   return c.json({
     ok: true,
-    assistant: assistant_content,
+    assistant: result.raw,
     latency_ms: result.latency_ms,
   });
 });
