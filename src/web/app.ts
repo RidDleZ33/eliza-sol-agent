@@ -6,6 +6,8 @@ import { can } from "../entitlements/tier.ts";
 import { existsSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import { aiRouter } from "./ai.ts";
+import { aggregateBook, aggregateTrips } from "../services/TradeBookService.ts";
+import { watchlistService } from "../services/WatchlistService.ts";
 import { cuRouter } from "./cu.ts";
 import { referralRouter } from "./referral.ts";
 import { getSetting, setSetting, getAllSettings, upsertSettings } from "../services/SettingsService.ts";
@@ -477,6 +479,154 @@ app.get("/logs/tail", (c) => {
     const lines = content.split("\n");
     const tail = lines.slice(-n).join("\n");
     return c.json({ ok: true, lines: tail });
+  } catch (e: any) {
+    return c.json({ ok: false, error: e.message }, 500);
+  }
+});
+
+// Book route (trade book / journal with aggregation)
+app.get("/book", async (c) => {
+  try {
+    const windowParam = c.req.query("window") || "all";
+    const strategyId = c.req.query("strategy_id");
+
+    let hoursBack: number | null = null;
+    if (windowParam === "24h") hoursBack = 24;
+    else if (windowParam === "7d") hoursBack = 168;
+
+    const { trips: allTrips } = aggregateBook(hoursBack);
+
+    // Filter by strategy if specified
+    let trips = allTrips;
+    if (strategyId) {
+      trips = allTrips.filter((t) => t.ingest === strategyId);
+    }
+
+    const n = trips.length;
+    const pnlSol = trips.reduce((s, t) => s + t.pnl_sol, 0);
+    const netSol = trips.reduce((s, t) => s + t.net_sol, 0);
+    const wins = trips.filter((t) => t.pnl_sol > 0).length;
+    const winRate = n > 0 ? (wins / n) : 0;
+    const avgHoldSec = n > 0 ? trips.reduce((s, t) => s + (t.sell_at - t.buy_at) / 1000, 0) / n : 0;
+
+    // Open positions
+    const openPositions = await watchlistService.getOpenPositions().then((p) => {
+      if (strategyId) return p.filter((pp) => pp.source === strategyId);
+      return p;
+    });
+
+    // Bucket by exit family
+    const exitBuckets = new Map<string, { n: number; pnl: number; wins: number }>();
+    for (const t of trips) {
+      const b = exitBuckets.get(t.exit_fam) || { n: 0, pnl: 0, wins: 0 };
+      b.n++;
+      b.pnl += t.pnl_sol;
+      if (t.pnl_sol > 0) b.wins++;
+      exitBuckets.set(t.exit_fam, b);
+    }
+    const byExit = Array.from(exitBuckets.entries()).map(([key, val]) => ({
+      key,
+      n: val.n,
+      pnl: val.pnl,
+      win_rate: val.n > 0 ? val.wins / val.n : 0
+    }));
+
+    // Bucket by PA source
+    const sourceBuckets = new Map<string, { n: number; pnl: number; wins: number }>();
+    for (const t of trips) {
+      const b = sourceBuckets.get(t.pa_src) || { n: 0, pnl: 0, wins: 0 };
+      b.n++;
+      b.pnl += t.pnl_sol;
+      if (t.pnl_sol > 0) b.wins++;
+      sourceBuckets.set(t.pa_src, b);
+    }
+    const bySource = Array.from(sourceBuckets.entries()).map(([key, val]) => ({
+      key,
+      n: val.n,
+      pnl: val.pnl,
+      win_rate: val.n > 0 ? val.wins / val.n : 0
+    }));
+
+    // Bucket by strategy (ingest)
+    const strategyBuckets = new Map<string, { n: number; pnl: number; wins: number }>();
+    for (const t of trips) {
+      const b = strategyBuckets.get(t.ingest) || { n: 0, pnl: 0, wins: 0 };
+      b.n++;
+      b.pnl += t.pnl_sol;
+      if (t.pnl_sol > 0) b.wins++;
+      strategyBuckets.set(t.ingest, b);
+    }
+    const byStrategy = Array.from(strategyBuckets.entries()).map(([key, val]) => ({
+      key,
+      n: val.n,
+      pnl: val.pnl,
+      win_rate: val.n > 0 ? val.wins / val.n : 0
+    }));
+
+    // Bucket by hold time
+    function holdBucket(secs: number): string {
+      if (secs < 60) return "<1m";
+      if (secs < 600) return "1-10m";
+      if (secs < 3600) return "10-60m";
+      return ">60m";
+    }
+    const holdBuckets = new Map<string, { n: number; pnl: number }>();
+    for (const t of trips) {
+      const key = holdBucket((t.sell_at - t.buy_at) / 1000);
+      const b = holdBuckets.get(key) || { n: 0, pnl: 0 };
+      b.n++;
+      b.pnl += t.pnl_sol;
+      holdBuckets.set(key, b);
+    }
+    const byHold = Array.from(holdBuckets.entries()).map(([key, val]) => ({
+      key,
+      n: val.n,
+      pnl: val.pnl
+    }));
+
+    // Trips array (most recent 200)
+    const tripsOut = trips.slice(-200).map((t) => ({
+      symbol: t.symbol,
+      mint: t.mint,
+      strategy_id: t.ingest,
+      source: t.pa_src,
+      exit_fam: t.exit_fam,
+      pnl_sol: t.pnl_sol,
+      net_sol: t.net_sol,
+      hold_sec: (t.sell_at - t.buy_at) / 1000,
+      buy_at: t.buy_at,
+      sell_at: t.sell_at
+    }));
+
+    // Open positions array
+    const openOut = openPositions.map((p) => ({
+      symbol: p.symbol,
+      mint: p.mint_address,
+      strategy_id: p.source,
+      source: p.source,
+      opened_at: p.entered_at,
+      size_sol: p.amount_sol
+    }));
+
+    return c.json({
+      ok: true,
+      window: windowParam,
+      strategy_id: strategyId,
+      summary: {
+        n,
+        pnl_sol: pnlSol,
+        net_sol: netSol,
+        win_rate: winRate,
+        avg_hold_sec: avgHoldSec,
+        open_positions: openOut.length
+      },
+      by_exit: byExit,
+      by_source: bySource,
+      by_strategy: byStrategy,
+      by_hold: byHold,
+      trips: tripsOut,
+      open: openOut
+    });
   } catch (e: any) {
     return c.json({ ok: false, error: e.message }, 500);
   }

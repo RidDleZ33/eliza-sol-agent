@@ -166,6 +166,7 @@
                 <div class="tab active" data-tab="strategies">Strategies</div>
                 <div class="tab" data-tab="backtest">Backtest</div>
                 <div class="tab" data-tab="swarm">Swarm</div>
+                <div class="tab" data-tab="book">Book</div>
                 <div class="tab" data-tab="console">Console</div>
                 <div class="tab" data-tab="dev">Dev</div>
             </div>
@@ -317,6 +318,59 @@
             </div>
         </div>
 
+        <!-- Book Panel -->
+        <div id="book" class="panel">
+            <div class="card">
+                <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+                    <h2 style="margin:0;">Trade Book</h2>
+                    <div style="display:flex;gap:5px;flex-wrap:wrap;">
+                        <select id="book-window" onchange="loadBook()">
+                            <option value="all">All</option>
+                            <option value="7d">7 days</option>
+                            <option value="24h">24 hours</option>
+                        </select>
+                        <select id="book-strategy" onchange="loadBook()">
+                            <option value="">All strategies</option>
+                        </select>
+                        <button onclick="loadBook()">Refresh</button>
+                    </div>
+                </div>
+                <div id="book-summary" class="grid grid-3" style="margin-top:12px;"></div>
+            </div>
+            <div class="grid grid-3">
+                <div class="card">
+                    <h2>By Exit</h2>
+                    <div id="book-by-exit"><p class="loading">Loading...</p></div>
+                </div>
+                <div class="card">
+                    <h2>By Source</h2>
+                    <div id="book-by-source"><p class="loading">Loading...</p></div>
+                </div>
+                <div class="card">
+                    <h2>By Strategy</h2>
+                    <div id="book-by-strategy"><p class="loading">Loading...</p></div>
+                </div>
+            </div>
+            <div class="card">
+                <h2>Hold Time</h2>
+                <div id="book-by-hold"><p class="loading">Loading...</p></div>
+            </div>
+            <div class="card">
+                <h2>Equity Curve</h2>
+                <div class="chart-container">
+                    <canvas id="book-equity-chart"></canvas>
+                </div>
+            </div>
+            <div class="card">
+                <h2>Journal</h2>
+                <div id="book-journal"><p class="loading">Loading...</p></div>
+            </div>
+            <div class="card">
+                <h2>Open Positions</h2>
+                <div id="book-open"><p class="loading">Loading...</p></div>
+            </div>
+        </div>
+
         <!-- Console Panel -->
         <div id="console" class="panel">
             <div class="card">
@@ -453,6 +507,12 @@
             document.getElementById(tabId).classList.add('active');
             document.getElementById('avatar-menu').classList.remove('open');
             if (tabId === 'settings') loadSettings();
+            if (tabId === 'book') {
+                loadBook();
+                startBookAutoRefresh();
+            } else {
+                stopBookAutoRefresh();
+            }
         }
 
         document.querySelectorAll('.tab').forEach(tab => {
@@ -1760,6 +1820,214 @@
             } catch (e) {
                 msg.innerHTML = '<span class="error">' + e.message + '</span>';
             }
+        }
+
+        // Book panel state
+        let bookInterval = null;
+        let bookEquityChart = null;
+
+        function startBookAutoRefresh() {
+            stopBookAutoRefresh();
+            bookInterval = setInterval(loadBook, 15000);
+        }
+
+        function stopBookAutoRefresh() {
+            if (bookInterval) {
+                clearInterval(bookInterval);
+                bookInterval = null;
+            }
+        }
+
+        async function loadBook() {
+            const windowVal = document.getElementById('book-window').value;
+            const strategyId = document.getElementById('book-strategy').value;
+
+            let url = '/book?window=' + windowVal;
+            if (strategyId) url += '&strategy_id=' + strategyId;
+
+            try {
+                const res = await fetch(url);
+                const data = await res.json();
+                if (data.ok) {
+                    renderBookSummary(data.summary);
+                    renderBookBuckets('book-by-exit', data.by_exit, true);
+                    renderBookBuckets('book-by-source', data.by_source, true);
+                    renderBookBuckets('book-by-strategy', data.by_strategy, true);
+                    renderBookBuckets('book-by-hold', data.by_hold, false);
+                    renderBookEquity(data.trips);
+                    renderBookJournal(data.trips);
+                    renderBookOpen(data.open);
+                    // Update strategy dropdown options
+                    updateBookStrategyDropdown(data.by_strategy);
+                } else {
+                    document.getElementById('book-summary').innerHTML = '<p class="error">' + data.error + '</p>';
+                }
+            } catch (e) {
+                document.getElementById('book-summary').innerHTML = '<p class="error">' + e.message + '</p>';
+            }
+        }
+
+        function renderBookSummary(summary) {
+            const pnlColor = summary.pnl_sol >= 0 ? '#3dd68c' : '#f44336';
+            const pnlSign = summary.pnl_sol >= 0 ? '+' : '';
+            const netColor = summary.net_sol >= 0 ? '#3dd68c' : '#f44336';
+            const netSign = summary.net_sol >= 0 ? '+' : '';
+            const wrPct = (summary.win_rate * 100).toFixed(0);
+            const holdMin = Math.round(summary.avg_hold_sec / 60);
+
+            const html =
+                '<div class="stat"><div class="stat-value">' + summary.n + '</div><div class="stat-label">Closed</div></div>' +
+                '<div class="stat"><div class="stat-value" style="color:' + pnlColor + '">' + pnlSign + summary.pnl_sol.toFixed(2) + '</div><div class="stat-label">PnL SOL</div></div>' +
+                '<div class="stat"><div class="stat-value" style="color:' + netColor + '">' + netSign + summary.net_sol.toFixed(2) + '</div><div class="stat-label">Net SOL</div></div>' +
+                '<div class="stat"><div class="stat-value">' + wrPct + '%</div><div class="stat-label">Win Rate</div></div>' +
+                '<div class="stat"><div class="stat-value">' + holdMin + 'm</div><div class="stat-label">Avg Hold</div></div>' +
+                '<div class="stat"><div class="stat-value">' + summary.open_positions + '</div><div class="stat-label">Open</div></div>';
+
+            document.getElementById('book-summary').innerHTML = html;
+        }
+
+        function renderBookBuckets(containerId, buckets, showWinRate) {
+            const container = document.getElementById(containerId);
+            if (!buckets || buckets.length === 0) {
+                container.innerHTML = '<p class="loading">No data</p>';
+                return;
+            }
+
+            let html = '<table><tr><th>Key</th><th>N</th><th>PnL</th>';
+            if (showWinRate) html += '<th>Win%</th>';
+            html += '</tr>';
+
+            for (const b of buckets) {
+                const pnlColor = b.pnl >= 0 ? '#3dd68c' : '#f44336';
+                const pnlSign = b.pnl >= 0 ? '+' : '';
+                const wrPct = showWinRate ? (b.win_rate * 100).toFixed(0) + '%' : '';
+                const keyClass = containerId === 'book-by-strategy' ? ' style="cursor:pointer;color:#4fc3f7;"' : '';
+                const onclickAttr = containerId === 'book-by-strategy' ? ' onclick="setBookStrategy(\'' + escapeHtml(b.key) + '\')"' : '';
+
+                html += '<tr><td' + keyClass + onclickAttr + '>' + escapeHtml(b.key) + '</td><td>' + b.n + '</td><td style="color:' + pnlColor + '">' + pnlSign + b.pnl.toFixed(2) + '</td>';
+                if (showWinRate) html += '<td>' + wrPct + '</td>';
+                html += '</tr>';
+            }
+            html += '</table>';
+            container.innerHTML = html;
+        }
+
+        function renderBookEquity(trips) {
+            if (bookEquityChart) bookEquityChart.destroy();
+
+            const labels = [];
+            const equityData = [];
+            let cumPnl = 0;
+
+            for (let i = 0; i < trips.length; i++) {
+                const t = trips[i];
+                cumPnl += t.pnl_sol;
+                const d = new Date(t.sell_at);
+                labels.push(d.getHours() + ':' + String(d.getMinutes()).padStart(2, '0'));
+                equityData.push(cumPnl);
+            }
+
+            if (equityData.length === 0) {
+                document.getElementById('book-equity-chart').parentElement.innerHTML = '<p class="loading">No equity data</p>';
+                return;
+            }
+
+            bookEquityChart = new Chart(document.getElementById('book-equity-chart'), {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Cumulative PnL (SOL)',
+                        data: equityData,
+                        borderColor: '#4fc3f7',
+                        backgroundColor: 'rgba(79, 195, 247, 0.1)',
+                        fill: true,
+                        tension: 0.1,
+                        pointRadius: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { display: false },
+                        y: { grid: { color: '#23272e' }, ticks: { color: '#888' } }
+                    }
+                }
+            });
+        }
+
+        function renderBookJournal(trips) {
+            const container = document.getElementById('book-journal');
+            if (!trips || trips.length === 0) {
+                container.innerHTML = '<p class="loading">No closed trips in this window.</p>';
+                return;
+            }
+
+            const rows = trips.slice().reverse().slice(0, 200);
+            let html = '<table><tr><th>Time</th><th>Symbol</th><th>Strategy</th><th>Source</th><th>Exit</th><th>Hold</th><th>PnL SOL</th></tr>';
+
+            for (const t of rows) {
+                const d = new Date(t.sell_at);
+                const timeStr = d.toLocaleDateString() + ' ' + d.toLocaleTimeString();
+                const holdMin = Math.round(t.hold_sec / 60);
+                const pnlColor = t.pnl_sol >= 0 ? '#3dd68c' : '#f44336';
+                const pnlSign = t.pnl_sol >= 0 ? '+' : '';
+
+                html += '<tr>' +
+                    '<td style="font-size:0.8em;">' + timeStr + '</td>' +
+                    '<td>' + escapeHtml(t.symbol || '-') + '</td>' +
+                    '<td style="font-size:0.8em;">' + escapeHtml(t.strategy_id || '-') + '</td>' +
+                    '<td style="font-size:0.8em;">' + escapeHtml(t.source || '-') + '</td>' +
+                    '<td style="font-size:0.8em;">' + escapeHtml(t.exit_fam || '-') + '</td>' +
+                    '<td>' + holdMin + 'm</td>' +
+                    '<td style="color:' + pnlColor + '">' + pnlSign + t.pnl_sol.toFixed(2) + '</td>' +
+                    '</tr>';
+            }
+            html += '</table>';
+            container.innerHTML = html;
+        }
+
+        function renderBookOpen(positions) {
+            const container = document.getElementById('book-open');
+            if (!positions || positions.length === 0) {
+                container.innerHTML = '<p class="loading">No open positions</p>';
+                return;
+            }
+
+            let html = '<table><tr><th>Symbol</th><th>Strategy</th><th>Source</th><th>Opened</th><th>Size SOL</th></tr>';
+
+            for (const p of positions) {
+                const d = new Date(p.opened_at);
+                html += '<tr>' +
+                    '<td>' + escapeHtml(p.symbol || '-') + '</td>' +
+                    '<td style="font-size:0.8em;">' + escapeHtml(p.strategy_id || '-') + '</td>' +
+                    '<td style="font-size:0.8em;">' + escapeHtml(p.source || '-') + '</td>' +
+                    '<td style="font-size:0.8em;">' + d.toLocaleDateString() + ' ' + d.toLocaleTimeString() + '</td>' +
+                    '<td>' + p.size_sol.toFixed(2) + '</td>' +
+                    '</tr>';
+            }
+            html += '</table>';
+            container.innerHTML = html;
+        }
+
+        function setBookStrategy(key) {
+            document.getElementById('book-strategy').value = key;
+            loadBook();
+        }
+
+        function updateBookStrategyDropdown(byStrategy) {
+            const select = document.getElementById('book-strategy');
+            const current = select.value;
+            select.innerHTML = '<option value="">All strategies</option>';
+            for (const b of byStrategy) {
+                const opt = document.createElement('option');
+                opt.value = b.key;
+                opt.textContent = b.key + ' (' + b.n + ')';
+                select.appendChild(opt);
+            }
+            select.value = current;
         }
 
         loadIngredients();
