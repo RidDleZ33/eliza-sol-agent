@@ -1326,7 +1326,7 @@
                                             if (saveData.ok) {
                                                 addAiMessage('tool', 'Created new strategy: ' + tr.result.recipe.name);
                                                 currentStrategyId = saveData.id;
-                                                document.getElementById('editor-title').textContent = tr.result.recipe.name;
+                                                document.getElementById('editor-title').textContent = 'Edit Strategy';
                                                 document.getElementById('editor-status').textContent = 'Status: draft';
                                                 loadStrategies();
                                                 highlightSelectedStrategy(currentStrategyId);
