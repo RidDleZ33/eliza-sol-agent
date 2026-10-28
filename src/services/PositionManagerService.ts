@@ -92,6 +92,34 @@ export class PositionManagerService {
     const ageSeconds = (Date.now() - enteredAt.getTime()) / 1000;
     const staleMinutes = configService.getNumber("STALE_POSITION_MINUTES");
 
+    // Load recipe exits before clock decision so clock_sec override works
+    const recipeId = position.strategy_id;
+    let exits;
+    let exitSource = "env";
+    if (recipeId) {
+      try {
+        const recipe = loadRecipeById(recipeId);
+        if (recipe && recipe.compiled && recipe.compiled.exits) {
+          exits = recipe.compiled.exits;
+          exitSource = "recipe";
+        }
+      } catch (e: any) {
+        logger.warn("POSITIONS", "PositionManager", "Failed to load recipe exits", {
+          recipeId,
+          error: e.message,
+        });
+      }
+    }
+
+    if (!this.exitSourceLog.has(mint)) {
+      this.exitSourceLog.add(mint);
+      logger.info("POSITIONS", "PositionManager", "Exit value source", {
+        symbol,
+        source: exitSource,
+        strategyId: recipeId,
+      });
+    }
+
     // Determine exit clock: recipe clock_sec > per-source override > global
     const globalClockSec = getExitClockSec();
     let source = position.added_by_agent;
@@ -157,35 +185,7 @@ export class PositionManagerService {
     await watchlistService.updatePositionPrice(mint, currentPrice, unrealizedPnlUsd, pnlPct);
 
     // Check exit conditions
-    // PHASE 30A: When position has strategy_id, use recipe's compiled exits;
-    // fall back to env for any missing keys. Untagged positions use env as before.
-    const recipeId = position.strategy_id;
-    let exits;
-    let exitSource = "env";
-    if (recipeId) {
-      try {
-        const recipe = loadRecipeById(recipeId);
-        if (recipe && recipe.compiled && recipe.compiled.exits) {
-          exits = recipe.compiled.exits;
-          exitSource = "recipe";
-        }
-      } catch (e: any) {
-        logger.warn("POSITIONS", "PositionManager", "Failed to load recipe exits", {
-          recipeId,
-          error: e.message,
-        });
-      }
-    }
-
-    if (!this.exitSourceLog.has(mint)) {
-      this.exitSourceLog.add(mint);
-      logger.info("POSITIONS", "PositionManager", "Exit value source", {
-        symbol,
-        source: exitSource,
-        strategyId: recipeId,
-      });
-    }
-
+    // Recipe exits loaded earlier; use them where set, env as fallback.
     const envTpPct = configService.getNumber("TAKE_PROFIT_PCT");
     const takeProfitPct = exits && exits.tp_pct !== undefined ? exits.tp_pct : envTpPct;
     const envTrailPct = configService.getNumber("TRAILING_STOP_PCT");
