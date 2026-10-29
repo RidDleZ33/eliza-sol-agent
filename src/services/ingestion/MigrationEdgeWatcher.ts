@@ -164,46 +164,63 @@ export class MigrationEdgeWatcher implements IngestionWatcher {
           continue;
         }
 
-        if (typeof item.top_10_holder_rate !== "number") {
-          logger.info("INGESTION", this.name, "skip", { mint, reason: "no_top10" });
-          continue;
-        }
-
-        if (!item.creator_token_status) {
-          logger.info("INGESTION", this.name, "skip", { mint, reason: "no_creator" });
-          continue;
-        }
-
-        const liq = typeof item.liquidity === "number" ? item.liquidity : parseFloat(item.liquidity);
-        if (isNaN(liq)) {
-          logger.info("INGESTION", this.name, "skip", { mint, reason: "no_liq" });
-          continue;
-        }
-        if (liq < MIN_LIQUIDITY) {
-          logger.info("INGESTION", this.name, "skip", { mint, reason: "thin_liq", liq });
-          continue;
-        }
-        if (liq >= MAX_LIQUIDITY) {
-          logger.info("INGESTION", this.name, "skip", { mint, reason: "fat_liq", liq });
-          continue;
-        }
-
-        if (typeof item.holder_count !== "number") {
-          logger.info("INGESTION", this.name, "skip", { mint, reason: "low_holders" });
-          continue;
-        }
-        if (item.holder_count < MIN_HOLDERS) {
-          logger.info("INGESTION", this.name, "skip", { mint, reason: "low_holders", count: item.holder_count });
-          continue;
-        }
-
         const symbol = item.symbol || mint.slice(0, 6);
-        const ok = await watchlistService.addDiscoveredToken(mint, symbol, 0, SOURCE);
-        if (ok) {
-          inserted++;
-          logger.info("INGESTION", this.name, "insert", { mint, symbol, liq, top10: item.top_10_holder_rate });
-          // Paper buy if dry-run is on. Do not wake Alpha.
-          const facts: any = {
+
+        // PHASE 30B: When recipes are matching, bypass hardcoded liq/holders/top10/creator
+        // skips — the recipe gates are the only filter. Build facts from whatever fields
+        // are present; missing fields become undefined. Old path remains when recipes are off.
+        let facts: any | undefined;
+        if (recipesEvaluator.isMatching() && recipesEvaluator.getEnabledCount() > 0) {
+          // Recipe path: no hardcoded skips, build best-effort facts
+          const liq = typeof item.liquidity === "number" ? item.liquidity : parseFloat(item.liquidity);
+          facts = {
+            mint,
+            symbol,
+            source: SOURCE,
+            liq_usd: isNaN(liq) ? undefined : liq,
+            holders: typeof item.holder_count === "number" ? item.holder_count : undefined,
+            top10_rate: typeof item.top_10_holder_rate === "number" ? item.top_10_holder_rate : undefined,
+            creator_status: item.creator_token_status,
+          };
+          // Log which facts are present for traceability
+          const present: string[] = [];
+          if (facts.liq_usd !== undefined) present.push("liq");
+          if (facts.holders !== undefined) present.push("holders");
+          if (facts.top10_rate !== undefined) present.push("top10");
+          if (facts.creator_status !== undefined) present.push("creator");
+          logger.info("INGESTION", this.name, "recipe_eval", { mint, facts_present: present.join(",") });
+        } else {
+          // Legacy path: keep all hardcoded skips
+          if (typeof item.top_10_holder_rate !== "number") {
+            logger.info("INGESTION", this.name, "skip", { mint, reason: "no_top10" });
+            continue;
+          }
+          if (!item.creator_token_status) {
+            logger.info("INGESTION", this.name, "skip", { mint, reason: "no_creator" });
+            continue;
+          }
+          const liq = typeof item.liquidity === "number" ? item.liquidity : parseFloat(item.liquidity);
+          if (isNaN(liq)) {
+            logger.info("INGESTION", this.name, "skip", { mint, reason: "no_liq" });
+            continue;
+          }
+          if (liq < MIN_LIQUIDITY) {
+            logger.info("INGESTION", this.name, "skip", { mint, reason: "thin_liq", liq });
+            continue;
+          }
+          if (liq >= MAX_LIQUIDITY) {
+            logger.info("INGESTION", this.name, "skip", { mint, reason: "fat_liq", liq });
+            continue;
+          }
+          if (typeof item.holder_count !== "number") {
+            logger.info("INGESTION", this.name, "skip", { mint, reason: "low_holders" });
+            continue;
+          }
+          if (item.holder_count < MIN_HOLDERS) {
+            logger.info("INGESTION", this.name, "skip", { mint, reason: "low_holders", count: item.holder_count });
+            continue;
+          }
+          facts = {
             mint,
             symbol,
             source: SOURCE,
@@ -212,7 +229,15 @@ export class MigrationEdgeWatcher implements IngestionWatcher {
             top10_rate: item.top_10_holder_rate,
             creator_status: item.creator_token_status,
           };
-          this.maybeBuy(mint, symbol, facts);
+        }
+
+        if (facts) {
+          const ok = await watchlistService.addDiscoveredToken(mint, symbol, 0, SOURCE);
+          if (ok) {
+            inserted++;
+            logger.info("INGESTION", this.name, "insert", { mint, symbol, liq: facts.liq_usd, top10: facts.top10_rate });
+            this.maybeBuy(mint, symbol, facts);
+          }
         }
       }
 
@@ -231,48 +256,11 @@ export class MigrationEdgeWatcher implements IngestionWatcher {
     for (const [mint, item] of this.pending.entries()) {
       if (now - item.completeTimestamp < COOLDOWN_MS) continue;
 
-      // Cool-off passed; evaluate stored item through same filters.
-      // Missing field is a skip.
-      if (item.top10Rate === undefined) {
-        logger.info("INGESTION", this.name, "skip", { mint, reason: "no_top10" });
-        toDrop.push(mint);
-        continue;
-      }
-      if (!item.creatorStatus) {
-        logger.info("INGESTION", this.name, "skip", { mint, reason: "no_creator" });
-        toDrop.push(mint);
-        continue;
-      }
-      if (item.liquidity === undefined) {
-        logger.info("INGESTION", this.name, "skip", { mint, reason: "no_liq" });
-        toDrop.push(mint);
-        continue;
-      }
-      if (item.liquidity < MIN_LIQUIDITY) {
-        logger.info("INGESTION", this.name, "skip", { mint, reason: "thin_liq", liq: item.liquidity });
-        toDrop.push(mint);
-        continue;
-      }
-      if (item.liquidity >= MAX_LIQUIDITY) {
-        logger.info("INGESTION", this.name, "skip", { mint, reason: "fat_liq", liq: item.liquidity });
-        toDrop.push(mint);
-        continue;
-      }
-      if (item.holderCount === undefined) {
-        logger.info("INGESTION", this.name, "skip", { mint, reason: "low_holders" });
-        toDrop.push(mint);
-        continue;
-      }
-      if (item.holderCount < MIN_HOLDERS) {
-        logger.info("INGESTION", this.name, "skip", { mint, reason: "low_holders", count: item.holderCount });
-        toDrop.push(mint);
-        continue;
-      }
+      let facts: any | undefined;
 
-      const ok = await watchlistService.addDiscoveredToken(mint, item.symbol, 0, SOURCE);
-      if (ok) {
-        logger.info("INGESTION", this.name, "insert", { mint, symbol: item.symbol, liq: item.liquidity, top10: item.top10Rate });
-        const facts: any = {
+      if (recipesEvaluator.isMatching() && recipesEvaluator.getEnabledCount() > 0) {
+        // PHASE 30B: Recipe path — no hardcoded skips, build best-effort facts
+        facts = {
           mint,
           symbol: item.symbol,
           source: SOURCE,
@@ -281,7 +269,67 @@ export class MigrationEdgeWatcher implements IngestionWatcher {
           top10_rate: item.top10Rate,
           creator_status: item.creatorStatus,
         };
-        this.maybeBuy(mint, item.symbol, facts);
+        const present: string[] = [];
+        if (facts.liq_usd !== undefined) present.push("liq");
+        if (facts.holders !== undefined) present.push("holders");
+        if (facts.top10_rate !== undefined) present.push("top10");
+        if (facts.creator_status !== undefined) present.push("creator");
+        logger.info("INGESTION", this.name, "recipe_eval", { mint, facts_present: present.join(",") });
+      } else {
+        // Legacy path: keep all hardcoded skips
+        if (item.top10Rate === undefined) {
+          logger.info("INGESTION", this.name, "skip", { mint, reason: "no_top10" });
+          toDrop.push(mint);
+          continue;
+        }
+        if (!item.creatorStatus) {
+          logger.info("INGESTION", this.name, "skip", { mint, reason: "no_creator" });
+          toDrop.push(mint);
+          continue;
+        }
+        if (item.liquidity === undefined) {
+          logger.info("INGESTION", this.name, "skip", { mint, reason: "no_liq" });
+          toDrop.push(mint);
+          continue;
+        }
+        if (item.liquidity < MIN_LIQUIDITY) {
+          logger.info("INGESTION", this.name, "skip", { mint, reason: "thin_liq", liq: item.liquidity });
+          toDrop.push(mint);
+          continue;
+        }
+        if (item.liquidity >= MAX_LIQUIDITY) {
+          logger.info("INGESTION", this.name, "skip", { mint, reason: "fat_liq", liq: item.liquidity });
+          toDrop.push(mint);
+          continue;
+        }
+        if (item.holderCount === undefined) {
+          logger.info("INGESTION", this.name, "skip", { mint, reason: "low_holders" });
+          toDrop.push(mint);
+          continue;
+        }
+        if (item.holderCount < MIN_HOLDERS) {
+          logger.info("INGESTION", this.name, "skip", { mint, reason: "low_holders", count: item.holderCount });
+          toDrop.push(mint);
+          continue;
+        }
+
+        facts = {
+          mint,
+          symbol: item.symbol,
+          source: SOURCE,
+          liq_usd: item.liquidity,
+          holders: item.holderCount,
+          top10_rate: item.top10Rate,
+          creator_status: item.creatorStatus,
+        };
+      }
+
+      if (facts) {
+        const ok = await watchlistService.addDiscoveredToken(mint, item.symbol, 0, SOURCE);
+        if (ok) {
+          logger.info("INGESTION", this.name, "insert", { mint, symbol: item.symbol, liq: facts.liq_usd, top10: facts.top10_rate });
+          this.maybeBuy(mint, item.symbol, facts);
+        }
       }
       toDrop.push(mint);
     }
