@@ -46,6 +46,7 @@ export const INGREDIENTS: Ingredients = {
     { key: "stop_pct", desc: "Stop-loss percentage", example: 15 },
     { key: "trail_pct", desc: "Trailing stop percentage", example: 10 },
     { key: "clock_sec", desc: "Max holding time (seconds)", example: 7200 },
+    { key: "stall_sec", desc: "Exit if no new high for N seconds", example: 45 },
     { key: "pool_drop_pct", desc: "Exit on pool liquidity drop (%)", example: 50 },
   ],
   rule_triggers: ["timer", "pnl", "wallet_size"],

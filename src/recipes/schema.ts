@@ -16,6 +16,7 @@ export const RecipeSchema = z.object({
     stop_pct: z.number().optional(),
     trail_pct: z.number().optional(),
     clock_sec: z.number().optional(),
+    stall_sec: z.number().optional(),
     pool_drop_pct: z.number().optional(),
   }),
   rules: z.array(

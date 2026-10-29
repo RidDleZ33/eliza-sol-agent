@@ -14,6 +14,7 @@ export interface ExitConfig {
   stop_pct?: number;
   trail_pct?: number;
   clock_sec?: number;
+  stall_sec?: number;
   pool_drop_pct?: number;
 }
 
@@ -71,6 +72,7 @@ export function compileRecipe(recipe: Recipe): CompiledRecipe {
   if (recipe.exits.stop_pct !== undefined) exits.stop_pct = recipe.exits.stop_pct;
   if (recipe.exits.trail_pct !== undefined) exits.trail_pct = recipe.exits.trail_pct;
   if (recipe.exits.clock_sec !== undefined) exits.clock_sec = recipe.exits.clock_sec;
+  if (recipe.exits.stall_sec !== undefined) exits.stall_sec = recipe.exits.stall_sec;
   if (recipe.exits.pool_drop_pct !== undefined)
     exits.pool_drop_pct = recipe.exits.pool_drop_pct;
 

@@ -271,8 +271,19 @@ export class PositionManagerService {
       await this.exitPosition(mint, symbol, `TAKE_PROFIT (+${pnlPct.toFixed(1)}%) | ${exc}`, currentPrice, pnlPct);
     } else {
       // Phase 23D: stall exit — no new high for stallSec seconds
-      const stallSec = getStallSec();
-      if (stallSec > 0) {
+      // Tagged positions (strategy_id set) use recipe stall_sec when provided;
+      // if the recipe does not set stall_sec, stall is off for that position.
+      // Untagged positions keep the env path.
+      let stallSec: number | null = null;
+      if (recipeId && exits) {
+        if (exits.stall_sec !== undefined) {
+          stallSec = exits.stall_sec;
+        }
+        // else stallSec stays null → stall off for this tagged position
+      } else {
+        stallSec = getStallSec();
+      }
+      if (stallSec !== null && stallSec > 0) {
         const lastHighMs = this.positionLastHighMs.get(mint) || Date.now();
         const gapSec = (Date.now() - lastHighMs) / 1000;
         if (gapSec >= stallSec) {
