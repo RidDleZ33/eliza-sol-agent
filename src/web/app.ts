@@ -181,15 +181,17 @@ app.post("/dev/restart", async (c) => {
     try { Bun.unlinkSync(PIDFILE); } catch {}
     try { Bun.unlinkSync("/tmp/ridsolbot_restart"); } catch {}
 
-    // Spawn detached replacement of this process (full argv includes bun binary)
-    const child = Bun.spawn(process.argv, {
+    // Spawn a detached shell that waits for the old process to release the port
+    // then execs the desk. Sleep gives the old process time to exit and free the port.
+    const cmd = "sleep 1; exec " + process.argv.map(a => `'${a.replace(/'/g, "'\\''")}'`).join(" ");
+    const child = Bun.spawn(["sh", "-c", cmd], {
       cwd: process.cwd(),
       stdio: ["ignore", "ignore", "ignore"],
       detached: true,
     });
     child.unref();
 
-    const resp = c.json({ ok: true, message: "restarting", child_pid: child.pid });
+    const resp = c.json({ ok: true, message: "restarting", shell_pid: child.pid });
     setTimeout(() => process.exit(0), 100);
     return resp;
   } catch (e: any) {
