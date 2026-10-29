@@ -181,15 +181,17 @@ app.post("/dev/restart", async (c) => {
     try { Bun.unlinkSync(PIDFILE); } catch {}
     try { Bun.unlinkSync("/tmp/ridsolbot_restart"); } catch {}
 
-    // Spawn detached replacement of this process
-    const child = Bun.spawn(process.argv.slice(1), {
+    // Spawn detached replacement of this process (full argv includes bun binary)
+    const child = Bun.spawn(process.argv, {
       cwd: process.cwd(),
       stdio: "ignore",
       detached: true,
     });
     child.unref();
 
-    return c.json({ ok: true, message: "restarting", child_pid: child.pid });
+    const resp = c.json({ ok: true, message: "restarting", child_pid: child.pid });
+    setTimeout(() => process.exit(0), 100);
+    return resp;
   } catch (e: any) {
     // Spawn failed — leave current process running and report error
     return c.json({ ok: false, error: e.message }, 500);
