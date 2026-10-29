@@ -217,6 +217,10 @@ class WatchlistService {
         this.db.exec("ALTER TABLE positions ADD COLUMN last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP");
         console.log("[WATCHLIST][migrateSchema] Added last_updated column to positions");
       }
+      if (!positionColumnNames.has('strategy_id')) {
+        this.db.exec("ALTER TABLE positions ADD COLUMN strategy_id TEXT DEFAULT NULL");
+        console.log("[WATCHLIST][migrateSchema] Added strategy_id column to positions");
+      }
 
       // Phase 3C: add beta_top10_pct column to watched_tokens
       const watchedColumns = this.db.prepare("PRAGMA table_info(watched_tokens)").all() as any[];
