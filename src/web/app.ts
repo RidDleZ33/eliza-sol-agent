@@ -177,12 +177,21 @@ app.post("/dev/restart", async (c) => {
       }
     }
 
-    // Write restart flag and exit; --watch will respawn us
-    try {
-      writeFileSync("/tmp/ridsolbot_restart", "1");
-    } catch {}
-    process.exit(0);
+    // Clear old pidfile and restart flag so next process starts fresh
+    try { Bun.unlinkSync(PIDFILE); } catch {}
+    try { Bun.unlinkSync("/tmp/ridsolbot_restart"); } catch {}
+
+    // Spawn detached replacement of this process
+    const child = Bun.spawn(process.argv.slice(1), {
+      cwd: process.cwd(),
+      stdio: "ignore",
+      detached: true,
+    });
+    child.unref();
+
+    return c.json({ ok: true, message: "restarting", child_pid: child.pid });
   } catch (e: any) {
+    // Spawn failed — leave current process running and report error
     return c.json({ ok: false, error: e.message }, 500);
   }
 });
