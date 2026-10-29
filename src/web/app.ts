@@ -184,7 +184,7 @@ app.post("/dev/restart", async (c) => {
     // Spawn detached replacement of this process (full argv includes bun binary)
     const child = Bun.spawn(process.argv, {
       cwd: process.cwd(),
-      stdio: "ignore",
+      stdio: ["ignore", "ignore", "ignore"],
       detached: true,
     });
     child.unref();
