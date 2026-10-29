@@ -9,6 +9,7 @@ import { aiRouter } from "./ai.ts";
 import { aggregateBook } from "../services/TradeBookService.ts";
 import { watchlistService } from "../services/WatchlistService.ts";
 import { getHouseSolBalance } from "../utils/wallet.ts";
+import { isDryRun } from "../utils/env.ts";
 import { loadRecipeById } from "../recipes/db.ts";
 import { cuRouter } from "./cu.ts";
 import { referralRouter } from "./referral.ts";
@@ -676,18 +677,37 @@ app.get("/ingredients", (c) => {
 // Live desk dashboard
 app.get("/desk", async (c) => {
   try {
-    // Wallet balance
+    const dryRun = isDryRun();
+
+    // Wallet balance: virtual in dry-run, real in live
     let walletSol: number | null = null;
-    try {
-      walletSol = await getHouseSolBalance();
-    } catch (e) {
-      walletSol = null;
+    let walletMode: string = "live";
+    if (dryRun) {
+      walletMode = "dry_run";
+      // Use virtual wallet from settings (default 10 SOL)
+      let virtualWalletSol = 10;
+      try {
+        const virtualSetting = getSetting("virtual_wallet_sol");
+        if (virtualSetting) {
+          virtualWalletSol = parseFloat(virtualSetting);
+          if (isNaN(virtualWalletSol)) virtualWalletSol = 10;
+        }
+      } catch (e) {
+        virtualWalletSol = 10;
+      }
+      walletSol = virtualWalletSol;
+    } else {
+      try {
+        walletSol = await getHouseSolBalance();
+      } catch (e) {
+        walletSol = null;
+      }
     }
 
     // Open positions
     let openPositions = [];
     try {
-      openPositions = await watchlistService.getOpenPositions();
+      openPositions = await watchlistService.getOpenPositions(dryRun);
     } catch (e) {
       openPositions = [];
     }
@@ -863,7 +883,8 @@ app.get("/desk", async (c) => {
       wallet: {
         sol: walletSol,
         deployed_sol: deployedSol,
-        free_sol: freeSol
+        free_sol: freeSol,
+        mode: walletMode
       },
       session: {
         realized_sol: realizedToday,

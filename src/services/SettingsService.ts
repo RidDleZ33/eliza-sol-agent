@@ -45,6 +45,7 @@ export function getAllSettings(): Record<string, string | null> {
     "llm_model",
     "llm_api_key",
     "dry_run",
+    "virtual_wallet_sol",
     "max_trade_size_sol",
     "default_tp_pct",
     "default_stop_pct",

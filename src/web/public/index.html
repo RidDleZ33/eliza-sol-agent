@@ -514,6 +514,11 @@
                     </select>
                 </div>
                 <div class="field">
+                    <label>Virtual Wallet (SOL)</label>
+                    <input type="number" id="settings-virtual_wallet_sol" step="0.1" placeholder="10">
+                    <span style="font-size:0.8em;color:#888;">Starting balance in dry-run mode</span>
+                </div>
+                <div class="field">
                     <label>Max Trade Size (SOL)</label>
                     <input type="number" id="settings-max_trade_size_sol" step="0.01" placeholder="1.0">
                 </div>
@@ -672,7 +677,12 @@
         function renderDesk(data) {
             // Wallet strip
             const w = data.wallet;
-            document.getElementById('desk-wallet').textContent = w.sol !== null ? w.sol.toFixed(4) + ' SOL' : '— SOL';
+            const walletEl = document.getElementById('desk-wallet');
+            if (w.mode === 'dry_run') {
+                walletEl.textContent = (w.sol !== null ? w.sol.toFixed(4) : '—') + ' Virtual';
+            } else {
+                walletEl.textContent = w.sol !== null ? w.sol.toFixed(4) + ' SOL' : '— SOL';
+            }
             document.getElementById('desk-deployed').textContent = w.deployed_sol.toFixed(4) + ' SOL';
             const freeEl = document.getElementById('desk-free');
             freeEl.textContent = w.free_sol !== null ? w.free_sol.toFixed(4) + ' SOL' : '— SOL';
@@ -1827,6 +1837,7 @@
                     document.getElementById('settings-llm_api_key').value = '';
                     document.getElementById('settings-llm_api_key-status').textContent = s.llm_api_key === 'set' ? '(API key is set)' : '(no API key set)';
                     document.getElementById('settings-dry_run').value = s.dry_run !== null && s.dry_run !== undefined ? s.dry_run : '';
+                    document.getElementById('settings-virtual_wallet_sol').value = s.virtual_wallet_sol || '';
                     document.getElementById('settings-max_trade_size_sol').value = s.max_trade_size_sol || '';
                     document.getElementById('settings-default_tp_pct').value = s.default_tp_pct || '';
                     document.getElementById('settings-default_stop_pct').value = s.default_stop_pct || '';
@@ -1844,6 +1855,7 @@
                     llm_base_url: document.getElementById('settings-llm_base_url').value,
                     llm_model: document.getElementById('settings-llm_model').value,
                     dry_run: document.getElementById('settings-dry_run').value,
+                    virtual_wallet_sol: document.getElementById('settings-virtual_wallet_sol').value,
                     max_trade_size_sol: document.getElementById('settings-max_trade_size_sol').value,
                     default_tp_pct: document.getElementById('settings-default_tp_pct').value,
                     default_stop_pct: document.getElementById('settings-default_stop_pct').value,
