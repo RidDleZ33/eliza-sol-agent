@@ -714,7 +714,38 @@ app.get("/desk", async (c) => {
       realizedToday = 0;
     }
 
-    // Open positions with strategy exits
+    // Build watched_tokens source map and positions strategy map
+    const db = watchlistService.getDb();
+    const watchedRows = db.prepare("SELECT mint_address, added_by_agent FROM watched_tokens").all() as any[];
+    const sourceMap = new Map<string, string>();
+    for (const r of watchedRows) {
+      if (r.added_by_agent) sourceMap.set(r.mint_address, r.added_by_agent);
+    }
+    let positionsStrategyMap = new Map<string, string>();
+    try {
+      const posRows = db.prepare("SELECT mint_address, strategy_id FROM positions WHERE strategy_id IS NOT NULL").all() as any[];
+      for (const r of posRows) {
+        positionsStrategyMap.set(r.mint_address, r.strategy_id);
+      }
+    } catch (e) {
+      // Older schema may not have strategy_id column
+    }
+
+    // Build buys map for pairing sells to buys (for PnL computation)
+    const buyRows = db.prepare(
+      `SELECT id, mint, sol_in, created_at FROM trades WHERE side = 'BUY' AND sol_in IS NOT NULL`
+    ).all() as any[];
+    const buys = new Map<string, any[]>();
+    for (const r of buyRows) {
+      if (!buys.has(r.mint)) buys.set(r.mint, []);
+      buys.get(r.mint)!.push(r);
+    }
+    // Sort buy lists by created_at ascending
+    for (const [mint, list] of buys.entries()) {
+      list.sort((a, b) => a.created_at - b.created_at);
+    }
+
+    // Open positions with strategy exits, age, and source
     const positions = openPositions.map((p: any) => {
       let exits = null;
       if (p.strategy_id) {
@@ -732,17 +763,30 @@ app.get("/desk", async (c) => {
           exits = null;
         }
       }
+      // Age: handle entered_at as seconds or milliseconds
+      let ageSec = 0;
+      if (p.entered_at) {
+        let enteredMs: number;
+        if (typeof p.entered_at === 'number') {
+          enteredMs = p.entered_at < 1e12 ? p.entered_at * 1000 : p.entered_at;
+        } else {
+          // Text timestamp (SQLite TIMESTAMP)
+          enteredMs = new Date(p.entered_at).getTime();
+        }
+        ageSec = Math.floor((Date.now() - enteredMs) / 1000);
+      }
+      const source = sourceMap.get(p.mint_address) || null;
       return {
         symbol: p.symbol || "",
         mint: p.mint_address,
         strategy_id: p.strategy_id || null,
-        source: "",
+        source: source,
         size_sol: p.amount_sol || 0,
         entry_price: p.entry_price_usd || 0,
         mark_price: p.current_price_usd || 0,
         unrealized_sol: p.unrealized_pnl_sol || 0,
         unrealized_pct: p.unrealized_pnl_pct || 0,
-        age_sec: 0,
+        age_sec: ageSec,
         tp_pct: exits?.tp_pct ?? null,
         stop_pct: exits?.stop_pct ?? null,
         clock_sec: exits?.clock_sec ?? null,
@@ -750,21 +794,49 @@ app.get("/desk", async (c) => {
       };
     });
 
-    // Recent fills (last 20)
+    // Recent fills (last 20) with PnL for SELLs
     let recentFills = [];
     try {
-      const db = watchlistService.getDb();
       const rows = db.prepare(
-        `SELECT id, mint, symbol, side, status, reason, created_at FROM trades ORDER BY id DESC LIMIT 20`
-      ).all();
-      recentFills = rows.map((r: any) => ({
-        ts: r.created_at,
-        side: r.side,
-        symbol: r.symbol || "",
-        strategy_id: null,
-        pnl_sol: null,
-        reason: r.reason || ""
-      }));
+        `SELECT id, mint, symbol, side, status, reason, created_at, sol_in, sol_out FROM trades ORDER BY id DESC LIMIT 20`
+      ).all() as any[];
+      // Work on a copy of buys for pairing
+      const buyPairs = new Map(buys);
+      for (const row of buyPairs.values()) {
+        buyPairs.set(row[0].mint, [...row]);
+      }
+      recentFills = rows.map((r: any) => {
+        let pnlSol: number | null = null;
+        let strategyId: string | null = null;
+        if (r.side === 'SELL' && r.sol_out !== null) {
+          // Find paired buy for this mint
+          const list = buyPairs.get(r.mint);
+          if (list && list.length > 0) {
+            // Find closest prior BUY by created_at
+            let best = null;
+            for (const b of list) {
+              if (b.created_at < r.created_at) best = b;
+              else break;
+            }
+            if (best) {
+              pnlSol = r.sol_out - best.sol_in;
+              // Remove from list so it's not reused
+              const idx = list.indexOf(best);
+              if (idx >= 0) list.splice(idx, 1);
+            }
+          }
+          // Look up strategy_id from the position this sell closed
+          strategyId = positionsStrategyMap.get(r.mint) || null;
+        }
+        return {
+          ts: r.created_at,
+          side: r.side,
+          symbol: r.symbol || "",
+          strategy_id: strategyId,
+          pnl_sol: pnlSol,
+          reason: r.reason || ""
+        };
+      });
     } catch (e) {
       recentFills = [];
     }
