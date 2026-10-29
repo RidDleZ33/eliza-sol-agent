@@ -236,6 +236,11 @@ export class MigrationEdgeWatcher implements IngestionWatcher {
           if (ok) {
             inserted++;
             logger.info("INGESTION", this.name, "insert", { mint, symbol, liq: facts.liq_usd, top10: facts.top10_rate });
+          }
+          // PHASE 30BN: On recipe path, evaluate regardless of whether already tracked.
+          // Legacy path still only buys on fresh insert.
+          const recipePath = recipesEvaluator.isMatching() && recipesEvaluator.getEnabledCount() > 0;
+          if (recipePath || ok) {
             this.maybeBuy(mint, symbol, facts);
           }
         }
@@ -328,6 +333,11 @@ export class MigrationEdgeWatcher implements IngestionWatcher {
         const ok = await watchlistService.addDiscoveredToken(mint, item.symbol, 0, SOURCE);
         if (ok) {
           logger.info("INGESTION", this.name, "insert", { mint, symbol: item.symbol, liq: facts.liq_usd, top10: facts.top10_rate });
+        }
+        // PHASE 30BN: On recipe path, evaluate regardless of whether already tracked.
+        // Legacy path still only buys on fresh insert.
+        const recipePath = recipesEvaluator.isMatching() && recipesEvaluator.getEnabledCount() > 0;
+        if (recipePath || ok) {
           this.maybeBuy(mint, item.symbol, facts);
         }
       }
