@@ -17,6 +17,7 @@ export interface RecipeMatch {
   recipeId: string;
   pass: boolean;
   reasons: string[];
+  sizeSol?: number;
 }
 
 export class RecipesEvaluator {
@@ -76,7 +77,12 @@ export class RecipesEvaluator {
 
     for (const { id, compiled } of recipes) {
       const { pass, reasons } = this.evaluateOneRecipe(facts, compiled);
-      results.push({ recipeId: id, pass, reasons });
+      results.push({
+        recipeId: id,
+        pass,
+        reasons,
+        sizeSol: compiled.size_sol,
+      });
     }
 
     return results;

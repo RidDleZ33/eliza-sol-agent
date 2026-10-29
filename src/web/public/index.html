@@ -59,6 +59,10 @@
         .stat-label { font-size: 0.75em; color: #888; text-transform: uppercase; letter-spacing: 1px; }
 
         /* Strategies */
+        .editor-section { margin-bottom: 12px; }
+        .editor-section h3 { font-size: 0.8em; color: #4fc3f7; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; margin-top: 8px; }
+        .summary-section { margin-bottom: 8px; }
+        .summary-section h3 { font-size: 0.75em; color: #888; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 2px; margin-top: 0; }
         .strategy-item { display: flex; justify-content: space-between; align-items: center; padding: 12px; background: #0b0d10; border: 1px solid #23272e; border-radius: 4px; margin-bottom: 8px; cursor: pointer; }
         .strategy-item:hover { border-color: #444; }
         .strategy-item.selected { border: 2px solid #3dd68c; }
@@ -207,32 +211,57 @@
                         </div>
                     </div>
                     <div id="strategy-editor">
-                        <div class="field">
-                            <label>Strategy Name</label>
-                            <input type="text" id="strategy-name" placeholder="my_strategy" oninput="updateRecipeFromForm()">
+                        <div class="editor-section">
+                            <h3>Name</h3>
+                            <div class="field">
+                                <label>Strategy Name</label>
+                                <input type="text" id="strategy-name" placeholder="my_strategy" oninput="updateRecipeFromForm()">
+                            </div>
                         </div>
-                        <div class="field">
-                            <label>Sources</label>
-                            <div id="sources-editor"></div>
+                        <div class="editor-section">
+                            <h3>Sources</h3>
+                            <div class="field">
+                                <label>Feed</label>
+                                <div id="sources-editor"></div>
+                            </div>
                         </div>
-                        <div class="field">
-                            <label>Gates</label>
-                            <div id="gates-editor"></div>
-                            <button onclick="addGateRow()" style="margin-top:4px;">Add Gate</button>
+                        <div class="editor-section">
+                            <h3>Entry</h3>
+                            <div class="field">
+                                <label>Entry Delay (seconds)</label>
+                                <input type="number" id="entry-delay-sec" min="0" placeholder="0 = evaluate immediately" oninput="updateRecipeFromForm()">
+                            </div>
                         </div>
-                        <div class="field">
-                            <label>Entry Delay (seconds)</label>
-                            <input type="number" id="entry-delay-sec" min="0" placeholder="0 = evaluate immediately" oninput="updateRecipeFromForm()">
+                        <div class="editor-section">
+                            <h3>Gates</h3>
+                            <div class="field">
+                                <label>Property filters</label>
+                                <div id="gates-editor"></div>
+                                <button onclick="addGateRow()" style="margin-top:4px;">Add Gate</button>
+                            </div>
                         </div>
-                        <div class="field">
-                            <label>Exits</label>
-                            <div id="exits-editor"></div>
-                            <button onclick="addExitRow()" style="margin-top:4px;">Add Exit</button>
+                        <div class="editor-section">
+                            <h3>Size</h3>
+                            <div class="field">
+                                <label>Size (SOL)</label>
+                                <input type="number" id="size-sol" step="0.01" placeholder="blank = global trade size" oninput="updateRecipeFromForm()">
+                            </div>
                         </div>
-                        <div class="field">
-                            <label>Rules</label>
-                            <div id="rules-editor"></div>
-                            <button onclick="addRuleRow()" style="margin-top:4px;">Add Rule</button>
+                        <div class="editor-section">
+                            <h3>Exits</h3>
+                            <div class="field">
+                                <label>Exit conditions</label>
+                                <div id="exits-editor"></div>
+                                <button onclick="addExitRow()" style="margin-top:4px;">Add Exit</button>
+                            </div>
+                        </div>
+                        <div class="editor-section">
+                            <h3>Rules</h3>
+                            <div class="field">
+                                <label>Automations</label>
+                                <div id="rules-editor"></div>
+                                <button onclick="addRuleRow()" style="margin-top:4px;">Add Rule</button>
+                            </div>
                         </div>
                         <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;flex-wrap:wrap;gap:8px;">
                             <button class="primary" id="save-strategy-btn" onclick="createStrategy()">Create</button>
@@ -809,6 +838,14 @@
                 currentRecipe.entry_delay_sec = parseInt(delayVal);
             }
 
+            const sizeEl = document.getElementById('size-sol');
+            const sizeVal = sizeEl ? sizeEl.value : '';
+            if (sizeVal === '') {
+                delete currentRecipe.size_sol;
+            } else {
+                currentRecipe.size_sol = parseFloat(sizeVal);
+            }
+
             const checkedSources = [];
             document.querySelectorAll('#sources-editor input[type="checkbox"]:checked').forEach(cb => {
                 checkedSources.push(cb.value);
@@ -972,34 +1009,38 @@
             html += '<p style="font-size:0.8em;color:#888;margin-bottom:12px;">Last updated: ' + new Date(strategy.updated_at * 1000).toLocaleString() + '</p>';
 
             if (recipe.sources && recipe.sources.length > 0) {
-                html += '<div class="summary-item"><span class="summary-label">Sources</span><span class="summary-value">' + recipe.sources.join(', ') + '</span></div>';
+                html += '<div class="summary-section"><h3>Sources</h3><div class="summary-item"><span class="summary-value">' + recipe.sources.join(', ') + '</span></div></div>';
+            }
+
+            if (recipe.entry_delay_sec !== undefined) {
+                html += '<div class="summary-section"><h3>Entry</h3><div class="summary-item"><span class="summary-label">Delay</span><span class="summary-value">' + recipe.entry_delay_sec + 's</span></div></div>';
             }
 
             if (recipe.gates && recipe.gates.length > 0) {
-                html += '<div class="summary-item"><span class="summary-label">Gates</span></div>';
+                html += '<div class="summary-section"><h3>Gates</h3>';
                 html += '<div class="summary-gates">';
                 recipe.gates.forEach(g => {
                     const val = g.value !== undefined ? ' ' + g.value : '';
                     html += '<div class="summary-sub">' + g.field + ' ' + g.op + val + '</div>';
                 });
-                html += '</div>';
+                html += '</div></div>';
             }
 
-            if (recipe.entry_delay_sec !== undefined) {
-                html += '<div class="summary-item"><span class="summary-label">Entry Delay</span><span class="summary-value">' + recipe.entry_delay_sec + 's</span></div>';
+            if (recipe.size_sol !== undefined) {
+                html += '<div class="summary-section"><h3>Size</h3><div class="summary-item"><span class="summary-label">Size</span><span class="summary-value">' + recipe.size_sol + ' SOL</span></div></div>';
             }
 
             if (recipe.exits && Object.keys(recipe.exits).length > 0) {
-                html += '<div class="summary-item"><span class="summary-label">Exits</span></div>';
+                html += '<div class="summary-section"><h3>Exits</h3>';
                 html += '<div class="summary-exits">';
                 Object.keys(recipe.exits).forEach(key => {
                     html += '<div class="summary-sub">' + key + ' = ' + recipe.exits[key] + '</div>';
                 });
-                html += '</div>';
+                html += '</div></div>';
             }
 
             if (recipe.rules && recipe.rules.length > 0) {
-                html += '<div class="summary-item"><span class="summary-label">Rules</span></div>';
+                html += '<div class="summary-section"><h3>Rules</h3>';
                 html += '<div class="summary-rules">';
                 recipe.rules.forEach(r => {
                     let desc = '';
@@ -1009,7 +1050,7 @@
                     if (r.action) desc += ' → ' + r.action;
                     html += '<div class="summary-sub">' + desc + '</div>';
                 });
-                html += '</div>';
+                html += '</div></div>';
             }
 
             detailCard.innerHTML = html;

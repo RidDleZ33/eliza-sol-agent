@@ -363,6 +363,7 @@ export class MigrationEdgeWatcher implements IngestionWatcher {
     // no recipe match means no buy (gate). Otherwise fall through to
     // the hardcoded path so the desk does not go dark during the switch.
     let strategyId: string | undefined;
+    let tradeSize = 0.75;
     if (facts && recipesEvaluator.isMatching()) {
       const enabledCount = recipesEvaluator.getEnabledCount();
       if (enabledCount > 0) {
@@ -382,7 +383,10 @@ export class MigrationEdgeWatcher implements IngestionWatcher {
 
         if (passing.length > 0) {
           strategyId = passing[0].recipeId;
-          logger.info("RECIPES", "maybeBuy", "candidate matched recipe", { mint, symbol, strategyId });
+          if (passing[0].sizeSol !== undefined) {
+            tradeSize = passing[0].sizeSol;
+          }
+          logger.info("RECIPES", "maybeBuy", "candidate matched recipe", { mint, symbol, strategyId, size: tradeSize });
         } else {
           const failReasons = matches.map(m => m.reasons.join(";")).join("|");
           logger.info("RECIPES", "maybeBuy", "no recipe match", { mint, symbol, reasons: failReasons });
@@ -395,7 +399,7 @@ export class MigrationEdgeWatcher implements IngestionWatcher {
       const result = await tradeExecutionService.executeBuy(
         mint,
         symbol,
-        0.75,
+        tradeSize,
         "mig_edge",
         undefined,
         strategyId

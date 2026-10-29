@@ -27,6 +27,7 @@ export interface CompiledRecipe {
   rules: any[];
   requiredFields: string[];
   entry_delay_sec?: number;
+  size_sol?: number;
   recipe: Recipe;
 }
 
@@ -89,6 +90,9 @@ export function compileRecipe(recipe: Recipe): CompiledRecipe {
   };
   if (recipe.entry_delay_sec !== undefined) {
     result.entry_delay_sec = recipe.entry_delay_sec;
+  }
+  if (recipe.size_sol !== undefined) {
+    result.size_sol = recipe.size_sol;
   }
   return result;
 }

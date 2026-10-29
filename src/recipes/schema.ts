@@ -29,6 +29,7 @@ export const RecipeSchema = z.object({
     })
   ).optional(),
   entry_delay_sec: z.number().optional(),
+  size_sol: z.number().optional(),
   meta: z.record(z.any()).optional(),
 });
 
