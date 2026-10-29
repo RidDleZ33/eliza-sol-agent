@@ -26,6 +26,7 @@ export interface CompiledRecipe {
   exits: ExitConfig;
   rules: any[];
   requiredFields: string[];
+  entry_delay_sec?: number;
   recipe: Recipe;
 }
 
@@ -76,7 +77,7 @@ export function compileRecipe(recipe: Recipe): CompiledRecipe {
   if (recipe.exits.pool_drop_pct !== undefined)
     exits.pool_drop_pct = recipe.exits.pool_drop_pct;
 
-  return {
+  const result: CompiledRecipe = {
     id: `recipe:${recipe.name}`,
     name: recipe.name,
     sources: recipe.sources,
@@ -86,4 +87,8 @@ export function compileRecipe(recipe: Recipe): CompiledRecipe {
     requiredFields: recipe.gates.map((g) => g.field),
     recipe,
   };
+  if (recipe.entry_delay_sec !== undefined) {
+    result.entry_delay_sec = recipe.entry_delay_sec;
+  }
+  return result;
 }

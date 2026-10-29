@@ -221,6 +221,10 @@
                             <button onclick="addGateRow()" style="margin-top:4px;">Add Gate</button>
                         </div>
                         <div class="field">
+                            <label>Entry Delay (seconds)</label>
+                            <input type="number" id="entry-delay-sec" min="0" placeholder="0 = evaluate immediately" oninput="updateRecipeFromForm()">
+                        </div>
+                        <div class="field">
                             <label>Exits</label>
                             <div id="exits-editor"></div>
                             <button onclick="addExitRow()" style="margin-top:4px;">Add Exit</button>
@@ -797,6 +801,14 @@
 
             currentRecipe.name = document.getElementById('strategy-name').value || 'my_strategy';
 
+            const delayEl = document.getElementById('entry-delay-sec');
+            const delayVal = delayEl ? delayEl.value : '';
+            if (delayVal === '' || parseInt(delayVal) === 0) {
+                delete currentRecipe.entry_delay_sec;
+            } else {
+                currentRecipe.entry_delay_sec = parseInt(delayVal);
+            }
+
             const checkedSources = [];
             document.querySelectorAll('#sources-editor input[type="checkbox"]:checked').forEach(cb => {
                 checkedSources.push(cb.value);
@@ -971,6 +983,10 @@
                     html += '<div class="summary-sub">' + g.field + ' ' + g.op + val + '</div>';
                 });
                 html += '</div>';
+            }
+
+            if (recipe.entry_delay_sec !== undefined) {
+                html += '<div class="summary-item"><span class="summary-label">Entry Delay</span><span class="summary-value">' + recipe.entry_delay_sec + 's</span></div>';
             }
 
             if (recipe.exits && Object.keys(recipe.exits).length > 0) {

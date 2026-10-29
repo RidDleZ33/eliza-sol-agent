@@ -146,25 +146,31 @@ export class MigrationEdgeWatcher implements IngestionWatcher {
 
         const completeMs = item.complete_timestamp * 1000;
         const elapsed = now - completeMs;
-        if (elapsed < COOLDOWN_MS) {
-          // Too early; store item for re-evaluation after cool-off.
-          const symbol = item.symbol || mint.slice(0, 6);
-          let liq = typeof item.liquidity === "number" ? item.liquidity : parseFloat(item.liquidity);
-          if (isNaN(liq)) liq = undefined;
-          this.pending.set(mint, {
-            mint,
-            symbol,
-            completeTimestamp: completeMs,
-            top10Rate: typeof item.top_10_holder_rate === "number" ? item.top_10_holder_rate : undefined,
-            creatorStatus: item.creator_token_status,
-            liquidity: liq,
-            holderCount: typeof item.holder_count === "number" ? item.holder_count : undefined,
-          });
-          logger.info("INGESTION", this.name, "skip", { mint, reason: "cooloff", elapsedSec: Math.floor(elapsed / 1000) });
-          continue;
-        }
-
         const symbol = item.symbol || mint.slice(0, 6);
+
+        // PHASE 31A: On recipe path, emit immediately with source clock.
+        // The recipe's entry_delay_sec (enforced in RecipesEvaluator) replaces
+        // the hardcoded watcher cool-off. Legacy path keeps the old behavior.
+        if (elapsed < COOLDOWN_MS) {
+          const recipePath = recipesEvaluator.isMatching() && recipesEvaluator.getEnabledCount() > 0;
+          if (!recipePath) {
+            // Legacy path: still wait for cool-off
+            let liq = typeof item.liquidity === "number" ? item.liquidity : parseFloat(item.liquidity);
+            if (isNaN(liq)) liq = undefined;
+            this.pending.set(mint, {
+              mint,
+              symbol,
+              completeTimestamp: completeMs,
+              top10Rate: typeof item.top_10_holder_rate === "number" ? item.top_10_holder_rate : undefined,
+              creatorStatus: item.creator_token_status,
+              liquidity: liq,
+              holderCount: typeof item.holder_count === "number" ? item.holder_count : undefined,
+            });
+            logger.info("INGESTION", this.name, "skip", { mint, reason: "cooloff", elapsedSec: Math.floor(elapsed / 1000) });
+            continue;
+          }
+          // Recipe path: fall through, emit immediately with source_clock_ms
+        }
 
         // PHASE 30B: When recipes are matching, bypass hardcoded liq/holders/top10/creator
         // skips — the recipe gates are the only filter. Build facts from whatever fields
@@ -181,6 +187,7 @@ export class MigrationEdgeWatcher implements IngestionWatcher {
             holders: typeof item.holder_count === "number" ? item.holder_count : undefined,
             top10_rate: typeof item.top_10_holder_rate === "number" ? item.top_10_holder_rate : undefined,
             creator_status: item.creator_token_status,
+            source_clock_ms: completeMs,
           };
           // Log which facts are present for traceability
           const present: string[] = [];
@@ -377,7 +384,8 @@ export class MigrationEdgeWatcher implements IngestionWatcher {
           strategyId = passing[0].recipeId;
           logger.info("RECIPES", "maybeBuy", "candidate matched recipe", { mint, symbol, strategyId });
         } else {
-          logger.info("RECIPES", "maybeBuy", "no recipe match", { mint, symbol });
+          const failReasons = matches.map(m => m.reasons.join(";")).join("|");
+          logger.info("RECIPES", "maybeBuy", "no recipe match", { mint, symbol, reasons: failReasons });
           return;
         }
       }

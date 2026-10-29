@@ -75,37 +75,56 @@ export class RecipesEvaluator {
     const results: RecipeMatch[] = [];
 
     for (const { id, compiled } of recipes) {
-      const pass = this.evaluateOneRecipe(facts, compiled);
-      results.push({ recipeId: id, pass, reasons: [] });
+      const { pass, reasons } = this.evaluateOneRecipe(facts, compiled);
+      results.push({ recipeId: id, pass, reasons });
     }
 
     return results;
   }
 
-  private evaluateOneRecipe(facts: CandidateFacts, compiled: any): boolean {
+  private evaluateOneRecipe(facts: CandidateFacts, compiled: any): { pass: boolean; reasons: string[] } {
     const filter = compiled.filter;
+    const reasons: string[] = [];
+
+    // PHASE 31A: Entry delay enforcement. Recipe decides how long to wait
+    // after the source clock before evaluating. Watcher no longer enforces
+    // a hardcoded cool-off on the recipe path.
+    if (compiled.entry_delay_sec !== undefined && compiled.entry_delay_sec > 0 && facts.source_clock_ms !== undefined) {
+      const elapsedMs = Date.now() - facts.source_clock_ms;
+      const delayMs = compiled.entry_delay_sec * 1000;
+      if (elapsedMs < delayMs) {
+        const remainingSec = Math.ceil((delayMs - elapsedMs) / 1000);
+        reasons.push(`entry_delay:${remainingSec}s`);
+        return { pass: false, reasons };
+      }
+    }
 
     if (filter.liq_min_usd !== undefined && (facts.liq_usd === undefined || facts.liq_usd < filter.liq_min_usd)) {
-      return false;
+      reasons.push(`liq:${facts.liq_usd}`);
+      return { pass: false, reasons };
     }
 
     if (filter.liq_max_usd !== undefined && (facts.liq_usd === undefined || facts.liq_usd > filter.liq_max_usd)) {
-      return false;
+      reasons.push(`liq:${facts.liq_usd}`);
+      return { pass: false, reasons };
     }
 
     if (filter.holders_min !== undefined && (facts.holders === undefined || facts.holders < filter.holders_min)) {
-      return false;
+      reasons.push(`holders:${facts.holders}`);
+      return { pass: false, reasons };
     }
 
     if (filter.top10_required && (facts.top10_rate === undefined)) {
-      return false;
+      reasons.push("top10");
+      return { pass: false, reasons };
     }
 
     if (filter.creator_required && (facts.creator_status === undefined)) {
-      return false;
+      reasons.push("creator");
+      return { pass: false, reasons };
     }
 
-    return true;
+    return { pass: true, reasons };
   }
 }
 
