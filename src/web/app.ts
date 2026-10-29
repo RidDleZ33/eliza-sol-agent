@@ -6,8 +6,10 @@ import { can } from "../entitlements/tier.ts";
 import { existsSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import { aiRouter } from "./ai.ts";
-import { aggregateBook, aggregateTrips } from "../services/TradeBookService.ts";
+import { aggregateBook } from "../services/TradeBookService.ts";
 import { watchlistService } from "../services/WatchlistService.ts";
+import { getHouseSolBalance } from "../utils/wallet.ts";
+import { loadRecipeById } from "../recipes/db.ts";
 import { cuRouter } from "./cu.ts";
 import { referralRouter } from "./referral.ts";
 import { getSetting, setSetting, getAllSettings, upsertSettings } from "../services/SettingsService.ts";
@@ -669,4 +671,141 @@ app.post("/settings", async (c) => {
 // Ingredients route (shared between AI tool and UI)
 app.get("/ingredients", (c) => {
   return c.json({ ok: true, ingredients: INGREDIENTS });
+});
+
+// Live desk dashboard
+app.get("/desk", async (c) => {
+  try {
+    // Wallet balance
+    let walletSol: number | null = null;
+    try {
+      walletSol = await getHouseSolBalance();
+    } catch (e) {
+      walletSol = null;
+    }
+
+    // Open positions
+    let openPositions = [];
+    try {
+      openPositions = await watchlistService.getOpenPositions();
+    } catch (e) {
+      openPositions = [];
+    }
+
+    // Deployed SOL = sum of open position sizes
+    let deployedSol = 0;
+    for (const p of openPositions) {
+      deployedSol += (p.amount_sol || 0);
+    }
+    const freeSol = walletSol !== null ? walletSol - deployedSol : null;
+
+    // Today's realized PnL (UTC)
+    const now = new Date();
+    const todayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())).getTime();
+    let realizedToday = 0;
+    try {
+      const { trips } = aggregateBook(null);
+      for (const t of trips) {
+        if (t.sell_at >= todayStart) {
+          realizedToday += t.net_sol;
+        }
+      }
+    } catch (e) {
+      realizedToday = 0;
+    }
+
+    // Open positions with strategy exits
+    const positions = openPositions.map((p: any) => {
+      let exits = null;
+      if (p.strategy_id) {
+        try {
+          const recipe = loadRecipeById(p.strategy_id);
+          if (recipe && recipe.recipe.exits) {
+            exits = {
+              tp_pct: recipe.recipe.exits.tp_pct ?? null,
+              stop_pct: recipe.recipe.exits.stop_pct ?? null,
+              clock_sec: recipe.recipe.exits.clock_sec ?? null,
+              pool_drop_pct: recipe.recipe.exits.pool_drop_pct ?? null
+            };
+          }
+        } catch (e) {
+          exits = null;
+        }
+      }
+      return {
+        symbol: p.symbol || "",
+        mint: p.mint_address,
+        strategy_id: p.strategy_id || null,
+        source: "",
+        size_sol: p.amount_sol || 0,
+        entry_price: p.entry_price_usd || 0,
+        mark_price: p.current_price_usd || 0,
+        unrealized_sol: p.unrealized_pnl_sol || 0,
+        unrealized_pct: p.unrealized_pnl_pct || 0,
+        age_sec: 0,
+        tp_pct: exits?.tp_pct ?? null,
+        stop_pct: exits?.stop_pct ?? null,
+        clock_sec: exits?.clock_sec ?? null,
+        pool_drop_pct: exits?.pool_drop_pct ?? null
+      };
+    });
+
+    // Recent fills (last 20)
+    let recentFills = [];
+    try {
+      const db = watchlistService.getDb();
+      const rows = db.prepare(
+        `SELECT id, mint, symbol, side, status, reason, created_at FROM trades ORDER BY id DESC LIMIT 20`
+      ).all();
+      recentFills = rows.map((r: any) => ({
+        ts: r.created_at,
+        side: r.side,
+        symbol: r.symbol || "",
+        strategy_id: null,
+        pnl_sol: null,
+        reason: r.reason || ""
+      }));
+    } catch (e) {
+      recentFills = [];
+    }
+
+    // Matching status
+    let matchingEnabled = false;
+    let recipeCount = 0;
+    try {
+      matchingEnabled = recipesEvaluator.isMatching();
+      recipeCount = recipesEvaluator.getEnabledCount();
+    } catch (e) {
+      matchingEnabled = false;
+      recipeCount = 0;
+    }
+
+    // Unrealized for open positions
+    let unrealizedSol = 0;
+    for (const p of positions) {
+      unrealizedSol += p.unrealized_sol;
+    }
+
+    return c.json({
+      ok: true,
+      wallet: {
+        sol: walletSol,
+        deployed_sol: deployedSol,
+        free_sol: freeSol
+      },
+      session: {
+        realized_sol: realizedToday,
+        unrealized_sol: unrealizedSol,
+        open_count: positions.length
+      },
+      matching: {
+        enabled: matchingEnabled,
+        recipe_count: recipeCount
+      },
+      positions: positions,
+      recent: recentFills
+    });
+  } catch (e: any) {
+    return c.json({ ok: false, error: e.message }, 500);
+  }
 });

@@ -78,6 +78,24 @@
         /* Chart */
         .chart-container { position: relative; height: 300px; }
 
+        /* Desk dashboard */
+        .desk-strip { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+        .desk-metric { background: #0b0d10; border: 1px solid #23272e; border-radius: 4px; padding: 10px 14px; min-width: 120px; }
+        .desk-metric-label { font-size: 0.7em; color: #888; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; }
+        .desk-metric-value { font-size: 1.1rem; font-weight: bold; font-family: monospace; color: #e0e0e0; }
+        .desk-section { margin-bottom: 16px; }
+        .desk-section h3 { font-size: 0.8em; color: #888; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+        .desk-table { width: 100%; border-collapse: collapse; font-size: 0.8em; }
+        .desk-table th { text-align: left; color: #888; font-weight: 500; text-transform: uppercase; font-size: 0.7em; letter-spacing: 1px; padding: 8px; border-bottom: 1px solid #23272e; }
+        .desk-table td { padding: 8px; border-bottom: 1px solid #23272e; color: #e0e0e0; font-family: monospace; font-size: 0.8em; }
+        .desk-table .pnl-positive { color: #3dd68c; font-weight: bold; }
+        .desk-table .pnl-negative { color: #f44336; font-weight: bold; }
+        .desk-recipe-badge { display: inline-block; background: #1a1a1a; border: 1px solid #333; border-radius: 4px; padding: 1px 5px; font-size: 0.7em; color: #888; }
+        .desk-exits { font-size: 0.75em; color: #666; }
+        .desk-matching-on { color: #3dd68c; }
+        .desk-matching-off { color: #f44336; }
+        .empty-state { color: #666; font-style: italic; padding: 12px 0; }
+
         /* Messages */
         .loading { color: #888; font-style: italic; font-size: 0.85em; }
         .error { color: #f44336; }
@@ -167,7 +185,8 @@
                 </div>
             </div>
             <div class="tabs" id="nav-tabs">
-                <div class="tab active" data-tab="strategies">Strategies</div>
+                <div class="tab active" data-tab="desk">Desk</div>
+                <div class="tab" data-tab="strategies">Strategies</div>
                 <div class="tab" data-tab="backtest">Backtest</div>
                 <div class="tab" data-tab="swarm">Swarm</div>
                 <div class="tab" data-tab="book">Book</div>
@@ -176,8 +195,62 @@
             </div>
         </div>
 
+        <!-- Desk Panel -->
+        <div id="desk" class="panel active">
+            <div class="panel-header">
+                <h2>Live Desk</h2>
+                <button class="btn" onclick="refreshDesk()">Refresh</button>
+            </div>
+            <div class="desk-strip" id="desk-strip">
+                <div class="desk-metric">
+                    <div class="desk-metric-label">Wallet</div>
+                    <div class="desk-metric-value" id="desk-wallet">— SOL</div>
+                </div>
+                <div class="desk-metric">
+                    <div class="desk-metric-label">Deployed</div>
+                    <div class="desk-metric-value" id="desk-deployed">— SOL</div>
+                </div>
+                <div class="desk-metric">
+                    <div class="desk-metric-label">Free</div>
+                    <div class="desk-metric-value" id="desk-free">— SOL</div>
+                </div>
+                <div class="desk-metric">
+                    <div class="desk-metric-label">Today Realized</div>
+                    <div class="desk-metric-value" id="desk-realized">— SOL</div>
+                </div>
+                <div class="desk-metric">
+                    <div class="desk-metric-label">Unrealized</div>
+                    <div class="desk-metric-value" id="desk-unrealized">— SOL</div>
+                </div>
+                <div class="desk-metric">
+                    <div class="desk-metric-label">Open</div>
+                    <div class="desk-metric-value" id="desk-open-count">0</div>
+                </div>
+                <div class="desk-metric">
+                    <div class="desk-metric-label">Matching</div>
+                    <div class="desk-metric-value" id="desk-matching">—</div>
+                </div>
+                <div class="desk-metric">
+                    <div class="desk-metric-label">Recipes</div>
+                    <div class="desk-metric-value" id="desk-recipe-count">0</div>
+                </div>
+            </div>
+            <div class="desk-section">
+                <h3>Open Positions</h3>
+                <div id="desk-positions">
+                    <div class="empty-state">No open positions</div>
+                </div>
+            </div>
+            <div class="desk-section">
+                <h3>Recent Fills</h3>
+                <div id="desk-recent">
+                    <div class="empty-state">No fills yet</div>
+                </div>
+            </div>
+        </div>
+
         <!-- Strategies Panel -->
-        <div id="strategies" class="panel active">
+        <div id="strategies" class="panel">
             <div class="card">
                 <h2>Strategy List</h2>
                 <div style="margin-bottom:8px;">
@@ -540,6 +613,12 @@
             document.getElementById(tabId).classList.add('active');
             document.getElementById('avatar-menu').classList.remove('open');
             if (tabId === 'settings') loadSettings();
+            if (tabId === 'desk') {
+                refreshDesk();
+                startDeskAutoRefresh();
+            } else {
+                stopDeskAutoRefresh();
+            }
             if (tabId === 'book') {
                 loadBook();
                 startBookAutoRefresh();
@@ -553,6 +632,127 @@
                 switchTab(tab.dataset.tab);
             });
         });
+
+        // Desk tab: auto-refresh every 5s while active
+        let deskRefreshTimer = null;
+        function startDeskAutoRefresh() {
+            stopDeskAutoRefresh();
+            refreshDesk();
+            deskRefreshTimer = setInterval(refreshDesk, 5000);
+        }
+        function stopDeskAutoRefresh() {
+            if (deskRefreshTimer) {
+                clearInterval(deskRefreshTimer);
+                deskRefreshTimer = null;
+            }
+        }
+
+        function solSign(v) {
+            return v >= 0 ? '+' + v.toFixed(4) : v.toFixed(4);
+        }
+
+        function formatAge(sec) {
+            if (!sec || sec < 0) return '?';
+            if (sec < 60) return sec + 's';
+            if (sec < 3600) return Math.floor(sec / 60) + 'm';
+            return Math.floor(sec / 3600) + 'h';
+        }
+
+        async function refreshDesk() {
+            try {
+                const res = await fetch('/desk');
+                const data = await res.json();
+                if (!data.ok) return;
+                renderDesk(data);
+            } catch (e) {
+                console.error('desk refresh failed:', e);
+            }
+        }
+
+        function renderDesk(data) {
+            // Wallet strip
+            const w = data.wallet;
+            document.getElementById('desk-wallet').textContent = w.sol !== null ? w.sol.toFixed(4) + ' SOL' : '— SOL';
+            document.getElementById('desk-deployed').textContent = w.deployed_sol.toFixed(4) + ' SOL';
+            const freeEl = document.getElementById('desk-free');
+            freeEl.textContent = w.free_sol !== null ? w.free_sol.toFixed(4) + ' SOL' : '— SOL';
+
+            const sess = data.session;
+            const realizedEl = document.getElementById('desk-realized');
+            realizedEl.textContent = solSign(sess.realized_sol) + ' SOL';
+            realizedEl.className = 'desk-metric-value ' + (sess.realized_sol >= 0 ? 'pnl-positive' : 'pnl-negative');
+            const unrealEl = document.getElementById('desk-unrealized');
+            unrealEl.textContent = solSign(sess.unrealized_sol) + ' SOL';
+            unrealEl.className = 'desk-metric-value ' + (sess.unrealized_sol >= 0 ? 'pnl-positive' : 'pnl-negative');
+            document.getElementById('desk-open-count').textContent = sess.open_count;
+
+            const matchEl = document.getElementById('desk-matching');
+            if (data.matching.enabled) {
+                matchEl.innerHTML = '<span class="desk-matching-on">ON</span>';
+            } else {
+                matchEl.innerHTML = '<span class="desk-matching-off">OFF</span>';
+            }
+            document.getElementById('desk-recipe-count').textContent = data.matching.recipe_count;
+
+            // Open positions
+            const posContainer = document.getElementById('desk-positions');
+            if (!data.positions || data.positions.length === 0) {
+                posContainer.innerHTML = '<div class="empty-state">No open positions</div>';
+            } else {
+                let html = '<table class="desk-table"><tr>' +
+                    '<th>Symbol</th><th>Size SOL</th><th>Entry</th><th>Mark</th><th>PnL</th><th>Age</th><th>Recipe</th>' +
+                    '</tr>';
+                for (const p of data.positions) {
+                    const pnlClass = p.unrealized_sol >= 0 ? 'pnl-positive' : 'pnl-negative';
+                    const recipeBadge = p.strategy_id ? '<span class="desk-recipe-badge">' + escapeHtml(p.strategy_id.replace(/^recipe:/, '')) + '</span>' : '—';
+                    let exitsHtml = '';
+                    if (p.tp_pct !== null || p.stop_pct !== null) {
+                        parts = [];
+                        if (p.tp_pct !== null) parts.push('tp ' + p.tp_pct + '%');
+                        if (p.stop_pct !== null) parts.push('stop ' + p.stop_pct + '%');
+                        if (p.clock_sec !== null) parts.push('clock ' + formatAge(p.clock_sec));
+                        exitsHtml = '<div class="desk-exits">' + parts.join(' · ') + '</div>';
+                    }
+                    html += '<tr>' +
+                        '<td>' + escapeHtml(p.symbol) + '</td>' +
+                        '<td>' + p.size_sol.toFixed(4) + '</td>' +
+                        '<td>' + p.entry_price.toFixed(4) + '</td>' +
+                        '<td>' + p.mark_price.toFixed(4) + '</td>' +
+                        '<td class="' + pnlClass + '">' + solSign(p.unrealized_sol) + '</td>' +
+                        '<td>' + formatAge(p.age_sec) + '</td>' +
+                        '<td>' + recipeBadge + exitsHtml + '</td>' +
+                        '</tr>';
+                }
+                html += '</table>';
+                posContainer.innerHTML = html;
+            }
+
+            // Recent fills
+            const recentContainer = document.getElementById('desk-recent');
+            if (!data.recent || data.recent.length === 0) {
+                recentContainer.innerHTML = '<div class="empty-state">No fills yet</div>';
+            } else {
+                let html = '<table class="desk-table"><tr>' +
+                    '<th>Time</th><th>Side</th><th>Symbol</th><th>Recipe</th><th>PnL</th><th>Reason</th>' +
+                    '</tr>';
+                for (const f of data.recent) {
+                    const timeStr = new Date(f.ts * 1000).toLocaleTimeString();
+                    const sideClass = f.side === 'BUY' ? 'pnl-positive' : 'pnl-negative';
+                    const recipeBadge = f.strategy_id ? '<span class="desk-recipe-badge">' + escapeHtml(f.strategy_id.replace(/^recipe:/, '')) + '</span>' : '—';
+                    const pnlStr = f.pnl_sol !== null ? solSign(f.pnl_sol) + ' SOL' : '—';
+                    html += '<tr>' +
+                        '<td>' + timeStr + '</td>' +
+                        '<td class="' + sideClass + '">' + f.side + '</td>' +
+                        '<td>' + escapeHtml(f.symbol) + '</td>' +
+                        '<td>' + recipeBadge + '</td>' +
+                        '<td>' + pnlStr + '</td>' +
+                        '<td class="desk-exits">' + escapeHtml(f.reason || '') + '</td>' +
+                        '</tr>';
+                }
+                html += '</table>';
+                recentContainer.innerHTML = html;
+            }
+        }
 
         async function loadIngredients() {
             try {
@@ -2109,11 +2309,15 @@
         loadStrategies();
         loadSwarmStatus();
         loadConsole();
+        refreshDesk();
 
         strategiesInterval = setInterval(loadStrategies, 10000);
         swarmInterval = setInterval(loadSwarmStatus, 5000);
         consoleInterval = setInterval(loadConsole, 2000);
         setInterval(loadDevProcesses, 5000);
+
+        // Start Desk auto-refresh
+        startDeskAutoRefresh();
     </script>
 </body>
 </html>
