@@ -399,8 +399,15 @@
                     </select>
                 </div>
                 <div class="field">
-                    <label>Window (hours)</label>
-                    <input type="number" id="bt-window" value="6" min="1" max="6" style="width: 100px;">
+                    <label>Window</label>
+                    <div id="bt-presets">
+                        <button type="button" onclick="setWindow(6)">6 hrs</button>
+                        <button type="button" onclick="setWindow(24)">1 day</button>
+                        <button type="button" onclick="setWindow(48)">2 days</button>
+                        <button type="button" onclick="setWindow(168)">7 days</button>
+                    </div>
+                    <input type="number" id="bt-window" value="6" min="1" max="720" style="width: 100px;">
+                    <span>hours</span>
                 </div>
                 <button class="primary" onclick="runBacktest()" id="bt-btn">Run Backtest</button>
                 <span id="bt-msg"></span>
@@ -1457,6 +1464,10 @@
             const res = await fetch('/strategies/' + id + '/disable', { method: 'POST' });
             const data = await res.json();
             if (data.ok) loadStrategies();
+        }
+
+        function setWindow(hours) {
+            document.getElementById('bt-window').value = hours;
         }
 
         async function runBacktest() {

@@ -390,13 +390,12 @@ app.get("/backtest/:id", (c) => {
   return c.json({ ok: true, job: job });
 });
 
-// Cap at 6 hours for this slice (backtest reads full tape for window)
 function runBacktestJob(jobId: string, recipeId: string, windowHours?: number) {
-  const capped = Math.min(windowHours || 6, 6);
+  const hours = windowHours || 6;
   (async () => {
     try {
       const proc = Bun.spawn(
-        ["bun", "src/tape/backtest-worker.ts", String(recipeId), String(capped)],
+        ["bun", "src/tape/backtest-worker.ts", String(recipeId), String(hours)],
         { cwd: process.cwd(), stdout: "pipe", stderr: "pipe" }
       );
 
