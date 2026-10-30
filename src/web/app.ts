@@ -692,12 +692,29 @@ app.get("/desk", async (c) => {
   try {
     const dryRun = isDryRun();
 
+    // Compute all-time realized PnL from closed trips (for virtual wallet)
+    const now = new Date();
+    const todayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())).getTime();
+    let realizedAllTime = 0;
+    let realizedToday = 0;
+    try {
+      const book = aggregateBook(null);
+      for (const t of book.trips) {
+        realizedAllTime += t.net_sol;
+        if (t.sell_at >= todayStart) {
+          realizedToday += t.net_sol;
+        }
+      }
+    } catch (e) {
+      realizedAllTime = 0;
+      realizedToday = 0;
+    }
+
     // Wallet balance: virtual in dry-run, real in live
     let walletSol: number | null = null;
     let walletMode: string = "live";
     if (dryRun) {
       walletMode = "dry_run";
-      // Use virtual wallet from settings (default 10 SOL)
       let virtualWalletSol = 10;
       try {
         const virtualSetting = getSetting("virtual_wallet_sol");
@@ -708,7 +725,8 @@ app.get("/desk", async (c) => {
       } catch (e) {
         virtualWalletSol = 10;
       }
-      walletSol = virtualWalletSol;
+      // Virtual wallet moves with the book: starting balance + all-time realized - deployed
+      walletSol = virtualWalletSol + realizedAllTime;
     } else {
       try {
         walletSol = await getHouseSolBalance();
@@ -731,21 +749,6 @@ app.get("/desk", async (c) => {
       deployedSol += (p.amount_sol || 0);
     }
     const freeSol = walletSol !== null ? walletSol - deployedSol : null;
-
-    // Today's realized PnL (UTC)
-    const now = new Date();
-    const todayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())).getTime();
-    let realizedToday = 0;
-    try {
-      const { trips } = aggregateBook(null);
-      for (const t of trips) {
-        if (t.sell_at >= todayStart) {
-          realizedToday += t.net_sol;
-        }
-      }
-    } catch (e) {
-      realizedToday = 0;
-    }
 
     // Build watched_tokens source map and positions strategy map
     const db = watchlistService.getDb();
@@ -845,7 +848,6 @@ app.get("/desk", async (c) => {
           // Find paired buy for this mint
           const list = buyPairs.get(r.mint);
           if (list && list.length > 0) {
-            // Find closest prior BUY by created_at
             let best = null;
             for (const b of list) {
               if (b.created_at < r.created_at) best = b;
@@ -853,18 +855,18 @@ app.get("/desk", async (c) => {
             }
             if (best) {
               pnlSol = r.sol_out - best.sol_in;
-              // Remove from list so it's not reused
               const idx = list.indexOf(best);
               if (idx >= 0) list.splice(idx, 1);
             }
           }
-          // Look up strategy_id from the position this sell closed
-          strategyId = positionsStrategyMap.get(r.mint) || null;
         }
+        // Look up strategy_id from the position (same map for buys and sells)
+        strategyId = positionsStrategyMap.get(r.mint) || null;
         return {
           ts: r.created_at,
           side: r.side,
           symbol: r.symbol || "",
+          mint: r.mint || "",
           strategy_id: strategyId,
           pnl_sol: pnlSol,
           reason: r.reason || ""

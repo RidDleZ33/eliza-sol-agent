@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=0.85">
     <title>R1D$0L</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <style>
@@ -95,6 +95,8 @@
         .desk-matching-on { color: #3dd68c; }
         .desk-matching-off { color: #f44336; }
         .empty-state { color: #666; font-style: italic; padding: 12px 0; }
+        a.desk-symbol { color: #4fc3f7; text-decoration: none; }
+        a.desk-symbol:hover { text-decoration: underline; }
 
         /* Messages */
         .loading { color: #888; font-style: italic; font-size: 0.85em; }
@@ -161,6 +163,13 @@
             .gate-row, .rule-row { flex-direction: column; }
             .gate-row select, .rule-row select, .gate-row input, .rule-row input { width: 100%; min-width: auto; }
             .header-left { width: 100%; justify-content: space-between; }
+        }
+        @media (max-width: 640px) {
+            .desk-table th { padding: 5px; font-size: 0.6em; }
+            .desk-table td { padding: 5px; font-size: 0.75em; }
+            .desk-exits { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 160px; }
+            .book-journal table td { padding: 5px; font-size: 0.75em; }
+            .book-journal table th { padding: 5px; font-size: 0.6em; }
         }
     </style>
 </head>
@@ -716,21 +725,24 @@
                     const pnlClass = p.unrealized_sol >= 0 ? 'pnl-positive' : 'pnl-negative';
                     const recipeBadge = p.strategy_id ? '<span class="desk-recipe-badge">' + escapeHtml(p.strategy_id.replace(/^recipe:/, '')) + '</span>' : '—';
                     let exitsHtml = '';
+                    let exitsParts = [];
                     if (p.tp_pct !== null || p.stop_pct !== null) {
-                        parts = [];
-                        if (p.tp_pct !== null) parts.push('tp ' + p.tp_pct + '%');
-                        if (p.stop_pct !== null) parts.push('stop ' + p.stop_pct + '%');
-                        if (p.clock_sec !== null) parts.push('clock ' + formatAge(p.clock_sec));
-                        exitsHtml = '<div class="desk-exits">' + parts.join(' · ') + '</div>';
+                        if (p.tp_pct !== null) exitsParts.push('tp ' + p.tp_pct + '%');
+                        if (p.stop_pct !== null) exitsParts.push('stop ' + p.stop_pct + '%');
+                        if (p.clock_sec !== null) exitsParts.push('clock ' + formatAge(p.clock_sec));
+                    }
+                    let symbolHtml = escapeHtml(p.symbol);
+                    if (p.mint) {
+                        symbolHtml = '<a class="desk-symbol" href="https://birdeye.so/token/' + escapeHtml(p.mint) + '?chain=solana" target="_blank">' + symbolHtml + '</a>';
                     }
                     html += '<tr>' +
-                        '<td>' + escapeHtml(p.symbol) + '</td>' +
+                        '<td>' + symbolHtml + '</td>' +
                         '<td>' + p.size_sol.toFixed(4) + '</td>' +
                         '<td>' + p.entry_price.toFixed(4) + '</td>' +
                         '<td>' + p.mark_price.toFixed(4) + '</td>' +
                         '<td class="' + pnlClass + '">' + solSign(p.unrealized_sol) + '</td>' +
                         '<td>' + formatAge(p.age_sec) + '</td>' +
-                        '<td>' + recipeBadge + exitsHtml + '</td>' +
+                        '<td>' + recipeBadge + (exitsParts.length > 0 ? '<div class="desk-exits" title="' + escapeHtml(exitsParts.join(' · ')) + '">' + exitsParts.join(' · ') + '</div>' : '') + '</td>' +
                         '</tr>';
                 }
                 html += '</table>';
@@ -750,13 +762,18 @@
                     const sideClass = f.side === 'BUY' ? 'pnl-positive' : 'pnl-negative';
                     const recipeBadge = f.strategy_id ? '<span class="desk-recipe-badge">' + escapeHtml(f.strategy_id.replace(/^recipe:/, '')) + '</span>' : '—';
                     const pnlStr = f.pnl_sol !== null ? solSign(f.pnl_sol) + ' SOL' : '—';
+                    const reasonText = f.reason || '';
+                    let recentSymbol = escapeHtml(f.symbol);
+                    if (f.mint) {
+                        recentSymbol = '<a class="desk-symbol" href="https://birdeye.so/token/' + escapeHtml(f.mint) + '?chain=solana" target="_blank">' + recentSymbol + '</a>';
+                    }
                     html += '<tr>' +
                         '<td>' + timeStr + '</td>' +
                         '<td class="' + sideClass + '">' + f.side + '</td>' +
-                        '<td>' + escapeHtml(f.symbol) + '</td>' +
+                        '<td>' + recentSymbol + '</td>' +
                         '<td>' + recipeBadge + '</td>' +
                         '<td>' + pnlStr + '</td>' +
-                        '<td class="desk-exits">' + escapeHtml(f.reason || '') + '</td>' +
+                        '<td class="desk-exits" title="' + escapeHtml(reasonText) + '">' + escapeHtml(reasonText) + '</td>' +
                         '</tr>';
                 }
                 html += '</table>';
@@ -1832,16 +1849,16 @@
                 const data = await res.json();
                 if (data.ok) {
                     const s = data.settings;
-                    document.getElementById('settings-llm_base_url').value = s.llm_base_url || '';
-                    document.getElementById('settings-llm_model').value = s.llm_model || '';
+                    document.getElementById('settings-llm_base_url').value = s.llm_base_url != null ? s.llm_base_url : '';
+                    document.getElementById('settings-llm_model').value = s.llm_model != null ? s.llm_model : '';
                     document.getElementById('settings-llm_api_key').value = '';
                     document.getElementById('settings-llm_api_key-status').textContent = s.llm_api_key === 'set' ? '(API key is set)' : '(no API key set)';
-                    document.getElementById('settings-dry_run').value = s.dry_run !== null && s.dry_run !== undefined ? s.dry_run : '';
-                    document.getElementById('settings-virtual_wallet_sol').value = s.virtual_wallet_sol || '';
-                    document.getElementById('settings-max_trade_size_sol').value = s.max_trade_size_sol || '';
-                    document.getElementById('settings-default_tp_pct').value = s.default_tp_pct || '';
-                    document.getElementById('settings-default_stop_pct').value = s.default_stop_pct || '';
-                    document.getElementById('settings-default_clock_sec').value = s.default_clock_sec || '';
+                    document.getElementById('settings-dry_run').value = s.dry_run != null ? s.dry_run : '';
+                    document.getElementById('settings-virtual_wallet_sol').value = s.virtual_wallet_sol != null ? s.virtual_wallet_sol : '';
+                    document.getElementById('settings-max_trade_size_sol').value = s.max_trade_size_sol != null ? s.max_trade_size_sol : '';
+                    document.getElementById('settings-default_tp_pct').value = s.default_tp_pct != null ? s.default_tp_pct : '';
+                    document.getElementById('settings-default_stop_pct').value = s.default_stop_pct != null ? s.default_stop_pct : '';
+                    document.getElementById('settings-default_clock_sec').value = s.default_clock_sec != null ? s.default_clock_sec : '';
                 }
             } catch (e) {
                 console.error('Failed to load settings:', e);
@@ -1864,12 +1881,6 @@
                 const apiKey = document.getElementById('settings-llm_api_key').value;
                 if (apiKey) {
                     body.llm_api_key = apiKey;
-                }
-
-                for (const key in body) {
-                    if (body[key] === '' || body[key] === null) {
-                        delete body[key];
-                    }
                 }
 
                 const res = await fetch('/settings', {
@@ -2262,9 +2273,13 @@
                 const pnlColor = t.pnl_sol >= 0 ? '#3dd68c' : '#f44336';
                 const pnlSign = t.pnl_sol >= 0 ? '+' : '';
 
-                html += '<tr>' +
+                let bookSymbol = escapeHtml(t.symbol || '-');
+            if (t.mint) {
+                bookSymbol = '<a class="desk-symbol" href="https://birdeye.so/token/' + escapeHtml(t.mint) + '?chain=solana" target="_blank">' + bookSymbol + '</a>';
+            }
+            html += '<tr>' +
                     '<td style="font-size:0.8em;">' + timeStr + '</td>' +
-                    '<td>' + escapeHtml(t.symbol || '-') + '</td>' +
+                    '<td>' + bookSymbol + '</td>' +
                     '<td style="font-size:0.8em;">' + escapeHtml(t.strategy_id || '-') + '</td>' +
                     '<td style="font-size:0.8em;">' + escapeHtml(t.source || '-') + '</td>' +
                     '<td style="font-size:0.8em;">' + escapeHtml(t.exit_fam || '-') + '</td>' +
