@@ -219,6 +219,7 @@ export async function runBacktest(recipe: CompiledRecipe, windowHours?: number) 
   let scored = 0;
   let processed = 0;
   const totalMints = clocks.size;
+  console.log(`[backtest] starting ${totalMints} mints`);
 
   for (const [mint, clockInfo] of clocks.entries()) {
     processed++;
@@ -251,7 +252,7 @@ export async function runBacktest(recipe: CompiledRecipe, windowHours?: number) 
       rugs++;
     }
 
-    if (processed % 100 === 0) {
+    if (processed === 1 || processed % 10 === 0) {
       console.log(`[backtest] ${processed}/${totalMints} scored=${scored}`);
     }
   }
