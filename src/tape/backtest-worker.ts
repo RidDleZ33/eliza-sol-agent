@@ -1,14 +1,28 @@
 // Standalone backtest worker process.
-// Usage: bun src/tape/backtest-worker.ts <window_hours>
-// Reads tape, runs backtest, writes JSON result to stdout, exits.
-// Spawning this in a separate process keeps the main event loop responsive.
+// Usage: bun src/tape/backtest-worker.ts <recipe_id> [window_hours]
+// Loads a recipe by id, compiles it, runs the backtest, writes JSON result to stdout.
 
 import { runBacktest } from "./backtest.ts";
+import { loadRecipeById } from "../recipes/db.ts";
+import { compileRecipe } from "../recipes/compile.ts";
 
-const windowHours = parseInt(process.argv[2] || "6", 10);
+const recipeId = process.argv[2];
+const windowHours = parseInt(process.argv[3] || "6", 10);
 
 try {
-  const result = await runBacktest(windowHours);
+  if (!recipeId) {
+    console.log(JSON.stringify({ ok: false, error: "recipe not found" }));
+    Deno.exit(1);
+  }
+
+  const recipe = loadRecipeById(recipeId);
+  if (!recipe) {
+    console.log(JSON.stringify({ ok: false, error: "recipe not found" }));
+    Deno.exit(1);
+  }
+
+  const compiled = compileRecipe(recipe);
+  const result = await runBacktest(compiled, windowHours);
   console.log(JSON.stringify({ ok: true, result }));
 } catch (e: any) {
   console.log(JSON.stringify({ ok: false, error: e.message }));

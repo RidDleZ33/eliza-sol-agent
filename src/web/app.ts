@@ -376,7 +376,7 @@ app.post("/backtest", async (c) => {
 
   // Run backtest in background task
   const windowHours = body.window_hours;
-  runBacktestJob(jobId, windowHours);
+  runBacktestJob(jobId, body.recipe_id, windowHours);
 
   return c.json({ ok: true, job_id: jobId });
 });
@@ -391,12 +391,12 @@ app.get("/backtest/:id", (c) => {
 });
 
 // Cap at 6 hours for this slice (backtest reads full tape for window)
-function runBacktestJob(jobId: string, windowHours?: number) {
+function runBacktestJob(jobId: string, recipeId: string, windowHours?: number) {
   const capped = Math.min(windowHours || 6, 6);
   (async () => {
     try {
       const proc = Bun.spawn(
-        ["bun", "src/tape/backtest-worker.ts", String(capped)],
+        ["bun", "src/tape/backtest-worker.ts", String(recipeId), String(capped)],
         { cwd: process.cwd(), stdout: "pipe", stderr: "pipe" }
       );
       const [output, stderr] = await Promise.all([

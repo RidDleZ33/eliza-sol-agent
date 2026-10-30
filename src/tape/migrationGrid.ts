@@ -253,7 +253,7 @@ function getSixHourTicks(mint: string, clockMs: number, pairAddress: string) {
   return { entry: entryTick, ticks: allTicks, peak, peakMs };
 }
 
-export function getTicksForMint(mint: string, clockMs: number, pairAddress: string) {
+export function getTicksForMint(mint: string, clockMs: number, pairAddress: string, entryDelayMs?: number) {
   if (!existsSync(TAPE_DIR)) {
     return { entry: null as Tick | null, ticks: [] as Tick[] };
   }
@@ -262,6 +262,8 @@ export function getTicksForMint(mint: string, clockMs: number, pairAddress: stri
   let entryTick: Tick | null = null;
   let entryObserved = Infinity;
   let allTicks: Tick[] = [];
+
+  const delay = entryDelayMs ?? 5 * 60 * 1000;
 
   for (const f of files) {
     if (f === "tape.sqlite") continue;
@@ -276,7 +278,7 @@ export function getTicksForMint(mint: string, clockMs: number, pairAddress: stri
       continue;
     }
 
-    const entryAfterMs = clockMs + 5 * 60 * 1000;
+    const entryAfterMs = clockMs + delay;
 
     const potentialEntries: Tick[] = db
       .prepare(
@@ -716,7 +718,7 @@ function main() {
       console.log(`[migration-grid] ${i}/${clocks.size}...`);
     }
 
-    const { entry, ticks } = getTicksForMint(mint, clockInfo.clockMs, clockInfo.pairAddress);
+    const { entry, ticks } = getTicksForMint(mint, clockInfo.clockMs, clockInfo.pairAddress, undefined);
 
     if (entry === null || ticks.length === 0) {
       unscored++;

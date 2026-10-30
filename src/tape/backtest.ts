@@ -1,12 +1,10 @@
-// Thin wrapper around migration grid logic for programmatic backtest calls.
-// Returns structured results instead of printing to console.
+// Recipe-driven backtest.
+// Scores a single compiled recipe against the tape grid: for each mint,
+// apply entry delay, gates, then exit rules. Returns aggregate stats.
 
 import { collectMigrationClocks, getTicksForMint } from "./migrationGrid.ts";
+import type { CompiledRecipe } from "../recipes/compile.ts";
 
-interface PolicyResult {
-  return: number;
-  hit: boolean;
-}
 
 function median(values: number[]): number {
   if (values.length === 0) return 0;
@@ -18,89 +16,166 @@ function median(values: number[]): number {
   return sorted[mid];
 }
 
-function scoreFlat(ticks: any[], entryPrice: number, level: number, lastPrice: number): PolicyResult {
-  for (const tick of ticks) {
-    if (tick.price_usd >= entryPrice * level) {
-      return { return: tick.price_usd / entryPrice - 1, hit: true };
+function applyGates(recipe: CompiledRecipe, rawJson: string | null): boolean {
+  let parsed: any = null;
+  if (rawJson) {
+    try {
+      parsed = JSON.parse(rawJson);
+    } catch {
+      // unparsable
     }
   }
-  return { return: lastPrice / entryPrice - 1, hit: false };
+  const { filter } = recipe;
+
+  if (filter.liq_min_usd !== undefined) {
+    const liq = parsed?.liq_usd ?? 0;
+    if (liq < filter.liq_min_usd) return false;
+  }
+
+  if (filter.liq_max_usd !== undefined) {
+    const liq = parsed?.liq_usd ?? Infinity;
+    if (liq > filter.liq_max_usd) return false;
+  }
+
+  if (filter.holders_min !== undefined) {
+    const holders = parsed?.holder_count ?? 0;
+    if (holders < filter.holders_min) return false;
+  }
+
+  if (filter.top10_required) {
+    if (parsed?.top_10_holder_rate === undefined) return false;
+  }
+
+  if (filter.creator_required) {
+    if (parsed?.creator_token_status === undefined) return false;
+  }
+
+  return true;
 }
 
-function scoreTrail(ticks: any[], entryPrice: number, trail: number, lastPrice: number): PolicyResult {
-  const armLevel = entryPrice * 1.15;
-  let armed = false;
+function scoreRecipeExit(recipe: CompiledRecipe, entryPrice: number, ticks: any[]): number {
+  const { exits } = recipe;
   let peak = entryPrice;
+  let lastHighMs = ticks.length > 0 ? ticks[0].observed_at_ms : 0;
+  let trailArmed = false;
+
   for (const tick of ticks) {
-    if (!armed && tick.price_usd >= armLevel) {
-      armed = true;
-      peak = tick.price_usd;
-    } else if (armed) {
-      if (tick.price_usd > peak) peak = tick.price_usd;
-      if (tick.price_usd <= peak * (1 - trail)) {
-        return { return: tick.price_usd / entryPrice - 1, hit: true };
+    const price = tick.price_usd;
+    const now = tick.observed_at_ms;
+
+    // 1. Pool drop
+    if (exits.pool_drop_pct !== undefined) {
+      const drop = 1 - tick.liq_quote / ticks[0].liq_quote;
+      if (drop >= exits.pool_drop_pct / 100) {
+        return price / entryPrice - 1;
+      }
+    }
+
+    // 2. Take profit
+    if (exits.tp_pct !== undefined) {
+      if (price >= entryPrice * (1 + exits.tp_pct / 100)) {
+        return price / entryPrice - 1;
+      }
+    }
+
+    // Track peak for trail and stall
+    if (price > peak) {
+      peak = price;
+      lastHighMs = now;
+    }
+
+    // 3. Stall
+    if (exits.stall_sec !== undefined) {
+      const gap = (now - lastHighMs) / 1000;
+      if (gap >= exits.stall_sec) {
+        return price / entryPrice - 1;
+      }
+    }
+
+    // 4. Stop
+    if (exits.stop_pct !== undefined) {
+      if (price <= entryPrice * (1 - exits.stop_pct / 100)) {
+        return price / entryPrice - 1;
+      }
+    }
+
+    // 5. Trail (arm at tp level)
+    if (exits.trail_pct !== undefined) {
+      const tpLevel = exits.tp_pct !== undefined
+        ? entryPrice * (1 + exits.tp_pct / 100)
+        : entryPrice * 1.15;
+      if (!trailArmed && price >= tpLevel) {
+        trailArmed = true;
+      }
+      if (trailArmed) {
+        if (price > peak) peak = price;
+        if (price <= peak * (1 - exits.trail_pct / 100)) {
+          return price / entryPrice - 1;
+        }
       }
     }
   }
-  return { return: lastPrice / entryPrice - 1, hit: false };
+
+  // 6. Clock (would need tick-by-tick check, simplified here to window end)
+  // 7. Window end — exit at last tick
+  if (ticks.length > 0) {
+    return ticks[ticks.length - 1].price_usd / entryPrice - 1;
+  }
+  return 0;
 }
 
-export async function runBacktest(windowHours?: number) {
+export async function runBacktest(recipe: CompiledRecipe, windowHours?: number) {
   const clocks = collectMigrationClocks();
-  
+
   if (clocks.size === 0) {
-    return { n: 0, policies: [] };
+    return { n: 0, median: 0, green: 0, rugs: 0, rugRate: 0 };
   }
 
-  const policyNames = [
-    { name: "flat30", level: 1.3 },
-    { name: "flat50", level: 1.5 },
-    { name: "trail20", trail: 0.2 },
-  ];
+  const returns: number[] = [];
+  let rugs = 0;
 
-  const results: any[] = [];
+  for (const [mint, clockInfo] of clocks.entries()) {
+    if (clockInfo.pairAddress === null) continue;
 
-  for (const policy of policyNames) {
-    const returns: number[] = [];
-    let hits = 0;
-    let scored = 0;
-
-    for (const [mint, clockInfo] of clocks.entries()) {
-      if (clockInfo.pairAddress === null) continue;
-      
-      const { entry, ticks } = getTicksForMint(mint, clockInfo.clockMs, clockInfo.pairAddress);
-      if (entry === null || ticks.length === 0) continue;
-      
-      scored++;
-      const entryPrice = entry.price_usd;
-      const lastPrice = ticks[ticks.length - 1].price_usd;
-
-      let result: PolicyResult;
-      if (policy.level) {
-        result = scoreFlat(ticks, entryPrice, policy.level, lastPrice);
-      } else {
-        result = scoreTrail(ticks, entryPrice, policy.trail!, lastPrice);
-      }
-
-      returns.push(result.return);
-      if (result.hit) hits++;
-    }
-
-    if (returns.length === 0) {
-      results.push({ name: policy.name, n: 0, median: null, hit_rate: null });
+    // Apply gates from migration row
+    if (!applyGates(recipe, clockInfo.rawJson)) {
       continue;
     }
 
-    const med = median(returns);
-    const hitRate = (hits / returns.length) * 100;
-    
-    results.push({
-      name: policy.name,
-      n: scored,
-      median: med,
-      hit_rate: hitRate,
-    });
+    // Entry with recipe delay
+    const delayMs = (recipe.entry_delay_sec ?? 300) * 1000;
+    const { entry, ticks } = getTicksForMint(
+      mint,
+      clockInfo.clockMs,
+      clockInfo.pairAddress,
+      delayMs
+    );
+
+    if (entry === null || ticks.length === 0) {
+      continue;
+    }
+
+    const ret = scoreRecipeExit(recipe, entry.price_usd, ticks);
+    returns.push(ret);
+
+    if (ret <= -0.5) {
+      rugs++;
+    }
   }
 
-  return { n: clocks.size, policies: results };
+  if (returns.length === 0) {
+    return { n: 0, median: 0, green: 0, rugs: 0, rugRate: 0 };
+  }
+
+  const med = median(returns);
+  const green = returns.filter(r => r > 0).length;
+  const rugRate = rugs / returns.length;
+
+  return {
+    n: returns.length,
+    median: med,
+    green,
+    rugs,
+    rugRate,
+  };
 }
