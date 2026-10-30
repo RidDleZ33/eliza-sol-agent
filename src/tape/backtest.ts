@@ -216,8 +216,13 @@ export async function runBacktest(recipe: CompiledRecipe, windowHours?: number) 
 
   const returns: number[] = [];
   let rugs = 0;
+  let scored = 0;
+  let processed = 0;
+  const totalMints = clocks.size;
 
   for (const [mint, clockInfo] of clocks.entries()) {
+    processed++;
+
     if (clockInfo.pairAddress === null) continue;
 
     // Apply gates from migration row
@@ -238,11 +243,16 @@ export async function runBacktest(recipe: CompiledRecipe, windowHours?: number) 
       continue;
     }
 
+    scored++;
     const ret = scoreRecipeExit(recipe, entry.price_usd, ticks);
     returns.push(ret);
 
     if (ret <= -0.5) {
       rugs++;
+    }
+
+    if (processed % 100 === 0) {
+      console.log(`[backtest] ${processed}/${totalMints} scored=${scored}`);
     }
   }
 

@@ -1499,7 +1499,7 @@
                     const data = await res.json();
                     if (data.ok && data.job) {
                         if (data.job.status === 'running') {
-                            msg.innerHTML = '<span class="loading">Backtest running...</span>';
+                            msg.innerHTML = '<span class="loading">' + (data.job.progress || 'Backtest running...') + '</span>';
                             setTimeout(poll, 2000);
                         } else if (data.job.status === 'complete') {
                             msg.innerHTML = '';

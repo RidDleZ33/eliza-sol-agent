@@ -372,7 +372,7 @@ app.post("/backtest", async (c) => {
   }
   const body = await c.req.json();
   const jobId = `bt_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-  BACKTEST_JOBS.set(jobId, { status: "running", started_at: Date.now() });
+  BACKTEST_JOBS.set(jobId, { status: "running", started_at: Date.now(), progress: "" });
 
   // Run backtest in background task
   const windowHours = body.window_hours;
@@ -399,10 +399,36 @@ function runBacktestJob(jobId: string, recipeId: string, windowHours?: number) {
         ["bun", "src/tape/backtest-worker.ts", String(recipeId), String(capped)],
         { cwd: process.cwd(), stdout: "pipe", stderr: "pipe" }
       );
-      const [output, stderr] = await Promise.all([
-        new Response(proc.stdout).text(),
-        new Response(proc.stderr).text(),
-      ]);
+
+      const decoder = new TextDecoder();
+      let stdout = "";
+      let stderr = "";
+
+      const processLine = (line: string) => {
+        if (line.startsWith("[backtest]")) {
+          const job = BACKTEST_JOBS.get(jobId);
+          if (job) job.progress = line;
+        }
+      };
+
+      // Read stdout line by line for progress
+      for await (const chunk of proc.stdout) {
+        const text = decoder.decode(chunk);
+        stdout += text;
+        const lines = text.split("\n");
+        for (let i = 0; i < lines.length - 1; i++) {
+          if (lines[i].trim()) processLine(lines[i].trim());
+        }
+      }
+      // Process any final partial line
+      const finalLines = stdout.split("\n");
+      const lastLine = finalLines[finalLines.length - 1];
+      if (lastLine.trim()) processLine(lastLine.trim());
+
+      for await (const chunk of proc.stderr) {
+        stderr += decoder.decode(chunk);
+      }
+
       const code = await proc.exited;
       if (code !== 0) {
         BACKTEST_JOBS.set(jobId, {
@@ -412,7 +438,7 @@ function runBacktestJob(jobId: string, recipeId: string, windowHours?: number) {
         });
         return;
       }
-      const parsed = JSON.parse(output.trim());
+      const parsed = JSON.parse(stdout.trim());
       if (parsed.ok) {
         BACKTEST_JOBS.set(jobId, {
           status: "complete",
