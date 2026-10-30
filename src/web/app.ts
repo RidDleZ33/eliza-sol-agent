@@ -495,6 +495,16 @@ app.get("/dev/tape/status", (c) => {
   return c.json(tapeCommand("status"));
 });
 
+// Ensure tape is running at boot
+function ensureTapeRunning() {
+  const status = tapeCommand("status");
+  if (status.ok && status.output.includes("not running")) {
+    tapeCommand("start");
+  }
+}
+
+ensureTapeRunning();
+
 // Swarm status
 app.get("/swarm/status", (c) => {
   return c.json({
