@@ -1465,7 +1465,7 @@
                 const res = await fetch('/backtest', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ window_hours: parseInt(window), strategy_id: strategyId || null })
+                    body: JSON.stringify({ window_hours: parseInt(window), recipe_id: strategyId || null })
                 });
                 const data = await res.json();
                 if (data.ok) {
