@@ -114,9 +114,16 @@ function scoreRecipeExit(recipe: CompiledRecipe, entryPrice: number, ticks: any[
         }
       }
     }
+
+    // 6. Clock
+    if (exits.clock_sec !== undefined) {
+      const clockMs = ticks[0].observed_at_ms + exits.clock_sec * 1000;
+      if (now >= clockMs) {
+        return price / entryPrice - 1;
+      }
+    }
   }
 
-  // 6. Clock (would need tick-by-tick check, simplified here to window end)
   // 7. Window end — exit at last tick
   if (ticks.length > 0) {
     return ticks[ticks.length - 1].price_usd / entryPrice - 1;

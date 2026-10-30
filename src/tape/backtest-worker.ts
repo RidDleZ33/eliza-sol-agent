@@ -12,13 +12,13 @@ const windowHours = parseInt(process.argv[3] || "6", 10);
 try {
   if (!recipeId) {
     console.log(JSON.stringify({ ok: false, error: "recipe not found" }));
-    Deno.exit(1);
+    process.exit(1);
   }
 
   const recipe = loadRecipeById(recipeId);
   if (!recipe) {
     console.log(JSON.stringify({ ok: false, error: "recipe not found" }));
-    Deno.exit(1);
+    process.exit(1);
   }
 
   const compiled = compileRecipe(recipe);
