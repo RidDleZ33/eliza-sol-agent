@@ -578,6 +578,14 @@
                 </div>
             </div>
             <div class="card">
+                <h2>Tape</h2>
+                <p>Status: <span id="tape-status">-</span></p>
+                <button onclick="tapeAction('start')">Start</button>
+                <button onclick="tapeAction('stop')">Stop</button>
+                <button onclick="tapeAction('restart')">Restart</button>
+                <span id="tape-msg"></span>
+            </div>
+            <div class="card">
                 <h2>Referral Code</h2>
                 <p style="font-size:0.8em;color:#888;margin-bottom:8px;">Activate a referral code to extend your subscription by 7 days.</p>
                 <div style="display:flex;gap:5px;">
@@ -1989,6 +1997,39 @@
             }
         }
 
+        async function tapeAction(action) {
+            const msg = document.getElementById('tape-msg');
+            msg.innerHTML = '<span class="loading">' + action + 'ing...</span>';
+            try {
+                const res = await fetch('/dev/tape/' + action, { method: 'POST' });
+                const data = await res.json();
+                if (data.ok) {
+                    msg.innerHTML = '<span class="success-msg">' + escapeHtml(data.output) + '</span>';
+                } else {
+                    msg.innerHTML = '<span class="error">' + escapeHtml(data.error) + '</span>';
+                }
+                loadTapeStatus();
+            } catch (e) {
+                msg.innerHTML = '<span class="error">' + escapeHtml(e.message) + '</span>';
+            }
+        }
+
+        async function loadTapeStatus() {
+            try {
+                const res = await fetch('/dev/tape/status');
+                const data = await res.json();
+                const el = document.getElementById('tape-status');
+                if (data.ok) {
+                    el.innerHTML = '<span class="success-msg">' + escapeHtml(data.output) + '</span>';
+                } else {
+                    el.innerHTML = '<span class="error">' + escapeHtml(data.error) + '</span>';
+                }
+            } catch (e) {
+                const el = document.getElementById('tape-status');
+                el.innerHTML = '<span class="error">' + escapeHtml(e.message) + '</span>';
+            }
+        }
+
         async function exportStrategy(id) {
             try {
                 const res = await fetch('/strategies/' + id + '/export');
@@ -2337,11 +2378,13 @@
         loadSwarmStatus();
         loadConsole();
         refreshDesk();
+        loadTapeStatus();
 
         strategiesInterval = setInterval(loadStrategies, 10000);
         swarmInterval = setInterval(loadSwarmStatus, 5000);
         consoleInterval = setInterval(loadConsole, 2000);
         setInterval(loadDevProcesses, 5000);
+        setInterval(loadTapeStatus, 10000);
 
         // Start Desk auto-refresh
         startDeskAutoRefresh();

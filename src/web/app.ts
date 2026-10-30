@@ -462,6 +462,39 @@ function runBacktestJob(jobId: string, recipeId: string, windowHours?: number) {
   })();
 }
 
+// Tape recorder control endpoints (shell out to ./tape.sh)
+function tapeCommand(cmd: string) {
+  try {
+    const result = Bun.spawnSync(["./tape.sh", cmd], {
+      cwd: process.cwd(),
+    });
+    const stdout = new TextDecoder().decode(result.stdout).trim();
+    const stderr = new TextDecoder().decode(result.stderr).trim();
+    if (result.exitCode === 0) {
+      return { ok: true, output: stdout || "done" };
+    }
+    return { ok: false, error: stderr || `tape.sh ${cmd} exited ${result.exitCode}` };
+  } catch (e: any) {
+    return { ok: false, error: `spawn failed: ${e.message}` };
+  }
+}
+
+app.post("/dev/tape/start", (c) => {
+  return c.json(tapeCommand("start"));
+});
+
+app.post("/dev/tape/stop", (c) => {
+  return c.json(tapeCommand("stop"));
+});
+
+app.post("/dev/tape/restart", (c) => {
+  return c.json(tapeCommand("restart"));
+});
+
+app.get("/dev/tape/status", (c) => {
+  return c.json(tapeCommand("status"));
+});
+
 // Swarm status
 app.get("/swarm/status", (c) => {
   return c.json({
