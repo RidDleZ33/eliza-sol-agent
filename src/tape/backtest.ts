@@ -128,6 +128,10 @@ function applyGates(recipe: CompiledRecipe, rawJson: string | null): boolean {
   return true;
 }
 
+function progress(line: string) {
+  process.stdout.write(line + "\n");
+}
+
 function scoreRecipeExit(recipe: CompiledRecipe, entryPrice: number, ticks: any[]): number {
   const { exits } = recipe;
   let peak = entryPrice;
@@ -219,7 +223,7 @@ export async function runBacktest(recipe: CompiledRecipe, windowHours?: number) 
   let scored = 0;
   let processed = 0;
   const totalMints = clocks.size;
-  console.log(`[backtest] starting ${totalMints} mints`);
+  progress(`[backtest] starting ${totalMints} mints`);
 
   for (const [mint, clockInfo] of clocks.entries()) {
     processed++;
@@ -253,7 +257,7 @@ export async function runBacktest(recipe: CompiledRecipe, windowHours?: number) 
     }
 
     if (processed === 1 || processed % 10 === 0) {
-      console.log(`[backtest] ${processed}/${totalMints} scored=${scored}`);
+      progress(`[backtest] ${processed}/${totalMints} scored=${scored}`);
     }
   }
 

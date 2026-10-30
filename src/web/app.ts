@@ -437,7 +437,17 @@ function runBacktestJob(jobId: string, recipeId: string, windowHours?: number) {
         });
         return;
       }
-      const parsed = JSON.parse(stdout.trim());
+      const lines = stdout.trim().split("\n");
+      const jsonLine = lines.filter(l => l.trim().startsWith("{")).pop();
+      if (!jsonLine) {
+        BACKTEST_JOBS.set(jobId, {
+          status: "error",
+          error: "no result line",
+          completed_at: Date.now(),
+        });
+        return;
+      }
+      const parsed = JSON.parse(jsonLine);
       if (parsed.ok) {
         BACKTEST_JOBS.set(jobId, {
           status: "complete",
