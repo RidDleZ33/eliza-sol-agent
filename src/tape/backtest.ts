@@ -2,9 +2,84 @@
 // Scores a single compiled recipe against the tape grid: for each mint,
 // apply entry delay, gates, then exit rules. Returns aggregate stats.
 
-import { collectMigrationClocks, getTicksForMint } from "./migrationGrid.ts";
+import { getTicksForMint } from "./migrationGrid.ts";
 import type { CompiledRecipe } from "../recipes/compile.ts";
 
+
+import { existsSync, readdirSync } from "fs";
+import Database from "better-sqlite3";
+
+const TAPE_DIR = "data/tape";
+
+interface MigrationClockInfo {
+  clockMs: number;
+  pairAddress: string | null;
+  rawJson: string | null;
+}
+
+function openReadOnly(path: string) {
+  return new Database(path, { readonly: true });
+}
+
+function dateFromFilename(name: string): string | null {
+  if (!name.startsWith("tape-") || !name.endsWith(".sqlite") || name.length !== 22) {
+    return null;
+  }
+  const datePart = name.slice(5, 15);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(datePart)) {
+    return datePart;
+  }
+  return null;
+}
+
+function collectRecentClocks(cutoffMs: number): Map<string, MigrationClockInfo> {
+  const clocks = new Map<string, MigrationClockInfo>();
+  const cutoffDate = new Date(cutoffMs).toISOString().slice(0, 10);
+
+  if (!existsSync(TAPE_DIR)) {
+    return clocks;
+  }
+
+  const files = readdirSync(TAPE_DIR);
+
+  for (const f of files) {
+    if (f === "tape.sqlite") continue;
+    const datePart = dateFromFilename(f);
+    if (!datePart) continue;
+    if (datePart < cutoffDate) continue;
+
+    const path = `${TAPE_DIR}/${f}`;
+    let db: Database;
+    try {
+      db = openReadOnly(path);
+    } catch {
+      continue;
+    }
+
+    try {
+      const rows: any[] = db.prepare(
+        "SELECT mint, pair_address, pair_created_at_ms, raw_json FROM migrations WHERE pair_created_at_ms >= ? AND pair_created_at_ms IS NOT NULL ORDER BY pair_created_at_ms ASC"
+      ).all(cutoffMs);
+
+      for (const row of rows) {
+        const existing = clocks.get(row.mint);
+        if (existing === undefined || row.pair_created_at_ms < existing.clockMs) {
+          clocks.set(row.mint, {
+            clockMs: row.pair_created_at_ms,
+            pairAddress: row.pair_address || null,
+            rawJson: row.raw_json,
+          });
+        }
+      }
+    } catch {
+      // query failed on this file
+    }
+
+    db.close();
+  }
+
+  return clocks;
+}
 
 function median(values: number[]): number {
   if (values.length === 0) return 0;
@@ -132,7 +207,8 @@ function scoreRecipeExit(recipe: CompiledRecipe, entryPrice: number, ticks: any[
 }
 
 export async function runBacktest(recipe: CompiledRecipe, windowHours?: number) {
-  const clocks = collectMigrationClocks();
+  const cutoffMs = Date.now() - (windowHours ?? 6) * 60 * 60 * 1000;
+  const clocks = collectRecentClocks(cutoffMs);
 
   if (clocks.size === 0) {
     return { n: 0, median: 0, green: 0, rugs: 0, rugRate: 0 };
