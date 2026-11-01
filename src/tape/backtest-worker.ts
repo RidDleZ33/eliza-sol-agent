@@ -17,7 +17,7 @@ try {
   }
 
   const loaded = loadRecipeById(recipeId);
-  if (!recipe) {
+  if (!loaded) {
     console.log(JSON.stringify({ ok: false, error: "recipe not found" }));
     process.exit(1);
   }
