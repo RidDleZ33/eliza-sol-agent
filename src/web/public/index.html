@@ -1525,7 +1525,7 @@
                         } else if (data.job.status === 'complete') {
                             msg.innerHTML = '';
                             btn.disabled = false;
-                            renderBacktestResults(data.job.result);
+                            renderBacktestResults(data.job.result, data.job.log);
                         } else if (data.job.status === 'error') {
                             msg.innerHTML = '<span class="error">' + data.job.error + '</span>';
                             btn.disabled = false;
@@ -1539,16 +1539,21 @@
             setTimeout(poll, 1000);
         }
 
-        function renderBacktestResults(result) {
+        function renderBacktestResults(result, log) {
             const results = document.getElementById('bt-results');
             if (!result) {
                 results.innerHTML = '<p class="loading">No backtest data available.</p>';
                 return;
             }
 
+            let html = '';
+            if (log && log.trim()) {
+                html += '<pre class="console">' + log.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</pre>';
+            }
+
             if (result.summary) {
                 const s = result.summary;
-                let html = '<div class="grid grid-3">';
+                html += '<div class="grid grid-3">';
                 if (typeof s === 'object') {
                     for (const [key, value] of Object.entries(s)) {
                         html += '<div class="stat"><div class="stat-value">' + (typeof value === 'number' ? value.toFixed(2) : value) + '</div><div class="stat-label">' + key + '</div></div>';
@@ -1567,7 +1572,8 @@
 
                 results.innerHTML = html;
             } else {
-                results.innerHTML = '<pre>' + JSON.stringify(result, null, 2) + '</pre>';
+                html += '<pre>' + JSON.stringify(result, null, 2) + '</pre>';
+                results.innerHTML = html;
             }
         }
 
