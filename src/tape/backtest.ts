@@ -282,6 +282,17 @@ export async function runBacktest(recipe: CompiledRecipe, windowHours?: number, 
       continue;
     }
 
+    if (verbose && processed === 1) {
+      let keys = "none";
+      try {
+        const parsed = clockInfo.rawJson ? JSON.parse(clockInfo.rawJson) : null;
+        keys = parsed ? Object.keys(parsed).join(",") : "null";
+        progress(`[backtest] first mint=${mint} liq=${parsed?.liquidity ?? parsed?.liq_usd} holders=${parsed?.holder_count} top10=${parsed?.top_10_holder_rate} creator=${parsed?.creator_token_status} keys=${keys}`);
+      } catch {
+        progress(`[backtest] first mint=${mint} raw unparsable`);
+      }
+    }
+
     // Apply gates from migration row
     if (!applyGates(recipe, clockInfo.rawJson)) {
       failGate++;
@@ -321,8 +332,8 @@ export async function runBacktest(recipe: CompiledRecipe, windowHours?: number, 
     }
   }
 
-  if (verbose && returns.length === 0) {
-    progress(`[backtest] scored=0 of ${totalMints} noPair=${noPair} failGate=${failGate} noTicks=${noTicks}`);
+  if (verbose) {
+    progress(`[backtest] done scored=${returns.length} of ${totalMints} noPair=${noPair} failGate=${failGate} noTicks=${noTicks}`);
   }
   if (returns.length === 0) {
     return { n: 0, median: 0, green: 0, rugs: 0, rugRate: 0 };
