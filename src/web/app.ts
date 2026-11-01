@@ -376,7 +376,7 @@ app.post("/backtest", async (c) => {
 
   // Run backtest in background task
   const windowHours = body.window_hours;
-  runBacktestJob(jobId, body.recipe_id, windowHours);
+  runBacktestJob(jobId, body.recipe_id, windowHours, body.verbose);
 
   return c.json({ ok: true, job_id: jobId });
 });
@@ -390,12 +390,12 @@ app.get("/backtest/:id", (c) => {
   return c.json({ ok: true, job: job });
 });
 
-function runBacktestJob(jobId: string, recipeId: string, windowHours?: number) {
+function runBacktestJob(jobId: string, recipeId: string, windowHours?: number, verbose?: boolean) {
   const hours = windowHours || 6;
   (async () => {
     try {
       const proc = Bun.spawn(
-        ["bun", "src/tape/backtest-worker.ts", String(recipeId), String(hours)],
+        ["bun", "src/tape/backtest-worker.ts", String(recipeId), String(hours), verbose ? "1" : "0"],
         { cwd: process.cwd(), stdout: "pipe", stderr: "pipe" }
       );
 

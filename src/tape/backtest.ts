@@ -210,7 +210,7 @@ function scoreRecipeExit(recipe: CompiledRecipe, entryPrice: number, ticks: any[
   return 0;
 }
 
-export async function runBacktest(recipe: CompiledRecipe, windowHours?: number) {
+export async function runBacktest(recipe: CompiledRecipe, windowHours?: number, verbose?: boolean) {
   const cutoffMs = Date.now() - (windowHours ?? 6) * 60 * 60 * 1000;
   const clocks = collectRecentClocks(cutoffMs);
 
@@ -223,6 +223,10 @@ export async function runBacktest(recipe: CompiledRecipe, windowHours?: number) 
   let scored = 0;
   let processed = 0;
   const totalMints = clocks.size;
+  if (verbose) {
+    progress(`[backtest] recipe=${recipe.name} delay=${recipe.entry_delay_sec ?? 300}`);
+    progress(`[backtest] gates=${JSON.stringify(recipe.filter)}`);
+  }
   progress(`[backtest] starting ${totalMints} mints`);
 
   for (const [mint, clockInfo] of clocks.entries()) {
@@ -232,6 +236,9 @@ export async function runBacktest(recipe: CompiledRecipe, windowHours?: number) 
 
     // Apply gates from migration row
     if (!applyGates(recipe, clockInfo.rawJson)) {
+      if (verbose) {
+        progress(`[backtest] ${mint} fail gates`);
+      }
       continue;
     }
 
@@ -250,6 +257,9 @@ export async function runBacktest(recipe: CompiledRecipe, windowHours?: number) 
 
     scored++;
     const ret = scoreRecipeExit(recipe, entry.price_usd, ticks);
+    if (verbose) {
+      progress(`[backtest] ${mint} score return=${ret.toFixed(3)}`);
+    }
     returns.push(ret);
 
     if (ret <= -0.5) {

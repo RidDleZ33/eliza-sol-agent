@@ -8,6 +8,7 @@ import { compileRecipe } from "../recipes/compile.ts";
 
 const recipeId = process.argv[2];
 const windowHours = parseInt(process.argv[3] || "6", 10);
+const verbose = process.argv[4] === "1" || process.argv[4] === "true";
 
 try {
   if (!recipeId) {
@@ -22,7 +23,7 @@ try {
   }
 
   const compiled = compileRecipe(recipe);
-  const result = await runBacktest(compiled, windowHours);
+  const result = await runBacktest(compiled, windowHours, verbose);
   console.log(JSON.stringify({ ok: true, result }));
 } catch (e: any) {
   console.log(JSON.stringify({ ok: false, error: e.message }));

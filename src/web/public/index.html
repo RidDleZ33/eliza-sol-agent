@@ -409,6 +409,7 @@
                     <input type="number" id="bt-window" value="6" min="1" max="720" style="width: 100px;">
                     <span>hours</span>
                 </div>
+                <label><input type="checkbox" id="bt-verbose"> Verbose</label>
                 <button class="primary" onclick="runBacktest()" id="bt-btn">Run Backtest</button>
                 <span id="bt-msg"></span>
             </div>
@@ -1473,6 +1474,7 @@
         async function runBacktest() {
             const window = document.getElementById('bt-window').value;
             const strategyId = document.getElementById('bt-strategy').value;
+            const verbose = document.getElementById('bt-verbose').checked;
             const msg = document.getElementById('bt-msg');
             const results = document.getElementById('bt-results');
             const btn = document.getElementById('bt-btn');
@@ -1484,7 +1486,7 @@
                 const res = await fetch('/backtest', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ window_hours: parseInt(window), recipe_id: strategyId || null })
+                    body: JSON.stringify({ window_hours: parseInt(window), recipe_id: strategyId || null, verbose })
                 });
                 const data = await res.json();
                 if (data.ok) {
