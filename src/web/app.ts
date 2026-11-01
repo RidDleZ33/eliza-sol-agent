@@ -372,7 +372,7 @@ app.post("/backtest", async (c) => {
   }
   const body = await c.req.json();
   const jobId = `bt_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-  BACKTEST_JOBS.set(jobId, { status: "running", started_at: Date.now(), progress: "" });
+  BACKTEST_JOBS.set(jobId, { status: "running", started_at: Date.now(), progress: "", log: "" });
 
   // Run backtest in background task
   const windowHours = body.window_hours;
@@ -406,7 +406,10 @@ function runBacktestJob(jobId: string, recipeId: string, windowHours?: number, v
       const processLine = (line: string) => {
         if (line.startsWith("[backtest]")) {
           const job = BACKTEST_JOBS.get(jobId);
-          if (job) job.progress = line;
+          if (job) {
+            job.progress = line;
+            job.log += line + "\n";
+          }
         }
       };
 
@@ -433,6 +436,7 @@ function runBacktestJob(jobId: string, recipeId: string, windowHours?: number, v
         BACKTEST_JOBS.set(jobId, {
           status: "error",
           error: stderr.trim() || `worker exited ${code}`,
+          log: BACKTEST_JOBS.get(jobId)?.log || "",
           completed_at: Date.now(),
         });
         return;
@@ -443,6 +447,7 @@ function runBacktestJob(jobId: string, recipeId: string, windowHours?: number, v
         BACKTEST_JOBS.set(jobId, {
           status: "error",
           error: "no result line",
+          log: BACKTEST_JOBS.get(jobId)?.log || "",
           completed_at: Date.now(),
         });
         return;
@@ -452,12 +457,14 @@ function runBacktestJob(jobId: string, recipeId: string, windowHours?: number, v
         BACKTEST_JOBS.set(jobId, {
           status: "complete",
           result: parsed.result,
+          log: BACKTEST_JOBS.get(jobId)?.log || "",
           completed_at: Date.now(),
         });
       } else {
         BACKTEST_JOBS.set(jobId, {
           status: "error",
           error: parsed.error || "backtest failed",
+          log: BACKTEST_JOBS.get(jobId)?.log || "",
           completed_at: Date.now(),
         });
       }
@@ -465,6 +472,7 @@ function runBacktestJob(jobId: string, recipeId: string, windowHours?: number, v
       BACKTEST_JOBS.set(jobId, {
         status: "error",
         error: `spawn failed: ${e.message}`,
+        log: BACKTEST_JOBS.get(jobId)?.log || "",
         completed_at: Date.now(),
       });
     }

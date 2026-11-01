@@ -214,6 +214,9 @@ export async function runBacktest(recipe: CompiledRecipe, windowHours?: number, 
   const cutoffMs = Date.now() - (windowHours ?? 6) * 60 * 60 * 1000;
   const clocks = collectRecentClocks(cutoffMs);
 
+  if (verbose) {
+    progress(`[backtest] clocks=${clocks.size}`);
+  }
   if (clocks.size === 0) {
     return { n: 0, median: 0, green: 0, rugs: 0, rugRate: 0 };
   }
@@ -227,7 +230,7 @@ export async function runBacktest(recipe: CompiledRecipe, windowHours?: number, 
     progress(`[backtest] recipe=${recipe.name} delay=${recipe.entry_delay_sec ?? 300}`);
     progress(`[backtest] gates=${JSON.stringify(recipe.filter)}`);
   }
-  progress(`[backtest] starting ${totalMints} mints`);
+  progress(`[backtest] starting ${totalMints} mints clocks=${totalMints}`);
 
   for (const [mint, clockInfo] of clocks.entries()) {
     processed++;
