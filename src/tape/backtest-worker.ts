@@ -16,13 +16,13 @@ try {
     process.exit(1);
   }
 
-  const recipe = loadRecipeById(recipeId);
+  const loaded = loadRecipeById(recipeId);
   if (!recipe) {
     console.log(JSON.stringify({ ok: false, error: "recipe not found" }));
     process.exit(1);
   }
 
-  const compiled = compileRecipe(recipe);
+  const compiled = compileRecipe(loaded.recipe);
   const result = await runBacktest(compiled, windowHours, verbose);
   console.log(JSON.stringify({ ok: true, result }));
 } catch (e: any) {
