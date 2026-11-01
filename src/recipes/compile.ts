@@ -65,7 +65,7 @@ function applyGate(filter: FilterConfig, gate: any): void {
 export function compileRecipe(recipe: Recipe): CompiledRecipe {
   const filter = { ...DEFAULT_FILTER };
 
-  for (const gate of recipe.gates) {
+  for (const gate of recipe.gates ?? []) {
     applyGate(filter, gate);
   }
 
