@@ -103,12 +103,12 @@ function applyGates(recipe: CompiledRecipe, rawJson: string | null): boolean {
   const { filter } = recipe;
 
   if (filter.liq_min_usd !== undefined) {
-    const liq = parsed?.liq_usd ?? 0;
+    const liq = parsed?.liq_usd ?? parsed?.liquidity ?? 0;
     if (liq < filter.liq_min_usd) return false;
   }
 
   if (filter.liq_max_usd !== undefined) {
-    const liq = parsed?.liq_usd ?? Infinity;
+    const liq = parsed?.liq_usd ?? parsed?.liquidity ?? Infinity;
     if (liq > filter.liq_max_usd) return false;
   }
 
@@ -274,6 +274,9 @@ export async function runBacktest(recipe: CompiledRecipe, windowHours?: number, 
     }
   }
 
+  if (verbose && returns.length === 0) {
+    progress(`[backtest] scored=0 of ${totalMints}`);
+  }
   if (returns.length === 0) {
     return { n: 0, median: 0, green: 0, rugs: 0, rugRate: 0 };
   }
