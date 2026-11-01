@@ -6,7 +6,7 @@ import { getTicksForMint } from "./migrationGrid.ts";
 import type { CompiledRecipe } from "../recipes/compile.ts";
 
 
-import { existsSync, readdirSync } from "fs";
+import { existsSync, readdirSync, writeSync } from "fs";
 import Database from "better-sqlite3";
 
 const TAPE_DIR = "data/tape";
@@ -128,8 +128,44 @@ function applyGates(recipe: CompiledRecipe, rawJson: string | null): boolean {
   return true;
 }
 
+function findClosestPumpswapPair(mint: string, clockMs: number): string | null {
+  if (!existsSync(TAPE_DIR)) return null;
+  const TEN_MINUTES_MS = 10 * 60 * 1000;
+  let bestPair: string | null = null;
+  let bestDiff = Infinity;
+  const files = readdirSync(TAPE_DIR);
+  for (const f of files) {
+    if (f === "tape.sqlite") continue;
+    const datePart = dateFromFilename(f);
+    if (!datePart) continue;
+    const path = `${TAPE_DIR}/${f}`;
+    let db: Database;
+    try {
+      db = openReadOnly(path);
+    } catch {
+      continue;
+    }
+    try {
+      const ticks: any[] = db.prepare(
+        "SELECT pair_address, pair_created_at_ms FROM market_ticks WHERE mint = ? AND dex_id = 'pumpswap' AND pair_created_at_ms IS NOT NULL ORDER BY pair_created_at_ms ASC"
+      ).all(mint);
+      for (const tick of ticks) {
+        const diff = Math.abs(tick.pair_created_at_ms - clockMs);
+        if (diff < TEN_MINUTES_MS && diff < bestDiff) {
+          bestDiff = diff;
+          bestPair = tick.pair_address;
+        }
+      }
+    } catch {
+      // query failed
+    }
+    db.close();
+  }
+  return bestPair;
+}
+
 function progress(line: string) {
-  process.stdout.write(line + "\n");
+  writeSync(1, line + "\n");
 }
 
 function scoreRecipeExit(recipe: CompiledRecipe, entryPrice: number, ticks: any[]): number {
@@ -225,6 +261,9 @@ export async function runBacktest(recipe: CompiledRecipe, windowHours?: number, 
   let rugs = 0;
   let scored = 0;
   let processed = 0;
+  let noPair = 0;
+  let failGate = 0;
+  let noTicks = 0;
   const totalMints = clocks.size;
   if (verbose) {
     progress(`[backtest] recipe=${recipe.name} delay=${recipe.entry_delay_sec ?? 300}`);
@@ -235,10 +274,17 @@ export async function runBacktest(recipe: CompiledRecipe, windowHours?: number, 
   for (const [mint, clockInfo] of clocks.entries()) {
     processed++;
 
-    if (clockInfo.pairAddress === null) continue;
+    if (clockInfo.pairAddress === null) {
+      clockInfo.pairAddress = findClosestPumpswapPair(mint, clockInfo.clockMs);
+    }
+    if (clockInfo.pairAddress === null) {
+      noPair++;
+      continue;
+    }
 
     // Apply gates from migration row
     if (!applyGates(recipe, clockInfo.rawJson)) {
+      failGate++;
       if (verbose) {
         progress(`[backtest] ${mint} fail gates`);
       }
@@ -255,6 +301,7 @@ export async function runBacktest(recipe: CompiledRecipe, windowHours?: number, 
     );
 
     if (entry === null || ticks.length === 0) {
+      noTicks++;
       continue;
     }
 
@@ -275,7 +322,7 @@ export async function runBacktest(recipe: CompiledRecipe, windowHours?: number, 
   }
 
   if (verbose && returns.length === 0) {
-    progress(`[backtest] scored=0 of ${totalMints}`);
+    progress(`[backtest] scored=0 of ${totalMints} noPair=${noPair} failGate=${failGate} noTicks=${noTicks}`);
   }
   if (returns.length === 0) {
     return { n: 0, median: 0, green: 0, rugs: 0, rugRate: 0 };
