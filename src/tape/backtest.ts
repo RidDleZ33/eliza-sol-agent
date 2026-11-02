@@ -91,33 +91,6 @@ function median(values: number[]): number {
   return sorted[mid];
 }
 
-function applyGates(recipe: CompiledRecipe, rawJson: string | null): boolean {
-  let parsed: any = null;
-  if (rawJson) {
-    try {
-      parsed = JSON.parse(rawJson);
-    } catch {
-      // unparsable
-    }
-  }
-  const { filter } = recipe;
-
-  if (filter.holders_min !== undefined) {
-    const holders = parsed?.holder_count ?? 0;
-    if (holders < filter.holders_min) return false;
-  }
-
-  if (filter.top10_required) {
-    if (parsed?.top_10_holder_rate === undefined) return false;
-  }
-
-  if (filter.creator_required) {
-    if (parsed?.creator_token_status === undefined) return false;
-  }
-
-  return true;
-}
-
 function findClosestPumpswapPair(mint: string, clockMs: number): string | null {
   if (!existsSync(TAPE_DIR)) return null;
   const TEN_MINUTES_MS = 10 * 60 * 1000;
@@ -281,12 +254,6 @@ export async function runBacktest(recipe: CompiledRecipe, windowHours?: number, 
       } catch {
         progress(`[backtest] first mint=${mint} raw unparsable`);
       }
-    }
-
-    // Apply gates from migration row
-    if (!applyGates(recipe, clockInfo.rawJson)) {
-      failGate++;
-      continue;
     }
 
     // Entry with recipe delay
