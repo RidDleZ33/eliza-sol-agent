@@ -1335,6 +1335,7 @@
                     currentStrategyId = id;
                     editingExisting = true;
                     renderSummaryCard(data.strategy);
+                    document.getElementById('strategy-detail').style.display = 'block';
                     document.getElementById('strategy-editor-card').style.display = 'none';
                     document.getElementById('editor-container').style.display = 'none';
                     highlightSelectedStrategy(id);
