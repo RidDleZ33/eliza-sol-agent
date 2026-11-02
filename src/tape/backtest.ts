@@ -102,16 +102,6 @@ function applyGates(recipe: CompiledRecipe, rawJson: string | null): boolean {
   }
   const { filter } = recipe;
 
-  if (filter.liq_min_usd !== undefined) {
-    const liq = parsed?.liq_usd ?? parsed?.liquidity ?? 0;
-    if (liq < filter.liq_min_usd) return false;
-  }
-
-  if (filter.liq_max_usd !== undefined) {
-    const liq = parsed?.liq_usd ?? parsed?.liquidity ?? Infinity;
-    if (liq > filter.liq_max_usd) return false;
-  }
-
   if (filter.holders_min !== undefined) {
     const holders = parsed?.holder_count ?? 0;
     if (holders < filter.holders_min) return false;
@@ -310,6 +300,16 @@ export async function runBacktest(recipe: CompiledRecipe, windowHours?: number, 
 
     if (entry === null || ticks.length === 0) {
       noTicks++;
+      continue;
+    }
+
+    const entryLiq = entry.liq_usd ?? 0;
+    if (recipe.filter.liq_min_usd !== undefined && entryLiq < recipe.filter.liq_min_usd) {
+      failGate++;
+      continue;
+    }
+    if (recipe.filter.liq_max_usd !== undefined && entryLiq > recipe.filter.liq_max_usd) {
+      failGate++;
       continue;
     }
 
