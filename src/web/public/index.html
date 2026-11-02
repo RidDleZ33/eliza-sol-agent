@@ -557,7 +557,14 @@
                     <span style="font-size:0.8em;color:#888;">Prevent rebuy same mint within cooldown. 0 = off.</span>
                 </div>
                 <button class="primary" onclick="saveSettings()">Save Settings</button>
+                <button class="danger" onclick="showResetDbConfirm()">Reset Trading Database</button>
                 <span id="settings-msg" style="margin-left:8px;"></span>
+                <div id="reset-db-confirm" style="display:none; margin-top:12px; padding:12px; border:1px solid #f44336; border-radius:4px; background:rgba(244,67,54,0.1);">
+                    <p style="font-size:0.85em; color:#e0e0e0; margin-bottom:8px;">This clears all watched tokens, positions, trades, and journal. Strategies are kept. Type RESET to confirm.</p>
+                    <input type="text" id="reset-db-input" placeholder="RESET" onkeydown="if(event.key==='Enter')doResetDb()" style="width:120px;">
+                    <button class="danger" onclick="doResetDb()">Reset</button>
+                    <button onclick="hideResetDbConfirm()">Cancel</button>
+                </div>
             </div>
         </div>
 
@@ -1949,6 +1956,49 @@
                 if (data.ok) {
                     msg.innerHTML = '<span class="success-msg">Settings saved</span>';
                     loadSettings();
+                } else {
+                    msg.innerHTML = '<span class="error">' + data.error + '</span>';
+                }
+            } catch (e) {
+                msg.innerHTML = '<span class="error">' + e.message + '</span>';
+            }
+        }
+
+        function showResetDbConfirm() {
+            document.getElementById('reset-db-confirm').style.display = 'block';
+            document.getElementById('reset-db-input').value = '';
+            document.getElementById('settings-msg').innerHTML = '';
+        }
+
+        function hideResetDbConfirm() {
+            document.getElementById('reset-db-confirm').style.display = 'none';
+            document.getElementById('reset-db-input').value = '';
+        }
+
+        async function doResetDb() {
+            const confirmInput = document.getElementById('reset-db-input').value;
+            const msg = document.getElementById('settings-msg');
+            if (confirmInput !== 'RESET') {
+                msg.innerHTML = '<span class="error">Type RESET to confirm</span>';
+                return;
+            }
+            try {
+                msg.innerHTML = '<span class="loading">Resetting...</span>';
+                const res = await fetch('/settings/reset-db', { method: 'POST' });
+                const data = await res.json();
+                if (data.ok) {
+                    const c = data.cleared;
+                    msg.innerHTML = '<span class="success-msg">Cleared: ' +
+                        c.watched_tokens + ' watched tokens, ' +
+                        c.watched_traders + ' traders, ' +
+                        c.positions + ' positions, ' +
+                        c.trades + ' trades, ' +
+                        c.trade_journal + ' journal entries</span>';
+                    hideResetDbConfirm();
+                    refreshDesk();
+                    if (document.getElementById('book').classList.contains('active')) {
+                        loadBook();
+                    }
                 } else {
                     msg.innerHTML = '<span class="error">' + data.error + '</span>';
                 }

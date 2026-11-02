@@ -4,6 +4,7 @@ import { upsertRecipe, setRecipeStatus } from "../recipes/db.ts";
 import { recipesEvaluator } from "../services/RecipesEvaluator.ts";
 import { can } from "../entitlements/tier.ts";
 import { existsSync, readFileSync, writeFileSync } from "fs";
+import { resetSessionPnl } from "../execution/risk.ts";
 import { join } from "path";
 import { aiRouter } from "./ai.ts";
 import { aggregateBook } from "../services/TradeBookService.ts";
@@ -15,6 +16,7 @@ import { cuRouter } from "./cu.ts";
 import { referralRouter } from "./referral.ts";
 import { getSetting, setSetting, getAllSettings, upsertSettings } from "../services/SettingsService.ts";
 import { INGREDIENTS } from "../recipes/ingredients.ts";
+import { logger } from "../services/LoggerService.ts";
 
 export const app = new Hono();
 
@@ -763,6 +765,34 @@ app.post("/settings", async (c) => {
       return c.json({ ok: true });
     }
     return c.json({ ok: false, error: "failed to save settings" }, 500);
+  } catch (e: any) {
+    return c.json({ ok: false, error: e.message }, 500);
+  }
+});
+
+app.post("/settings/reset-db", (c) => {
+  if (!can("manage_strategies")) {
+    return c.json({ ok: false, error: "requires manage_strategies entitlement" }, 403);
+  }
+  try {
+    const db = watchlistService.getDb();
+    const wt = db.prepare("DELETE FROM watched_tokens").run();
+    const wtr = db.prepare("DELETE FROM watched_traders").run();
+    const pos = db.prepare("DELETE FROM positions").run();
+    const tr = db.prepare("DELETE FROM trades").run();
+    const tj = db.prepare("DELETE FROM trade_journal").run();
+    resetSessionPnl();
+    logger.info("WEB", "app", "database reset via settings endpoint");
+    return c.json({
+      ok: true,
+      cleared: {
+        watched_tokens: wt.changes,
+        watched_traders: wtr.changes,
+        positions: pos.changes,
+        trades: tr.changes,
+        trade_journal: tj.changes
+      }
+    });
   } catch (e: any) {
     return c.json({ ok: false, error: e.message }, 500);
   }
