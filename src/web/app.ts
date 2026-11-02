@@ -782,7 +782,7 @@ app.post("/settings/reset-db", (c) => {
     const tr = db.prepare("DELETE FROM trades").run();
     const tj = db.prepare("DELETE FROM trade_journal").run();
     resetSessionPnl();
-    logger.info("WEB", "app", "database reset via settings endpoint");
+    logger.info("WATCHLIST", "app", "database reset via settings endpoint");
     return c.json({
       ok: true,
       cleared: {
@@ -794,7 +794,7 @@ app.post("/settings/reset-db", (c) => {
       }
     });
   } catch (e: any) {
-    return c.json({ ok: false, error: e.message }, 500);
+    return c.json({ ok: false, error: String(e.message || e) }, 500);
   }
 });
 

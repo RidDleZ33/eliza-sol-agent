@@ -1985,7 +1985,15 @@
             try {
                 msg.innerHTML = '<span class="loading">Resetting...</span>';
                 const res = await fetch('/settings/reset-db', { method: 'POST' });
-                const data = await res.json();
+                const text = await res.text();
+                let data;
+                try {
+                    data = JSON.parse(text);
+                } catch (parseErr) {
+                    const raw = text.length > 200 ? text.substring(0, 200) + '...' : text;
+                    msg.innerHTML = '<span class="error">Response failed to parse (status ' + res.status + '): ' + escapeHtml(raw) + '</span>';
+                    return;
+                }
                 if (data.ok) {
                     const c = data.cleared;
                     msg.innerHTML = '<span class="success-msg">Cleared: ' +
@@ -1995,12 +2003,12 @@
                         c.trades + ' trades, ' +
                         c.trade_journal + ' journal entries</span>';
                     hideResetDbConfirm();
-                    refreshDesk();
+                    try { refreshDesk(); } catch (e) { console.error('refreshDesk after reset failed:', e); }
                     if (document.getElementById('book').classList.contains('active')) {
-                        loadBook();
+                        try { loadBook(); } catch (e) { console.error('loadBook after reset failed:', e); }
                     }
                 } else {
-                    msg.innerHTML = '<span class="error">' + data.error + '</span>';
+                    msg.innerHTML = '<span class="error">' + (data.error || 'reset failed') + '</span>';
                 }
             } catch (e) {
                 msg.innerHTML = '<span class="error">' + e.message + '</span>';
