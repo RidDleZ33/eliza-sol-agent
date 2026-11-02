@@ -296,9 +296,6 @@ export async function runBacktest(recipe: CompiledRecipe, windowHours?: number, 
     // Apply gates from migration row
     if (!applyGates(recipe, clockInfo.rawJson)) {
       failGate++;
-      if (verbose) {
-        progress(`[backtest] ${mint} fail gates`);
-      }
       continue;
     }
 
