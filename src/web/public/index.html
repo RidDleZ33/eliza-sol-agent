@@ -1314,6 +1314,7 @@
             document.getElementById('save-strategy-btn').textContent = 'Create';
             document.getElementById('strategy-detail').style.display = 'none';
             document.getElementById('editor-container').style.display = 'grid';
+            document.getElementById('strategy-editor-card').style.display = 'none';
             editHistory = [];
             updateHistoryPanel();
             renderSourcesEditor();
@@ -1326,6 +1327,7 @@
         }
 
         async function selectStrategy(id) {
+            if (!id) return;
             try {
                 const res = await fetch('/strategies/' + id);
                 const data = await res.json();
@@ -1334,6 +1336,7 @@
                     editingExisting = true;
                     renderSummaryCard(data.strategy);
                     document.getElementById('strategy-editor-card').style.display = 'none';
+                    document.getElementById('editor-container').style.display = 'none';
                     highlightSelectedStrategy(id);
                 }
             } catch (e) {
@@ -1342,6 +1345,7 @@
         }
 
         async function editStrategy(id) {
+            if (!id) return;
             try {
                 const res = await fetch('/strategies/' + id);
                 const data = await res.json();
@@ -1351,6 +1355,7 @@
                     editingExisting = true;
                     document.getElementById('strategy-detail').style.display = 'none';
                     document.getElementById('editor-container').style.display = 'grid';
+                    document.getElementById('strategy-editor-card').style.display = 'none';
                     editHistory = [];
                     updateHistoryPanel();
                     document.getElementById('editor-title').textContent = 'Edit Strategy';
@@ -1391,13 +1396,13 @@
                     list.innerHTML = data.strategies.map(s => {
                         let buttons;
                         if (s.status === 'draft') {
-                            buttons = '<button class="success" onclick="event.stopPropagation(); enableStrategy(\'' + s.id + '\')">Enable</button>';
+                            buttons = '<button class="success" data-action="enable" data-id="' + s.id + '">Enable</button>';
                         } else {
-                            buttons = '<button class="danger" onclick="event.stopPropagation(); disableStrategy(\'' + s.id + '\')">Disable</button>';
+                            buttons = '<button class="danger" data-action="disable" data-id="' + s.id + '">Disable</button>';
                         }
-                        buttons += '<button onclick="event.stopPropagation(); exportStrategy(\'' + s.id + '\')">Export</button>';
-                        buttons += '<button onclick="event.stopPropagation(); editStrategy(\'' + s.id + '\')">Edit</button>';
-                        return '<div class="strategy-item" data-id="' + s.id + '" onclick="selectStrategy(\'' + s.id + '\')">' +
+                        buttons += '<button data-action="export" data-id="' + s.id + '">Export</button>';
+                        buttons += '<button data-action="edit" data-id="' + s.id + '">Edit</button>';
+                        return '<div class="strategy-item" data-id="' + s.id + '" data-status="' + s.status + '">' +
                             '<span><span class="strategy-name">' + (s.name || s.id) + '</span> <span class="status status-' + s.status + '">' + s.status + '</span></span>' +
                             '<span>' + buttons + '</span></div>';
                     }).join('');
@@ -1423,6 +1428,23 @@
                 document.getElementById('strategy-list').innerHTML = '<p class="error">Error: ' + e.message + '</p>';
             }
         }
+
+        // Delegated click handler for strategy list actions (installed once)
+        document.getElementById('strategy-list').addEventListener('click', (e) => {
+            const btn = e.target.closest('button[data-action]');
+            if (btn) {
+                e.stopPropagation();
+                const id = btn.dataset.id;
+                const action = btn.dataset.action;
+                if (action === 'edit') editStrategy(id);
+                else if (action === 'export') exportStrategy(id);
+                else if (action === 'enable') enableStrategy(id);
+                else if (action === 'disable') disableStrategy(id);
+                return;
+            }
+            const item = e.target.closest('.strategy-item');
+            if (item) selectStrategy(item.dataset.id);
+        });
 
         async function createStrategy() {
             updateRecipeFromForm();
