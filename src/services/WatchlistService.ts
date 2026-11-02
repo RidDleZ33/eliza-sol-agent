@@ -610,6 +610,16 @@ class WatchlistService {
   }
 
   /**
+   * Phase 32E: most recent trade (any side) for a mint, or null.
+   */
+  getMostRecentTradeForMint(mint: string): any | null {
+    const row = this.db
+      .prepare("SELECT created_at FROM trades WHERE mint = ? ORDER BY created_at DESC LIMIT 1")
+      .get(mint);
+    return row ?? null;
+  }
+
+  /**
    * Phase 2C: filtered blotter query.
    */
   /**

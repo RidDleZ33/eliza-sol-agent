@@ -1,7 +1,9 @@
 import { watchlistService } from "../WatchlistService.ts";
 import { configService } from "../ConfigService.ts";
 import { logger } from "../LoggerService.ts";
+import { getSetting } from "../SettingsService.ts";
 import { IngestionWatcher } from "./IngestionWatcher.ts";
+import { isDryRun } from "../../utils/env.ts";
 import { getIngestionInterval, getGmgnApiKey } from "../../utils/env.ts";
 import { tradeExecutionService } from "../TradeExecutionService.ts";
 import { recipesEvaluator, type CandidateFacts } from "../RecipesEvaluator.ts";
@@ -10,6 +12,7 @@ const SOURCE = "mig_edge";
 const ENDPOINT = "https://openapi.gmgn.ai/v1/trenches";
 const COOLDOWN_MS = 5 * 60 * 1000;
 const MIN_LIQUIDITY = 25000;
+const DEFAULT_REBUY_COOLDOWN_SEC = 1800;
 const MAX_LIQUIDITY = 100000;
 const MIN_HOLDERS = 500;
 
@@ -358,6 +361,33 @@ export class MigrationEdgeWatcher implements IngestionWatcher {
 
   private async maybeBuy(mint: string, symbol: string, facts?: any) {
     logger.info("INGESTION", this.name, "mig_edge buy", { mint, symbol });
+
+    // PHASE 32E: recipe path rebuy gates
+    const recipePath = recipesEvaluator.isMatching() && recipesEvaluator.getEnabledCount() > 0;
+    if (recipePath) {
+      // Gate 1: open position
+      if (watchlistService.hasPosition(mint, isDryRun())) {
+        logger.info("INGESTION", this.name, "skip", { mint, reason: "open" });
+        return;
+      }
+      // Gate 2: recent trade within cooldown
+      const raw = getSetting("rebuy_cooldown_sec");
+      let cooldownSec = DEFAULT_REBUY_COOLDOWN_SEC;
+      if (raw !== null) {
+        const parsed = parseInt(raw, 10);
+        if (!isNaN(parsed)) cooldownSec = parsed;
+      }
+      if (cooldownSec > 0) {
+        const recent = watchlistService.getMostRecentTradeForMint(mint);
+        if (recent) {
+          const elapsed = Date.now() - recent.created_at;
+          if (elapsed < cooldownSec * 1000) {
+            logger.info("INGESTION", this.name, "skip", { mint, reason: "recent", elapsedSec: Math.floor(elapsed / 1000), cooldownSec });
+            return;
+          }
+        }
+      }
+    }
 
     // PHASE 30A: When recipes are enabled and there are enabled recipes,
     // no recipe match means no buy (gate). Otherwise fall through to

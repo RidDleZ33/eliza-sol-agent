@@ -50,6 +50,7 @@ export function getAllSettings(): Record<string, string | null> {
     "default_tp_pct",
     "default_stop_pct",
     "default_clock_sec",
+    "rebuy_cooldown_sec",
   ];
   const result: Record<string, string | null> = {};
   for (const key of keys) {

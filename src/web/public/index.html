@@ -551,6 +551,11 @@
                     <label>Default Clock (seconds)</label>
                     <input type="number" id="settings-default_clock_sec" step="1" placeholder="7200">
                 </div>
+                <div class="field">
+                    <label>Rebuy Cooldown (seconds)</label>
+                    <input type="number" id="settings-rebuy_cooldown_sec" step="1" placeholder="1800">
+                    <span style="font-size:0.8em;color:#888;">Prevent rebuy same mint within cooldown. 0 = off.</span>
+                </div>
                 <button class="primary" onclick="saveSettings()">Save Settings</button>
                 <span id="settings-msg" style="margin-left:8px;"></span>
             </div>
@@ -749,7 +754,7 @@
                     }
                     let symbolHtml = escapeHtml(p.symbol);
                     if (p.mint) {
-                        symbolHtml = '<a class="desk-symbol" href="https://birdeye.so/token/' + escapeHtml(p.mint) + '?chain=solana" target="_blank">' + symbolHtml + '</a>';
+                        symbolHtml = '<a class="desk-symbol" href="https://birdeye.so/solana/token/' + escapeHtml(p.mint) + '" target="_blank">' + symbolHtml + '</a>';
                     }
                     html += '<tr>' +
                         '<td>' + symbolHtml + '</td>' +
@@ -781,7 +786,7 @@
                     const reasonText = f.reason || '';
                     let recentSymbol = escapeHtml(f.symbol);
                     if (f.mint) {
-                        recentSymbol = '<a class="desk-symbol" href="https://birdeye.so/token/' + escapeHtml(f.mint) + '?chain=solana" target="_blank">' + recentSymbol + '</a>';
+                        recentSymbol = '<a class="desk-symbol" href="https://birdeye.so/solana/token/' + escapeHtml(f.mint) + '" target="_blank">' + recentSymbol + '</a>';
                     }
                     html += '<tr>' +
                         '<td>' + timeStr + '</td>' +
@@ -1886,6 +1891,7 @@
                     document.getElementById('settings-default_tp_pct').value = s.default_tp_pct != null ? s.default_tp_pct : '';
                     document.getElementById('settings-default_stop_pct').value = s.default_stop_pct != null ? s.default_stop_pct : '';
                     document.getElementById('settings-default_clock_sec').value = s.default_clock_sec != null ? s.default_clock_sec : '';
+                    document.getElementById('settings-rebuy_cooldown_sec').value = s.rebuy_cooldown_sec != null ? s.rebuy_cooldown_sec : '';
                 }
             } catch (e) {
                 console.error('Failed to load settings:', e);
@@ -1904,6 +1910,7 @@
                     default_tp_pct: document.getElementById('settings-default_tp_pct').value,
                     default_stop_pct: document.getElementById('settings-default_stop_pct').value,
                     default_clock_sec: document.getElementById('settings-default_clock_sec').value,
+                    rebuy_cooldown_sec: document.getElementById('settings-rebuy_cooldown_sec').value,
                 };
                 const apiKey = document.getElementById('settings-llm_api_key').value;
                 if (apiKey) {
@@ -2335,7 +2342,7 @@
 
                 let bookSymbol = escapeHtml(t.symbol || '-');
             if (t.mint) {
-                bookSymbol = '<a class="desk-symbol" href="https://birdeye.so/token/' + escapeHtml(t.mint) + '?chain=solana" target="_blank">' + bookSymbol + '</a>';
+                bookSymbol = '<a class="desk-symbol" href="https://birdeye.so/solana/token/' + escapeHtml(t.mint) + '" target="_blank">' + bookSymbol + '</a>';
             }
             html += '<tr>' +
                     '<td style="font-size:0.8em;">' + timeStr + '</td>' +
