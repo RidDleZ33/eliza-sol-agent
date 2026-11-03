@@ -366,7 +366,7 @@ export class MigrationEdgeWatcher implements IngestionWatcher {
     const recipePath = recipesEvaluator.isMatching() && recipesEvaluator.getEnabledCount() > 0;
     if (recipePath) {
       // Gate 1: open position
-      if (watchlistService.hasPosition(mint, isDryRun())) {
+      if (await watchlistService.hasPosition(mint, isDryRun())) {
         logger.info("INGESTION", this.name, "skip", { mint, reason: "open" });
         return;
       }
