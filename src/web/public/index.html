@@ -399,6 +399,26 @@
                     </select>
                 </div>
                 <div class="field">
+                    <label>Entry Delay (sec)</label>
+                    <input type="number" id="bt-delay" placeholder="strategy default" style="width: 140px;">
+                </div>
+                <div class="field">
+                    <label>Clock (sec)</label>
+                    <input type="number" id="bt-clock" placeholder="strategy default" style="width: 140px;">
+                </div>
+                <div class="field">
+                    <label>Stall (sec)</label>
+                    <input type="number" id="bt-stall" placeholder="strategy default" style="width: 140px;">
+                </div>
+                <div class="field">
+                    <label>Liq Min (USD)</label>
+                    <input type="number" id="bt-liq-min" placeholder="strategy default" style="width: 140px;">
+                </div>
+                <div class="field">
+                    <label>Liq Max (USD)</label>
+                    <input type="number" id="bt-liq-max" placeholder="strategy default" style="width: 140px;">
+                </div>
+                <div class="field">
                     <label>Window</label>
                     <div id="bt-presets">
                         <button type="button" onclick="setWindow(6)">6 hrs</button>
@@ -1517,11 +1537,24 @@
             results.innerHTML = '';
             btn.disabled = true;
 
+            // Collect overrides from non-empty fields
+            const overrides = {};
+            const delayEl = document.getElementById('bt-delay');
+            if (delayEl.value !== '') overrides.entry_delay_sec = parseInt(delayEl.value);
+            const clockEl = document.getElementById('bt-clock');
+            if (clockEl.value !== '') overrides.exits_clock_sec = parseInt(clockEl.value);
+            const stallEl = document.getElementById('bt-stall');
+            if (stallEl.value !== '') overrides.exits_stall_sec = parseInt(stallEl.value);
+            const liqMinEl = document.getElementById('bt-liq-min');
+            if (liqMinEl.value !== '') overrides.filter_liq_min_usd = parseFloat(liqMinEl.value);
+            const liqMaxEl = document.getElementById('bt-liq-max');
+            if (liqMaxEl.value !== '') overrides.filter_liq_max_usd = parseFloat(liqMaxEl.value);
+
             try {
                 const res = await fetch('/backtest', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ window_hours: parseInt(window), recipe_id: strategyId || null, verbose })
+                    body: JSON.stringify({ window_hours: parseInt(window), recipe_id: strategyId || null, verbose, overrides })
                 });
                 const data = await res.json();
                 if (data.ok) {

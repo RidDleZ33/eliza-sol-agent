@@ -209,7 +209,17 @@ function scoreRecipeExit(recipe: CompiledRecipe, entryPrice: number, ticks: any[
   return 0;
 }
 
-export async function runBacktest(recipe: CompiledRecipe, windowHours?: number, verbose?: boolean) {
+export async function runBacktest(recipe: CompiledRecipe, windowHours?: number, verbose?: boolean, overrides?: object) {
+  // Apply overrides to a deep copy of the compiled recipe
+  const runRecipe = structuredClone(recipe);
+  if (overrides) {
+    if (overrides.entry_delay_sec !== undefined) runRecipe.entry_delay_sec = overrides.entry_delay_sec;
+    if (overrides.exits_clock_sec !== undefined) runRecipe.exits.clock_sec = overrides.exits_clock_sec;
+    if (overrides.exits_stall_sec !== undefined) runRecipe.exits.stall_sec = overrides.exits_stall_sec;
+    if (overrides.filter_liq_min_usd !== undefined) runRecipe.filter.liq_min_usd = overrides.filter_liq_min_usd;
+    if (overrides.filter_liq_max_usd !== undefined) runRecipe.filter.liq_max_usd = overrides.filter_liq_max_usd;
+  }
+
   const cutoffMs = Date.now() - (windowHours ?? 6) * 60 * 60 * 1000;
   const clocks = collectRecentClocks(cutoffMs);
 
@@ -229,8 +239,8 @@ export async function runBacktest(recipe: CompiledRecipe, windowHours?: number, 
   let noTicks = 0;
   const totalMints = clocks.size;
   if (verbose) {
-    progress(`[backtest] recipe=${recipe.name} delay=${recipe.entry_delay_sec ?? 300}`);
-    progress(`[backtest] gates=${JSON.stringify(recipe.filter)}`);
+    progress(`[backtest] recipe=${runRecipe.name} delay=${runRecipe.entry_delay_sec ?? 300}`);
+    progress(`[backtest] gates=${JSON.stringify(runRecipe.filter)}`);
   }
   progress(`[backtest] starting ${totalMints} mints clocks=${totalMints}`);
 
@@ -257,7 +267,7 @@ export async function runBacktest(recipe: CompiledRecipe, windowHours?: number, 
     }
 
     // Entry with recipe delay
-    const delayMs = (recipe.entry_delay_sec ?? 300) * 1000;
+    const delayMs = (runRecipe.entry_delay_sec ?? 300) * 1000;
     const { entry, ticks } = getTicksForMint(
       mint,
       clockInfo.clockMs,
@@ -271,17 +281,17 @@ export async function runBacktest(recipe: CompiledRecipe, windowHours?: number, 
     }
 
     const entryLiq = entry.liq_usd ?? 0;
-    if (recipe.filter.liq_min_usd !== undefined && entryLiq < recipe.filter.liq_min_usd) {
+    if (runRecipe.filter.liq_min_usd !== undefined && entryLiq < runRecipe.filter.liq_min_usd) {
       failGate++;
       continue;
     }
-    if (recipe.filter.liq_max_usd !== undefined && entryLiq > recipe.filter.liq_max_usd) {
+    if (runRecipe.filter.liq_max_usd !== undefined && entryLiq > runRecipe.filter.liq_max_usd) {
       failGate++;
       continue;
     }
 
     scored++;
-    const ret = scoreRecipeExit(recipe, entry.price_usd, ticks);
+    const ret = scoreRecipeExit(runRecipe, entry.price_usd, ticks);
     if (verbose) {
       progress(`[backtest] ${mint} score return=${ret.toFixed(3)}`);
     }
