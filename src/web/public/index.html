@@ -1526,6 +1526,83 @@
             document.getElementById('bt-window').value = hours;
         }
 
+        // Parse a field value: return [value] for single, [v1, v2, ...] for comma list
+        function parseField(key, el, isFloat) {
+            const val = el.value.trim();
+            if (val === '') return [];
+            if (val.includes(',')) {
+                const parts = val.split(',').map(s => s.trim()).filter(s => s !== '');
+                const nums = parts.map(s => isFloat ? parseFloat(s) : parseInt(s, 10));
+                return nums;
+            }
+            const num = isFloat ? parseFloat(val) : parseInt(val, 10);
+            return [num];
+        }
+
+        // Build cartesian product of override fields
+        function buildSweepCombinations() {
+            const delayVals = parseField('entry_delay_sec', document.getElementById('bt-delay'), false);
+            const clockVals = parseField('exits_clock_sec', document.getElementById('bt-clock'), false);
+            const stallVals = parseField('exits_stall_sec', document.getElementById('bt-stall'), false);
+            const liqMinVals = parseField('filter_liq_min_usd', document.getElementById('bt-liq-min'), true);
+            const liqMaxVals = parseField('filter_liq_max_usd', document.getElementById('bt-liq-max'), true);
+
+            // Check if any field is a sweep (comma list)
+            const isSweep = delayVals.length > 1 || clockVals.length > 1 || stallVals.length > 1 || liqMinVals.length > 1 || liqMaxVals.length > 1;
+
+            if (!isSweep) {
+                // Single run: return one overrides object
+                const overrides = {};
+                if (delayVals.length === 1) overrides.entry_delay_sec = delayVals[0];
+                if (clockVals.length === 1) overrides.exits_clock_sec = clockVals[0];
+                if (stallVals.length === 1) overrides.exits_stall_sec = stallVals[0];
+                if (liqMinVals.length === 1) overrides.filter_liq_min_usd = liqMinVals[0];
+                if (liqMaxVals.length === 1) overrides.filter_liq_max_usd = liqMaxVals[0];
+                return overrides;
+            }
+
+            // Cartesian product
+            let combos = [{}];
+            if (delayVals.length > 0) {
+                combos = crossProduct(combos, 'entry_delay_sec', delayVals);
+            }
+            if (clockVals.length > 0) {
+                combos = crossProduct(combos, 'exits_clock_sec', clockVals);
+            }
+            if (stallVals.length > 0) {
+                combos = crossProduct(combos, 'exits_stall_sec', stallVals);
+            }
+            if (liqMinVals.length > 0) {
+                combos = crossProduct(combos, 'filter_liq_min_usd', liqMinVals);
+            }
+            if (liqMaxVals.length > 0) {
+                combos = crossProduct(combos, 'filter_liq_max_usd', liqMaxVals);
+            }
+            return combos;
+        }
+
+        function crossProduct(existing, key, values) {
+            const result = [];
+            for (const obj of existing) {
+                for (const v of values) {
+                    const copy = Object.assign({}, obj);
+                    copy[key] = v;
+                    result.push(copy);
+                }
+            }
+            return result;
+        }
+
+        function overrideLabel(ov) {
+            const parts = [];
+            if (ov.entry_delay_sec !== undefined) parts.push('delay=' + ov.entry_delay_sec);
+            if (ov.exits_clock_sec !== undefined) parts.push('clock=' + ov.exits_clock_sec);
+            if (ov.exits_stall_sec !== undefined) parts.push('stall=' + ov.exits_stall_sec);
+            if (ov.filter_liq_min_usd !== undefined) parts.push('liqMin=$' + ov.filter_liq_min_usd);
+            if (ov.filter_liq_max_usd !== undefined) parts.push('liqMax=$' + ov.filter_liq_max_usd);
+            return parts.length > 0 ? parts.join(' ') : 'default';
+        }
+
         async function runBacktest() {
             const window = document.getElementById('bt-window').value;
             const strategyId = document.getElementById('bt-strategy').value;
@@ -1533,32 +1610,31 @@
             const msg = document.getElementById('bt-msg');
             const results = document.getElementById('bt-results');
             const btn = document.getElementById('bt-btn');
-            msg.innerHTML = '<span class="loading">Starting backtest...</span>';
+
+            const overrides = buildSweepCombinations();
+            const isSweep = Array.isArray(overrides);
+
+            msg.innerHTML = isSweep
+                ? '<span class="loading">Starting sweep with ' + overrides.length + ' combinations...</span>'
+                : '<span class="loading">Starting backtest...</span>';
             results.innerHTML = '';
             btn.disabled = true;
 
-            // Collect overrides from non-empty fields
-            const overrides = {};
-            const delayEl = document.getElementById('bt-delay');
-            if (delayEl.value !== '') overrides.entry_delay_sec = parseInt(delayEl.value);
-            const clockEl = document.getElementById('bt-clock');
-            if (clockEl.value !== '') overrides.exits_clock_sec = parseInt(clockEl.value);
-            const stallEl = document.getElementById('bt-stall');
-            if (stallEl.value !== '') overrides.exits_stall_sec = parseInt(stallEl.value);
-            const liqMinEl = document.getElementById('bt-liq-min');
-            if (liqMinEl.value !== '') overrides.filter_liq_min_usd = parseFloat(liqMinEl.value);
-            const liqMaxEl = document.getElementById('bt-liq-max');
-            if (liqMaxEl.value !== '') overrides.filter_liq_max_usd = parseFloat(liqMaxEl.value);
-
             try {
+                const body: any = { window_hours: parseInt(window), recipe_id: strategyId || null, verbose };
+                if (isSweep) {
+                    body.overrides = overrides;
+                } else {
+                    body.overrides = overrides;
+                }
                 const res = await fetch('/backtest', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ window_hours: parseInt(window), recipe_id: strategyId || null, verbose, overrides })
+                    body: JSON.stringify(body)
                 });
                 const data = await res.json();
                 if (data.ok) {
-                    pollBacktestJob(data.job_id);
+                    pollBacktestJob(data.job_id, isSweep);
                 } else {
                     msg.innerHTML = '<span class="error">' + data.error + '</span>';
                     btn.disabled = false;
@@ -1569,7 +1645,7 @@
             }
         }
 
-        async function pollBacktestJob(jobId) {
+        async function pollBacktestJob(jobId, isSweep) {
             const msg = document.getElementById('bt-msg');
             const btn = document.getElementById('bt-btn');
             let attempts = 0;
@@ -1593,7 +1669,11 @@
                         } else if (data.job.status === 'complete') {
                             msg.innerHTML = '';
                             btn.disabled = false;
-                            renderBacktestResults(data.job.result, data.job.log);
+                            if (isSweep && data.job.runs) {
+                                renderSweepResults(data.job.runs, data.job.log);
+                            } else {
+                                renderBacktestResult(data.job.result, data.job.log);
+                            }
                         } else if (data.job.status === 'error') {
                             msg.innerHTML = '<span class="error">' + data.job.error + '</span>';
                             btn.disabled = false;
@@ -1607,7 +1687,7 @@
             setTimeout(poll, 1000);
         }
 
-        function renderBacktestResults(result, log) {
+        function renderBacktestResult(result, log) {
             const results = document.getElementById('bt-results');
             if (!result) {
                 results.innerHTML = '<p class="loading">No backtest data available.</p>';
@@ -1619,30 +1699,106 @@
                 html += '<pre class="console">' + log.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</pre>';
             }
 
-            if (result.summary) {
-                const s = result.summary;
-                html += '<div class="grid grid-3">';
-                if (typeof s === 'object') {
-                    for (const [key, value] of Object.entries(s)) {
-                        html += '<div class="stat"><div class="stat-value">' + (typeof value === 'number' ? value.toFixed(2) : value) + '</div><div class="stat-label">' + key + '</div></div>';
-                    }
-                }
-                html += '</div>';
+            // Clean result card
+            const n = result.n || 0;
+            const medianPct = result.median !== undefined ? (result.median * 100).toFixed(2) + '%' : '—';
+            const greenPct = n > 0 ? ((result.green || 0) / n * 100).toFixed(1) + '%' : '—';
+            const rugRatePct = result.rugRate !== undefined ? (result.rugRate * 100).toFixed(2) + '%' : '—';
 
-                if (result.buckets && Array.isArray(result.buckets)) {
-                    html += '<table><tr><th>Bucket</th><th>N</th><th>Win Rate</th></tr>';
-                    for (const b of result.buckets) {
-                        html += '<tr><td>' + (b.label || JSON.stringify(b)) + '</td><td>' + b.n + '</td><td>' + (b.win_rate || 0).toFixed(2) + '</td></tr>';
-                    }
-                    html += '</table>';
-                    renderChart(result.buckets);
-                }
+            html += '<div class="summary-card">';
+            html += '<h3>Backtest Results</h3>';
+            html += '<div class="summary-item"><span class="summary-label">Scenarios</span><span class="summary-value">' + n + '</span></div>';
+            html += '<div class="summary-item"><span class="summary-label">Median Return</span><span class="summary-value">' + medianPct + '</span></div>';
+            html += '<div class="summary-item"><span class="summary-label">Green %</span><span class="summary-value">' + greenPct + '</span></div>';
+            html += '<div class="summary-item"><span class="summary-label">Rug Rate</span><span class="summary-value">' + rugRatePct + '</span></div>';
+            html += '</div>';
 
-                results.innerHTML = html;
-            } else {
-                html += '<pre>' + JSON.stringify(result, null, 2) + '</pre>';
-                results.innerHTML = html;
+            results.innerHTML = html;
+        }
+
+        function renderSweepResults(runs, log) {
+            const results = document.getElementById('bt-results');
+            if (!runs || runs.length === 0) {
+                results.innerHTML = '<p class="loading">No sweep data available.</p>';
+                return;
             }
+
+            let html = '';
+            if (log && log.trim()) {
+                html += '<pre class="console">' + log.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</pre>';
+            }
+
+            // Sweep table (already sorted by median descending from worker)
+            html += '<div class="summary-card"><h3>Sweep Results (' + runs.length + ' runs)</h3>';
+            html += '<table class="desk-table"><tr>';
+            html += '<th>Overrides</th><th>N</th><th>Median</th><th>Green%</th><th>Rug Rate</th>';
+            html += '</tr>';
+
+            for (let i = 0; i < runs.length; i++) {
+                const r = runs[i];
+                const label = overrideLabel(r.overrides);
+                const medianPct = (r.median * 100).toFixed(2) + '%';
+                const greenPct = r.n > 0 ? ((r.green || 0) / r.n * 100).toFixed(1) + '%' : '—';
+                const rugRatePct = (r.rugRate * 100).toFixed(2) + '%';
+                const rowClass = i === 0 ? ' class="pnl-positive"' : '';
+                html += '<tr' + rowClass + '>';
+                html += '<td>' + escapeHtml(label) + '</td>';
+                html += '<td>' + r.n + '</td>';
+                html += '<td>' + medianPct + '</td>';
+                html += '<td>' + greenPct + '</td>';
+                html += '<td>' + rugRatePct + '</td>';
+                html += '</tr>';
+            }
+            html += '</table></div>';
+
+            results.innerHTML = html;
+
+            // Sweep chart: bar chart of median returns
+            renderSweepChart(runs);
+        }
+
+        function renderSweepChart(runs) {
+            if (btChart) btChart.destroy();
+
+            const labels = runs.map(r => overrideLabel(r.overrides));
+            const medianData = runs.map(r => r.median * 100);
+
+            btChart = new Chart(document.getElementById('bt-chart'), {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Median Return %',
+                        data: medianData,
+                        backgroundColor: 'rgba(79, 195, 247, 0.6)',
+                        borderColor: '#4fc3f7',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        y: {
+                            title: { display: true, text: 'Median Return %' },
+                            grid: { color: '#23272e' },
+                            ticks: { color: '#888' }
+                        },
+                        x: {
+                            grid: { display: false },
+                            ticks: {
+                                color: '#888',
+                                maxRotation: 45,
+                                minRotation: 45,
+                                font: { size: 10 }
+                            }
+                        }
+                    }
+                }
+            });
         }
 
         function renderChart(buckets) {

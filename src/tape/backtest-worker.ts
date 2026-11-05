@@ -9,10 +9,11 @@ import { compileRecipe } from "../recipes/compile.ts";
 const recipeId = process.argv[2];
 const windowHours = parseInt(process.argv[3] || "6", 10);
 const verbose = process.argv[4] === "1" || process.argv[4] === "true";
+let overridesArg = process.argv[5];
 let overrides = null;
-if (process.argv[5]) {
+if (overridesArg) {
   try {
-    overrides = JSON.parse(process.argv[5]);
+    overrides = JSON.parse(overridesArg);
   } catch (e: any) {
     console.log(JSON.stringify({ ok: false, error: "invalid overrides JSON: " + e.message }));
     process.exit(1);
@@ -32,8 +33,21 @@ try {
   }
 
   const compiled = compileRecipe(loaded.recipe);
-  const result = await runBacktest(compiled, windowHours, verbose, overrides);
-  console.log(JSON.stringify({ ok: true, result }));
+
+  // Sweep mode: overrides is an array of override objects
+  if (Array.isArray(overrides)) {
+    const runs: any[] = [];
+    for (const ov of overrides) {
+      const result = await runBacktest(compiled, windowHours, verbose, ov);
+      runs.push({ overrides: ov, ...result });
+    }
+    // Sort by median descending
+    runs.sort((a, b) => b.median - a.median);
+    console.log(JSON.stringify({ ok: true, sweep: true, runs }));
+  } else {
+    const result = await runBacktest(compiled, windowHours, verbose, overrides);
+    console.log(JSON.stringify({ ok: true, result }));
+  }
 } catch (e: any) {
   console.log(JSON.stringify({ ok: false, error: e.message }));
 }

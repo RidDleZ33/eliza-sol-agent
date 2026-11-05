@@ -394,6 +394,7 @@ app.get("/backtest/:id", (c) => {
 
 function runBacktestJob(jobId: string, recipeId: string, windowHours?: number, verbose?: boolean, overrides?: object) {
   const hours = windowHours || 6;
+  // overrides can be an object or an array of objects (sweep)
   const overridesArg = overrides ? JSON.stringify(overrides) : "";
   (async () => {
     try {
@@ -457,12 +458,18 @@ function runBacktestJob(jobId: string, recipeId: string, windowHours?: number, v
       }
       const parsed = JSON.parse(jsonLine);
       if (parsed.ok) {
-        BACKTEST_JOBS.set(jobId, {
+        const jobData: any = {
           status: "complete",
-          result: parsed.result,
           log: BACKTEST_JOBS.get(jobId)?.log || "",
           completed_at: Date.now(),
-        });
+        };
+        if (parsed.sweep) {
+          jobData.sweep = parsed.sweep;
+          jobData.runs = parsed.runs;
+        } else {
+          jobData.result = parsed.result;
+        }
+        BACKTEST_JOBS.set(jobId, jobData);
       } else {
         BACKTEST_JOBS.set(jobId, {
           status: "error",
