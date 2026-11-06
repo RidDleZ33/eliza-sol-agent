@@ -1621,7 +1621,7 @@
             btn.disabled = true;
 
             try {
-                const body: any = { window_hours: parseInt(window), recipe_id: strategyId || null, verbose };
+                const body = { window_hours: parseInt(window), recipe_id: strategyId || null, verbose };
                 if (isSweep) {
                     body.overrides = overrides;
                 } else {
